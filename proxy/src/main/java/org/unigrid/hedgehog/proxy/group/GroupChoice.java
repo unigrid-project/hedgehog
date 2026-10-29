@@ -78,7 +78,8 @@ public final class GroupChoice {
 		return eligible.isEmpty() ? Optional.empty() : Optional.of(eligible.get(random.nextInt(eligible.size())));
 	}
 
-	private static long weight(List<String> members, Optional<String> country,
+	/* The weight of a group: its members in the country, all of them for no country */
+	public static long weight(List<String> members, Optional<String> country,
 		Function<String, Optional<String>> countryOf) {
 
 		return members.stream().filter(member -> isIn(member, country, countryOf)).count();

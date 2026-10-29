@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -55,6 +56,7 @@ import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.GroupChoice;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -63,10 +65,12 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk;
 
 /* The client side of the shard groups: finds a group that takes this node, asks a member to let a writer of this
    node write on one of its chains, attaches to a second member of the group on the same chain and follows the
-   chain through both. A group that refuses is passed over for another, and a new epoch brings a new chain, so
-   the attachment is joined again when the epoch has moved on.
+   chain through both. The group is chosen by its members in the country the exit of a session is to be in, so the
+   node attaches to one group for each country, up to as many as it may follow chains. A group that refuses is
+   passed over for another, and a new epoch brings new chains, so an attachment is joined again when the epoch has
+   moved on.
 
-   The monitor of the client guards the join in use and may take the lock of the claims, never the other way
+   The monitor of the client guards the joins in use and may take the lock of the claims, never the other way
    round; neither is held across a wait. What the replies of the members set going runs on the threads that
    complete them and takes the lock of the claims alone, for a put or an unfollow. */
 @Slf4j
@@ -86,8 +90,39 @@ public final class ChainClient {
 	/* The chain of every writer of this node, from just before the chain is followed for it until its attachment
 	   is released: a chain is unfollowed with the last writer on it */
 	private final Map<WriterId, ChainId> claims = new HashMap<>();
-	private CompletableFuture<ChainAttachment> current = CompletableFuture.failedFuture(
-		new IllegalStateException("No chain is joined yet"));
+
+	/* The joins under way and the attachments in use, at most one for each group chosen and no more than the host
+	   follows chains, and the join each country was given, the empty one for any. The next call for an attachment
+	   lets go of a join that failed or whose attachment is no longer in use, and of the countries given it. */
+	private final List<Join> joined = new ArrayList<>();
+	private final Map<Optional<String>, Join> given = new HashMap<>();
+
+	/* A join of this node, made or under way: the epoch, and the group it was asked of with the members of that
+	   group, which its attachment tells instead once it is made, as another group may have taken the node */
+	private record Join(Epoch epoch, int group, List<String> members, CompletableFuture<ChainAttachment> attachment) {
+		int joinedGroup() {
+			return held().map(ChainAttachment::group).orElse(group);
+		}
+
+		List<String> joinedMembers() {
+			return held().map(ChainAttachment::members).orElse(members);
+		}
+
+		Optional<ChainAttachment> held() {
+			return attachment.isDone() && !attachment.isCompletedExceptionally() ? Optional.of(attachment.join())
+				: Optional.empty();
+		}
+	}
+
+	/* What the groups of a join are drawn from: the view, the country and where each member is, and the groups that
+	   refused the node or that it hosts */
+	private record Draw(GroupView view, Optional<String> country, Function<String, Optional<String>> countryOf,
+		Set<Integer> passedOver) {
+
+		OptionalInt next(final RandomGenerator random) {
+			return GroupChoice.group(view.groups(), country, countryOf, passedOver, random);
+		}
+	}
 
 	/* The joins run on threads of their own, as a caller may be an event loop and a join looks the streams up, which
 	   can resolve names: not the common pool, whose few CPU-bound workers a blocked lookup would hold */
@@ -108,21 +143,30 @@ public final class ChainClient {
 		});
 	}
 
-	/* The chain to write on, joined first if this node has none for the epoch or lost the one it had. Callers that
-	   come while a join is under way share it, and a join that failed is made again by the next caller. Each caller
-	   gets a copy, so that none can complete or cancel the join of the others. What a caller chains on it runs on a
-	   thread of the join executor, never on the event loop that completed the last reply, so it may do real work. */
-	public synchronized CompletableFuture<ChainAttachment> attachment() {
-		if (current.isDone() && inUse().isEmpty()) {
-			current = CompletableFuture.supplyAsync(this::anyGroup, joins).thenCompose(Function.identity())
-				.thenApplyAsync(Function.identity(), joins);
-		}
+	/* The chain to write on for a session whose exit is to be in the country, in any for none. A country keeps the
+	   join it was given while that is under way or in use. Otherwise a group is drawn by its members in the country,
+	   and the join of that group is taken, or made while the node has fewer joins than it may follow chains; beyond
+	   that, the country is given the join whose group has the most members there. Callers that come while a join is
+	   under way share it, and a join that failed is made again by the next caller. Each caller gets a copy, so that
+	   none can complete or cancel the join of the others. What a caller chains on it runs on a thread of the join
+	   executor, never on the event loop that completed the last reply, so it may do real work. */
+	public synchronized CompletableFuture<ChainAttachment> attachment(final Optional<String> country) {
+		dropUnused();
 
-		return current.copy();
+		try {
+			return given.computeIfAbsent(country, this::chosen).attachment().copy();
+		} catch (RuntimeException ex) {
+			return CompletableFuture.failedFuture(ex);
+		}
 	}
 
+	/* An attachment that is not in use is let go of by the next call for an attachment, not here: until then it is in
+	   use again when the clock steps back over the turn of the epoch */
 	public synchronized boolean isCurrent(final ChainAttachment attachment) {
-		return inUse().filter(held -> held == attachment).isPresent();
+		final Optional<Epoch> epoch = currentEpoch();
+
+		return joined.stream().anyMatch(join -> join.held().filter(held -> held == attachment).isPresent())
+			&& inUse(attachment, epoch);
 	}
 
 	/* Leaves the chain on every stream the attachment was joined through, retired or not, as a stream has room for a
@@ -136,12 +180,20 @@ public final class ChainClient {
 		}
 	}
 
-	/* The attachment held, while its epoch is the current one and its chain is still followed. The members drop
-	   their writers when the proxy turns off, so the replicas are dropped then too; isCurrent notices it as well,
-	   for an owner that keeps asking about its attachments without asking for a new one. Settings that cannot be
-	   read and a clock before the origin, which has no epoch, leave nothing in use, and the join that follows
-	   fails with them. */
-	private Optional<ChainAttachment> inUse() {
+	/* Lets go of the joins that failed and of the attachments no longer in use, and of the countries given them */
+	private void dropUnused() {
+		final Optional<Epoch> epoch = currentEpoch();
+
+		joined.removeIf(join -> join.attachment().isDone() && join.held().filter(attachment ->
+			inUse(attachment, epoch)).isEmpty());
+		given.values().removeIf(join -> !joined.contains(join));
+	}
+
+	/* The members drop their writers when the proxy turns off, so the replicas are dropped then too; isCurrent notices
+	   it as well, for an owner that keeps asking about its attachments without asking for a new one. Settings that
+	   cannot be read and a clock before the origin have no epoch, which leaves nothing in use, and the join that
+	   follows fails with them. */
+	private Optional<Epoch> currentEpoch() {
 		try {
 			final Optional<ProxySettings> proxy = settings.current();
 			final long now = clock.getAsLong();
@@ -150,10 +202,19 @@ public final class ChainClient {
 				unfollowAll();
 			}
 
-			return held().filter(attachment -> claimed(attachment) && proxy.map(on -> on.epochAt(now))
-				.equals(Optional.of(attachment.epoch())) && host.chain(attachment.chainId()).isPresent());
+			return proxy.map(on -> on.epochAt(now));
 		} catch (RuntimeException ex) {
 			return Optional.empty();
+		}
+	}
+
+	/* While its epoch is the current one and its chain is still followed */
+	private boolean inUse(final ChainAttachment attachment, final Optional<Epoch> epoch) {
+		try {
+			return claimed(attachment) && epoch.equals(Optional.of(attachment.epoch()))
+				&& host.chain(attachment.chainId()).isPresent();
+		} catch (RuntimeException ex) {
+			return false;
 		}
 	}
 
@@ -164,37 +225,64 @@ public final class ChainClient {
 		}
 	}
 
-	private Optional<ChainAttachment> held() {
-		return current.isDone() && !current.isCompletedExceptionally() ? Optional.of(current.join())
-			: Optional.empty();
-	}
-
 	/* A gridnode in a group hosts the chains of that group, so it never joins it as a client. Its group is taken
-	   from the view the candidates come from, as the hosting may be a refresh behind at the turn of an epoch. */
-	private CompletableFuture<ChainAttachment> anyGroup() {
+	   from the view the candidates come from, as the hosting may be a refresh behind at the turn of an epoch. A
+	   group with no member in the country leaves nothing to join. */
+	private Join chosen(final Optional<String> country) {
 		final ProxySettings proxy = settings.current()
 			.orElseThrow(() -> new IllegalStateException("The proxy is off"));
-		final GroupView view = new GroupView(proxy, clock.getAsLong(), directory.active().stream()
-			.map(Gridnode::getId).filter(Objects::nonNull).toList());
+		final List<Gridnode> active = directory.active();
+		final GroupView view = new GroupView(proxy, clock.getAsLong(), active.stream().map(Gridnode::getId)
+			.filter(Objects::nonNull).toList());
+		final Draw draw = new Draw(view, country, countriesOf(active), directory.self().stream()
+			.flatMapToInt(own -> view.groups().groupOf(own).stream()).boxed()
+			.collect(Collectors.toCollection(HashSet::new)));
+		final int group = draw.next(random)
+			.orElseThrow(() -> new IllegalStateException("No shard group took this node"));
 
-		return nextGroup(view, directory.self().stream().flatMapToInt(own -> view.groups().groupOf(own).stream())
-			.boxed().collect(Collectors.toCollection(HashSet::new)));
+		return joined.stream().filter(join -> join.epoch().equals(view.epoch()) && join.joinedGroup() == group)
+			.findFirst().orElseGet(() -> joined.size() < ChainHost.MAX_FOLLOWED ? started(draw, group)
+			: closest(draw));
 	}
 
-	/* A group that refuses is passed over until one takes the node: one without an open stream to any member at
-	   once, the others once they answered. The next group is looked for on the executor, as an answer arrives on
-	   an event loop or on the timer of the timeouts. */
-	private CompletableFuture<ChainAttachment> nextGroup(final GroupView view, final Set<Integer> refused) {
-		for (OptionalInt group = view.joinCandidate(random, refused); group.isPresent();
-			group = view.joinCandidate(random, refused)) {
+	/* Joins the group drawn on the executor, or the next one drawn the same way when it refuses */
+	private Join started(final Draw draw, final int group) {
+		final Join join = new Join(draw.view().epoch(), group, draw.view().groups().members(group),
+			CompletableFuture.supplyAsync(() -> nextGroup(draw, OptionalInt.of(group)), joins)
+			.thenCompose(Function.identity()).thenApplyAsync(Function.identity(), joins));
 
-			final Map<Channel, String> connected = connected(view.groups().members(group.getAsInt()));
+		joined.add(join);
+		return join;
+	}
 
-			refused.add(group.getAsInt());
+	/* The earliest of the joins whose groups have the most members in the country, the largest group for none */
+	private Join closest(final Draw draw) {
+		return joined.stream().max(Comparator.comparingLong(join -> GroupChoice.weight(join.joinedMembers(),
+			draw.country(), draw.countryOf()))).orElseThrow();
+	}
+
+	/* Where each active gridnode is by the address it announces, and nowhere for a member the directory lacks */
+	private Function<String, Optional<String>> countriesOf(final List<Gridnode> active) {
+		final Map<String, String> hostNames = new HashMap<>();
+
+		active.stream().filter(gridnode -> Objects.nonNull(gridnode.getId()))
+			.forEach(gridnode -> hostNames.putIfAbsent(gridnode.getId(), gridnode.getHostName()));
+
+		return member -> countries.countryOfHost(hostNames.get(member));
+	}
+
+	/* A group that refuses is passed over for another drawn the same way, until one takes the node: one without an
+	   open stream to any member at once, the others once they answered. The next group is looked for on the
+	   executor, as an answer arrives on an event loop or on the timer of the timeouts. */
+	private CompletableFuture<ChainAttachment> nextGroup(final Draw draw, final OptionalInt first) {
+		for (OptionalInt group = first; group.isPresent(); group = draw.next(random)) {
+			final Map<Channel, String> connected = connected(draw.view().groups().members(group.getAsInt()));
+
+			draw.passedOver().add(group.getAsInt());
 
 			if (!connected.isEmpty()) {
-				return attach(view, group.getAsInt(), connected)
-					.exceptionallyComposeAsync(refusal -> nextGroup(view, refused), joins);
+				return attach(draw.view(), group.getAsInt(), connected)
+					.exceptionallyComposeAsync(refusal -> nextGroup(draw, draw.next(random)), joins);
 			}
 		}
 

@@ -46,10 +46,10 @@ import org.unigrid.hedgehog.proxy.session.SealedMessage;
 import org.unigrid.hedgehog.proxy.session.SealingCipher;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
-/* Runs the client sessions of this node over the chains it joined: opens each on the current attachment, hands
-   it the entries the host takes in, runs the accept timeout, the retry and the idle check once a second, and
-   closes the sessions of a gap that the chain gave up on. A chain of an earlier epoch is left once no session
-   runs on it, and the sessions on it end when the grace of the host is over.
+/* Runs the client sessions of this node over the chains it joined: opens each on the attachment for its country,
+   hands it the entries the host takes in, runs the accept timeout, the retry and the idle check once a second, and
+   closes the sessions of a gap that the chain gave up on. A chain of an earlier epoch is left once no session runs
+   on it, and the sessions on it end when the grace of the host is over.
 
    A handle holds its own lock while it calls its session, which takes the writer's lock and the outbox's. The map
    of attachments is locked for an instant only, never around a call into the client, the host or a handle, and no
@@ -106,7 +106,7 @@ public final class ClientSessions implements SessionOpener {
 		}
 
 		releaseEnded();
-		client.attachment().whenComplete((attachment, error) -> joined(handle, attachment, error));
+		client.attachment(country).whenComplete((attachment, error) -> joined(handle, attachment, error));
 		return handle;
 	}
 

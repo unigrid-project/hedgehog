@@ -22,9 +22,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.OptionalInt;
-import java.util.Set;
-import java.util.random.RandomGenerator;
-import java.util.stream.IntStream;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 
 /* The shard groups and chains one node sees for the settings, time and active gridnodes it was given */
@@ -59,14 +56,5 @@ public final class GroupView {
 		final OptionalInt group = groups.groupOf(gridnodeId);
 
 		return group.isPresent() ? chains(group.getAsInt()) : List.of();
-	}
-
-	/* A group for a client to join, chosen at random among those that have not refused it yet. Empty when every
-	   group has refused it and when there are no gridnodes, hence no groups, at all. */
-	public OptionalInt joinCandidate(RandomGenerator random, Set<Integer> refused) {
-		final int[] open = IntStream.range(0, groups.groupCount()).filter(group -> !refused.contains(group))
-			.toArray();
-
-		return open.length == 0 ? OptionalInt.empty() : OptionalInt.of(open[random.nextInt(open.length)]);
 	}
 }

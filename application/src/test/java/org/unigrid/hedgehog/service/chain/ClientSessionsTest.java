@@ -163,7 +163,7 @@ public class ClientSessionsTest {
 		}
 
 		private ChainAttachment attachment() {
-			return client.attachment().orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS).join();
+			return client.attachment(Optional.empty()).orTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS).join();
 		}
 
 		private boolean follows(final ChainAttachment attachment) {
@@ -331,7 +331,7 @@ public class ClientSessionsTest {
 	@Example
 	public void opensASessionOnAnExitInTheCountryItNames() {
 		final Rig rig = new Rig(ChainFleet.group());
-		final CompletableFuture<ChainAttachment> joined = rig.client.attachment();
+		final CompletableFuture<ChainAttachment> joined = rig.client.attachment(Optional.empty());
 
 		rig.fleet.deliver();
 

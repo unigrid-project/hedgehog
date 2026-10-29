@@ -18,16 +18,11 @@
 
 package org.unigrid.hedgehog.proxy.group;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.OptionalInt;
-import java.util.Random;
-import java.util.Set;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
-import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.proxy.Expect;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -40,7 +35,6 @@ import static org.hamcrest.Matchers.not;
 public class GroupViewTest {
 	private static final long NOW = 1_750_000_000_000L;
 	private static final List<String> GRIDNODES = IntStream.range(0, 20).mapToObj(i -> "gn-" + i).toList();
-	private static final List<String> THREE_GROUPS = IntStream.range(0, 24).mapToObj(i -> "gn-" + i).toList();
 	private static final ProxySettings SMALL_GROUPS = new ProxySettings(5, 120, 2, 16, 32L * 1024 * 1024, 30,
 		16 * 1024, 300, ProxySettings.CONNECT | ProxySettings.UDP);
 
@@ -132,61 +126,5 @@ public class GroupViewTest {
 		assertThat(view.groups().groupCount(), is(0));
 		assertThat(view.chainsOf("gn-0"), is(empty()));
 		Expect.assertThrows(IndexOutOfBoundsException.class, () -> view.chains(0));
-	}
-
-	@Property(tries = 50)
-	public void shouldOnlyOfferGroupsThatHaveNotRefused(@ForAll Random random,
-		@ForAll @IntRange(min = 0, max = 3) int refusedCount) {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, IntStream.range(0, 24)
-			.mapToObj(i -> "gn-" + i).toList());
-		final Set<Integer> refused = new HashSet<>(IntStream.range(0, refusedCount).boxed().toList());
-		final OptionalInt candidate = view.joinCandidate(random, refused);
-
-		assertThat(candidate.isPresent(), is(refusedCount < 3));
-		candidate.ifPresent(group -> assertThat(refused.contains(group), is(false)));
-	}
-
-	@Example
-	public void shouldOfferEveryGroupAtRandom() {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, GRIDNODES);
-		final Random random = new Random(1);
-		final Set<Integer> offered = new HashSet<>();
-
-		for (int i = 0; i < 64; i++) {
-			offered.add(view.joinCandidate(random, Set.of()).orElseThrow());
-		}
-
-		assertThat(offered, equalTo(Set.of(0, 1)));
-		assertThat(new GroupView(ProxySettings.DEFAULTS, NOW, List.of()).joinCandidate(random, Set.of()),
-			equalTo(OptionalInt.empty()));
-	}
-
-	@Example
-	public void shouldOfferEveryOfThreeGroupsAtRandom() {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, THREE_GROUPS);
-		final Random random = new Random(7);
-		final Set<Integer> offered = new HashSet<>();
-
-		for (int i = 0; i < 64; i++) {
-			offered.add(view.joinCandidate(random, Set.of()).orElseThrow());
-		}
-
-		assertThat(view.groups().groupCount(), is(3));
-		assertThat(offered, equalTo(Set.of(0, 1, 2)));
-	}
-
-	@Example
-	public void shouldOfferEveryGroupThatIsLeftOpenAtRandom() {
-		final GroupView view = new GroupView(ProxySettings.DEFAULTS, NOW, THREE_GROUPS);
-		final Random random = new Random(5);
-		final Set<Integer> offered = new HashSet<>();
-
-		for (int i = 0; i < 64; i++) {
-			offered.add(view.joinCandidate(random, Set.of(1)).orElseThrow());
-		}
-
-		assertThat(offered, equalTo(Set.of(0, 2)));
-		assertThat(view.joinCandidate(random, Set.of(0, 2, 5, -1)), equalTo(OptionalInt.of(1)));
-		assertThat(view.joinCandidate(random, Set.of(0, 1, 2, 5, -1)), equalTo(OptionalInt.empty()));
 	}
 }

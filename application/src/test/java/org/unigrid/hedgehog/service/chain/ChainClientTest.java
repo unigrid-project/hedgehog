@@ -87,6 +87,7 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.GroupChoice;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ExitCandidate;
@@ -334,7 +335,13 @@ public class ChainClientTest {
 	}
 
 	private static ChainAttachment attached(final ChainFleet fleet, final ChainClient client) {
-		final CompletableFuture<ChainAttachment> attachment = client.attachment();
+		return attached(fleet, client, Optional.empty());
+	}
+
+	private static ChainAttachment attached(final ChainFleet fleet, final ChainClient client,
+		final Optional<String> country) {
+
+		final CompletableFuture<ChainAttachment> attachment = client.attachment(country);
 
 		fleet.deliver();
 		return done(attachment);
@@ -359,17 +366,48 @@ public class ChainClientTest {
 		return fleet;
 	}
 
-	/* A random generator whose first choice of a group is the given one */
+	/* Twenty gridnodes in five groups of four, all on duty */
+	static ChainFleet fiveGroups() {
+		final ChainFleet fleet = new ChainFleet(20);
+
+		fleet.settings.set(Optional.of(ChainFleet.settings(4, 1, 16, 30, 3)));
+		IntStream.range(0, 20).forEach(number -> fleet.host("gn-" + number));
+		fleet.refreshAll();
+		return fleet;
+	}
+
+	/* A random generator whose first choice of a group for no country is the given one, when no group is passed
+	   over */
 	static Random choosing(final ChainFleet fleet, final int group) {
 		return choosing(fleet.view(), group);
 	}
 
 	static Random choosing(final GroupView view, final int group) {
-		final int seed = IntStream.iterate(0, next -> next + 1)
-			.filter(next -> view.joinCandidate(new Random(next), Set.of()).getAsInt() == group)
-			.findFirst().orElseThrow();
+		final int seed = IntStream.iterate(0, next -> next + 1).limit(10_000)
+			.filter(next -> GroupChoice.group(view.groups(), Optional.empty(), member -> Optional.empty(), Set.of(),
+			new Random(next)).getAsInt() == group).findFirst().orElseThrow();
 
 		return new Random(seed);
+	}
+
+	/* Draws the last of whatever it is offered, so that of the groups that weigh anything the last one is chosen */
+	private static RandomGenerator last() {
+		return new RandomGenerator() {
+			@Override
+			public long nextLong() {
+				return 0;
+			}
+
+			@Override
+			public long nextLong(final long bound) {
+				return bound - 1;
+			}
+
+			@Override
+			public int nextInt(final int bound) {
+				return bound - 1;
+			}
+		};
 	}
 
 	static long joinsTo(final ChainFleet fleet, final List<String> members) {
@@ -421,7 +459,7 @@ public class ChainClientTest {
 
 		scripted.streams.get("gn-3").close();
 		scripted.ids.forEach(id -> scripted.answers.put(id, Scripted.refusing(JoinReply.Status.FULL)));
-		scripted.client(new Random(seed), Runnable::run).attachment();
+		scripted.client(new Random(seed), Runnable::run).attachment(Optional.empty());
 		return scripted.asked().get(0);
 	}
 
@@ -508,13 +546,63 @@ public class ChainClientTest {
 		assertThat(joinsTo(fleet, fleet.view().groups().members(0)), is(0L));
 	}
 
+	/* Each country is given a group with members there and keeps it, and a choice that lands on a group joined
+	   already, as one for any country does, takes the attachment of that group */
+	@Example
+	public void twoCountriesUseTwoAttachments() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries));
+
+		fleet.view().groups().members(0).forEach(member -> countries.put(member, "SE"));
+		fleet.view().groups().members(1).forEach(member -> countries.put(member, "NO"));
+
+		final ChainAttachment swedish = attached(fleet, client, Optional.of("SE"));
+		final ChainAttachment norwegian = attached(fleet, client, Optional.of("NO"));
+
+		assertThat(List.of(swedish.group(), norwegian.group()), equalTo(List.of(0, 1)));
+		assertThat(done(client.attachment(Optional.of("SE"))), sameInstance(swedish));
+		assertThat(done(client.attachment(Optional.of("NO"))), sameInstance(norwegian));
+		assertThat(done(client.attachment(Optional.empty())), is(in(List.of(swedish, norwegian))));
+		assertThat(List.of(client.isCurrent(swedish), client.isCurrent(norwegian)), equalTo(List.of(true, true)));
+		assertThat(joinsTo(fleet, fleet.view().groups().members(0)), is(2L));
+		assertThat(joinsTo(fleet, fleet.view().groups().members(1)), is(2L));
+		assertThat(fleet.host(CLIENT).chain(swedish.chainId()).isPresent(), is(true));
+		assertThat(fleet.host(CLIENT).chain(norwegian.chainId()).isPresent(), is(true));
+	}
+
+	/* Four countries fill the chains the node may follow, one group each. Of the three groups with members in
+	   Germany, the last is chosen, which holds four of them but is not joined, so the country is given the joined
+	   group with the most of them, two. */
+	@Example
+	public void atMostFourAttachments() {
+		final ChainFleet fleet = fiveGroups();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final List<List<String>> placed = List.of(List.of("SE", "SE", "SE", "SE"), List.of("NO", "NO", "NO", "NO"),
+			List.of("DK", "DK", "DK", "DE"), List.of("FI", "FI", "DE", "DE"), List.of("DE", "DE", "DE", "DE"));
+
+		assertThat(fleet.view().groups().groupCount(), is(5));
+		IntStream.range(0, 5).forEach(group -> IntStream.range(0, 4).forEach(member -> countries.put(fleet.view()
+			.groups().members(group).get(member), placed.get(group).get(member))));
+
+		final List<ChainAttachment> attachments = Stream.of("SE", "NO", "DK", "FI")
+			.map(country -> attached(fleet, client, Optional.of(country))).toList();
+
+		assertThat(attachments.stream().map(ChainAttachment::group).toList(), equalTo(List.of(0, 1, 2, 3)));
+		assertThat(attached(fleet, client, Optional.of("DE")), sameInstance(attachments.get(3)));
+		assertThat(joinsTo(fleet, fleet.view().groups().members(4)), is(0L));
+		assertThat(delivered(fleet, JoinChain.class), is(8L));
+		assertThat(attachments.stream().map(client::isCurrent).toList(), everyItem(is(true)));
+	}
+
 	@Example
 	public void givesUpWhenEveryGroupRefuses() {
 		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
 
 		fleet.activeIds().forEach(fleet::offline);
 
-		assertThat(clientOf(fleet).attachment().isCompletedExceptionally(), is(true));
+		assertThat(clientOf(fleet).attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	/* The second member admitted the writer all the same, and is told to leave */
@@ -553,7 +641,7 @@ public class ChainClientTest {
 		scripted.ids.forEach(id -> scripted.answers.put(id, (member, request) -> List.of(Scripted.reply(request,
 			request.getChainId().isPresent() ? FULL : JOINED, scripted.chainOf(member), Map.of()))));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 		final List<String> asked = scripted.asked();
 
 		assertThat(attachment.streams().size(), is(1));
@@ -579,7 +667,7 @@ public class ChainClientTest {
 		final ChainClient client = clientOf(fleet);
 		final ChainAttachment first = attached(fleet, client);
 
-		assertThat(done(client.attachment()), sameInstance(first));
+		assertThat(done(client.attachment(Optional.empty())), sameInstance(first));
 		assertThat(client.isCurrent(first), is(true));
 
 		fleet.clock.addAndGet(EPOCH_MILLIS);
@@ -660,7 +748,7 @@ public class ChainClientTest {
 		final ChainFleet fleet = ChainFleet.group();
 
 		fleet.settings.set(Optional.empty());
-		assertThat(clientOf(fleet).attachment().isCompletedExceptionally(), is(true));
+		assertThat(clientOf(fleet).attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	@Example
@@ -686,7 +774,7 @@ public class ChainClientTest {
 		final ChainClient client = clientOf(fleet);
 
 		fleet.activeIds().forEach(fleet::offline);
-		assertThat(client.attachment().isCompletedExceptionally(), is(true));
+		assertThat(client.attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 
 		fleet.activeIds().forEach(fleet::online);
 		assertThat(attached(fleet, client).streams().size(), is(2));
@@ -696,13 +784,13 @@ public class ChainClientTest {
 	public void sharesAJoinUnderWayAndKeepsEachCallerApart() {
 		final ChainFleet fleet = ChainFleet.group();
 		final ChainClient client = clientOf(fleet);
-		final CompletableFuture<ChainAttachment> one = client.attachment();
-		final CompletableFuture<ChainAttachment> other = client.attachment();
+		final CompletableFuture<ChainAttachment> one = client.attachment(Optional.empty());
+		final CompletableFuture<ChainAttachment> other = client.attachment(Optional.empty());
 
 		one.cancel(true);
 		fleet.deliver();
 
-		assertThat(done(other), sameInstance(done(client.attachment())));
+		assertThat(done(other), sameInstance(done(client.attachment(Optional.empty()))));
 		assertThat(delivered(fleet, JoinChain.class), is(2L));
 	}
 
@@ -899,7 +987,7 @@ public class ChainClientTest {
 
 		try {
 			final CompletableFuture<ChainAttachment> attachment = scripted.client(new Random(1), threads.get(0))
-				.attachment();
+				.attachment(Optional.empty());
 
 			for (int member = 1; member <= 2; member++) {
 				final int followsBefore = member - 1;
@@ -937,7 +1025,7 @@ public class ChainClientTest {
 
 		try {
 			final CompletableFuture<ChainAttachment> attachment = scripted.client(choosing(scripted.view(), 0),
-				joins).attachment();
+				joins).attachment(Optional.empty());
 
 			loop.submit(() -> {
 				final Written asked = waiting.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -964,7 +1052,7 @@ public class ChainClientTest {
 			Map.of(ChainFleet.writer(9), new Head(4, feed.get(4).hash()))),
 			ChainEntry.builder().entries(List.of(feed.get(5))).build()));
 
-		done(scripted.client().attachment());
+		done(scripted.client().attachment(Optional.empty()));
 
 		assertThat(scripted.host.chain(chainId).orElseThrow().heads().get(ChainFleet.writer(9)),
 			equalTo(new Head(5, feed.get(5).hash())));
@@ -973,7 +1061,7 @@ public class ChainClientTest {
 	@Example
 	public void asksTheSecondMemberOnlyOnceTheFirstIsFollowed() {
 		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 		final String first = scripted.memberOf(attachment.streams().get(0));
 		final String second = scripted.memberOf(attachment.streams().get(1));
 
@@ -989,7 +1077,7 @@ public class ChainClientTest {
 		scripted.ids.forEach(id -> scripted.answers.put(id, (member, request) -> List.of(Scripted.reply(request,
 			JOINED, request.getChainId().isPresent() ? other : scripted.chainOf(member), Map.of()))));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 		final String second = scripted.asked().get(1);
 
 		assertThat(attachment.streams().size(), is(1));
@@ -1006,7 +1094,7 @@ public class ChainClientTest {
 
 		scripted.ids.forEach(id -> scripted.answers.put(id, scripted.joined(heads)));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 
 		assertThat(attachment.streams().size(), is(2));
 		assertThat(scripted.host.chain(attachment.chainId()).orElseThrow().heads(), equalTo(heads));
@@ -1029,7 +1117,7 @@ public class ChainClientTest {
 			return List.of(reply);
 		}));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 
 		assertThat(attachment.streams().size(), is(2));
 		assertThat(scripted.host.chain(attachment.chainId()).orElseThrow().heads(),
@@ -1044,7 +1132,7 @@ public class ChainClientTest {
 			JOINED, scripted.chainOf(member), Map.of(request.getWriter(), new Head(5, 1), ChainFleet.writer(1),
 			new Head(3, 1))))));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 
 		assertThat(scripted.host.chain(attachment.chainId()).orElseThrow().heads(),
 			equalTo(Map.of(ChainFleet.writer(1), new Head(3, 1))));
@@ -1058,7 +1146,7 @@ public class ChainClientTest {
 			throw new IllegalStateException("A follow that fails");
 		};
 
-		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment();
+		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment(Optional.empty());
 		final String first = scripted.asked().get(0);
 		final ChainId chainId = scripted.chainOf(first);
 
@@ -1079,7 +1167,7 @@ public class ChainClientTest {
 			}
 		};
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 		final String second = scripted.asked().get(1);
 
 		assertThat(attachment.streams().size(), is(1));
@@ -1094,7 +1182,7 @@ public class ChainClientTest {
 		IntStream.range(1, ChainHost.MAX_FOLLOWED + 1).forEach(number -> scripted.host.follow(chainId(number),
 			new EmbeddedChannel(), Map.of()));
 
-		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment();
+		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment(Optional.empty());
 
 		assertThat(attachment.isCompletedExceptionally(), is(true));
 		assertThat(scripted.asked().size(), is(2));
@@ -1113,7 +1201,7 @@ public class ChainClientTest {
 			scripted.chainOf(member), Map.of()))));
 
 		final ChainAttachment attachment = done(scripted.client(choosing(scripted.view(), 0), Runnable::run)
-			.attachment());
+			.attachment(Optional.empty()));
 
 		assertThat(attachment.group(), is(1));
 		assertThat(scripted.asked().stream().filter(refusing::contains).count(), is(1L));
@@ -1131,7 +1219,7 @@ public class ChainClientTest {
 			}
 		});
 
-		assertThat(scripted.client().attachment().isCompletedExceptionally(), is(true));
+		assertThat(scripted.client().attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	@Example
@@ -1140,7 +1228,7 @@ public class ChainClientTest {
 
 		scripted.unwritable.add("gn-0");
 
-		assertThat(scripted.client().attachment().isCompletedExceptionally(), is(true));
+		assertThat(scripted.client().attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	@Property(tries = 5)
@@ -1149,8 +1237,8 @@ public class ChainClientTest {
 
 		scripted.ids.subList(open, 4).forEach(id -> scripted.streams.get(id).close());
 
-		final int streams = done(scripted.client().attachment().handle((attachment, error) -> attachment == null ? 0
-			: attachment.streams().size()));
+		final int streams = done(scripted.client().attachment(Optional.empty()).handle((attachment, error) ->
+			attachment == null ? 0 : attachment.streams().size()));
 
 		assertThat(streams, is(Math.min(open, 2)));
 		assertThat(scripted.asked().size(), is(Math.min(open, 2)));
@@ -1164,7 +1252,7 @@ public class ChainClientTest {
 
 		scripted.transport = id -> Optional.of(shared);
 
-		assertThat(done(scripted.client().attachment()).streams(), contains(shared));
+		assertThat(done(scripted.client().attachment(Optional.empty())).streams(), contains(shared));
 		assertThat(scripted.asked(), contains("gn-0"));
 	}
 
@@ -1186,7 +1274,8 @@ public class ChainClientTest {
 			default -> Optional.of(scripted.streams.get(id));
 		};
 
-		assertThat(done(scripted.client().attachment()).streams(), contains(scripted.streams.get("gn-2")));
+		assertThat(done(scripted.client().attachment(Optional.empty())).streams(),
+			contains(scripted.streams.get("gn-2")));
 	}
 
 	@Property(tries = 5)
@@ -1195,7 +1284,7 @@ public class ChainClientTest {
 
 		scripted.ids.forEach(id -> scripted.answers.put(id, Scripted.refusing(JoinReply.Status.DISABLED)));
 
-		assertThat(scripted.client().attachment().isCompletedExceptionally(), is(true));
+		assertThat(scripted.client().attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 		assertThat(scripted.asked().size(), is(groups));
 		assertThat(Set.copyOf(scripted.asked()), equalTo(Set.copyOf(scripted.ids)));
 	}
@@ -1204,26 +1293,26 @@ public class ChainClientTest {
 	public void failsItsJoinWhenTheSettingsCannotBeRead() {
 		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
 		final ChainClient client = scripted.client();
-		final ChainAttachment held = done(client.attachment());
+		final ChainAttachment held = done(client.attachment(Optional.empty()));
 
 		scripted.source = () -> {
 			throw new IllegalStateException("Settings that cannot be read");
 		};
 
 		assertThat(client.isCurrent(held), is(false));
-		assertThat(client.attachment().isCompletedExceptionally(), is(true));
+		assertThat(client.attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	@Example
 	public void neitherJoinsNorKeepsAnAttachmentWhileTheClockReadsBeforeTheOrigin() {
 		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
 		final ChainClient client = scripted.client();
-		final ChainAttachment held = done(client.attachment());
+		final ChainAttachment held = done(client.attachment(Optional.empty()));
 
 		scripted.clock.set(-1);
 
 		assertThat(client.isCurrent(held), is(false));
-		assertThat(client.attachment().isCompletedExceptionally(), is(true));
+		assertThat(client.attachment(Optional.empty()).isCompletedExceptionally(), is(true));
 	}
 
 	/* One member, so that no second follow brings the chain back */
@@ -1231,12 +1320,12 @@ public class ChainClientTest {
 	public void keepsFollowingAChainAJoinClaimedWhileAnEarlierAttachmentOnItWasReleased() {
 		final Scripted scripted = new Scripted(1, 1, new PendingRequests());
 		final ChainClient client = scripted.client();
-		final ChainAttachment lost = done(client.attachment());
+		final ChainAttachment lost = done(client.attachment(Optional.empty()));
 
 		scripted.host.unfollow(lost.chainId());
 		scripted.afterFollow = once(() -> client.release(lost));
 
-		final ChainAttachment again = done(client.attachment());
+		final ChainAttachment again = done(client.attachment(Optional.empty()));
 
 		assertThat(again.chainId(), equalTo(lost.chainId()));
 		assertThat(client.isCurrent(again), is(true));
@@ -1250,7 +1339,7 @@ public class ChainClientTest {
 
 		scripted.listed.add(Gridnode.builder().status(Gridnode.Status.ACTIVE).hostName("nameless:1").build());
 
-		assertThat(done(scripted.client().attachment()).streams().size(), is(2));
+		assertThat(done(scripted.client().attachment(Optional.empty())).streams().size(), is(2));
 	}
 
 	@Example
@@ -1266,7 +1355,7 @@ public class ChainClientTest {
 			final List<Future<CompletableFuture<ChainAttachment>>> calls = IntStream.range(0, 8)
 				.mapToObj(caller -> callers.submit(() -> {
 					start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-					return client.attachment();
+					return client.attachment(Optional.empty());
 				})).toList();
 
 			start.countDown();
@@ -1291,7 +1380,7 @@ public class ChainClientTest {
 
 		scripted.ids.forEach(id -> scripted.answers.put(id, scripted.holdingTheFirstIn(waiting)));
 
-		final CompletableFuture<ChainAttachment> attachment = client.attachment();
+		final CompletableFuture<ChainAttachment> attachment = client.attachment(Optional.empty());
 
 		try {
 			synchronized (client) {
@@ -1335,7 +1424,7 @@ public class ChainClientTest {
 		scripted.ids.forEach(id -> scripted.answers.put(id, (member, request) -> List.of(Scripted.reply(request,
 			JOINED, outside, Map.of()))));
 
-		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment();
+		final CompletableFuture<ChainAttachment> attachment = scripted.client().attachment(Optional.empty());
 
 		assertThat(attachment.isCompletedExceptionally(), is(true));
 		assertThat(scripted.follows().size(), is(0));
@@ -1355,8 +1444,8 @@ public class ChainClientTest {
 		scripted.ids.forEach(id -> scripted.answers.put(id, scripted.holdingTheFirstIn(waiting)));
 
 		try {
-			final CompletableFuture<String> thread = scripted.client(new Random(1), joins).attachment()
-				.thenApply(attachment -> Thread.currentThread().getName());
+			final CompletableFuture<String> thread = scripted.client(new Random(1), joins)
+				.attachment(Optional.empty()).thenApply(attachment -> Thread.currentThread().getName());
 
 			loop.submit(() -> scripted.answer(waiting.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)))
 				.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -1376,7 +1465,7 @@ public class ChainClientTest {
 			CountryLookup.NONE, id -> scripted.transport.streamTo(id), scripted.host, scripted.pending,
 			scripted.clock::get, new Random(1));
 
-		final Thread thread = client.attachment().thenApply(attachment -> Thread.currentThread())
+		final Thread thread = client.attachment(Optional.empty()).thenApply(attachment -> Thread.currentThread())
 			.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
 		assertThat(thread.getName(), is("chain-client-join"));
@@ -1393,7 +1482,7 @@ public class ChainClientTest {
 			JOINED, request.getChainId().orElse(scripted.chainOf(member)),
 			request.getChainId().isPresent() ? ofTheSecond : ofTheFirst))));
 
-		final ChainAttachment attachment = done(scripted.client().attachment());
+		final ChainAttachment attachment = done(scripted.client().attachment(Optional.empty()));
 
 		assertThat(attachment.streams().size(), is(2));
 		assertThat(scripted.host.chain(attachment.chainId()).orElseThrow().heads(),
@@ -1418,7 +1507,7 @@ public class ChainClientTest {
 		refused.ids.forEach(id -> refused.answers.put(id, Scripted.refusing(JoinReply.Status.DISABLED)));
 		off.settings.set(Optional.empty());
 
-		assertFailsWith(refused.client().attachment(), "No shard group took this node");
-		assertFailsWith(off.client().attachment(), "The proxy is off");
+		assertFailsWith(refused.client().attachment(Optional.empty()), "No shard group took this node");
+		assertFailsWith(off.client().attachment(Optional.empty()), "The proxy is off");
 	}
 }
