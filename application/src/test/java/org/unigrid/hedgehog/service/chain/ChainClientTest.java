@@ -607,9 +607,9 @@ public class ChainClientTest {
 		assertThat(fleet.host(CLIENT).chain(norwegian.chainId()).isPresent(), is(true));
 	}
 
-	/* Four countries fill the chains the node may follow, one group each. Of the three groups with members in
-	   Germany, the last is chosen, which holds four of them but is not joined, so the country is given the joined
-	   group with the most of them, two. */
+	/* Four countries fill the attachments the node may hold, one group each, though it may follow twice as many
+	   chains. Of the three groups with members in Germany, the last is chosen, which holds four of them but is not
+	   joined, so the country is given the joined group with the most of them, two. */
 	@Example
 	public void atMostFourAttachments() {
 		final ChainFleet fleet = fiveGroups();
