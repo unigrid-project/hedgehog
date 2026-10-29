@@ -39,8 +39,10 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
+import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -181,32 +183,36 @@ public class SocksCommandTest {
 		assertThat(tunnel.streams, is(empty()));
 	}
 
+	/* The application learns nothing of the exit: where the stream is bound is for the tunnel alone to know */
 	@Example
-	public void shouldReplyWithTheBoundAddressOnceTheStreamOpens() {
+	public void connectReplyNeverNamesTheExit() {
 		channel.writeInbound(request(Socks5CommandType.CONNECT, TARGET));
-		tunnel.stream().connect(BOUND);
+		tunnel.stream().connect(new SocksAddress(Socks5AddressType.IPv4, "203.0.113.5", 4000));
 		channel.runPendingTasks();
 
 		final Socks5CommandResponse reply = reply();
 
 		assertThat(reply.status(), is(Socks5CommandStatus.SUCCESS));
 		assertThat(reply.bndAddrType(), is(Socks5AddressType.IPv4));
-		assertThat(reply.bndAddr(), is("192.0.2.7"));
-		assertThat(reply.bndPort(), is(40_000));
+		assertThat(reply.bndAddr(), is("0.0.0.0"));
+		assertThat(reply.bndPort(), is(0));
 		assertThat(channel.config().isAutoRead(), is(true));
 		assertThat(channel.readOutbound(), is(nullValue()));
 	}
 
-	@Example
-	public void shouldReplyWithABoundNameOfTheLongestLabel() {
-		final SocksAddress bound = new SocksAddress(Socks5AddressType.DOMAIN, "b".repeat(63) + ".test", 40_000);
+	@Property(tries = 50)
+	public void shouldReplyWithTheUnspecifiedAddressWhateverTheTunnelReports(@ForAll("destinations")
+		SocksAddress bound) {
 
-		assertReply(openedAheadOfTheReply(bound), Socks5CommandStatus.SUCCESS, bound);
+		assertReply(openedAheadOfTheReply(bound), Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED);
 	}
 
-	@Example
-	public void shouldReplyWithoutABoundNameWhoseLabelIsTooLong() {
-		final SocksAddress bound = new SocksAddress(Socks5AddressType.DOMAIN, "b".repeat(64) + ".test", 40_000);
+	/* A name of 64 characters in a label is more than a reply could carry, and 63 is the most it could */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void shouldReplyWithTheUnspecifiedAddressForANameOfAnyLabelLength(@ForAll @IntRange(min = 63, max = 64)
+		int label) {
+
+		final SocksAddress bound = new SocksAddress(Socks5AddressType.DOMAIN, "b".repeat(label) + ".test", 40_000);
 
 		assertReply(openedAheadOfTheReply(bound), Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED);
 	}

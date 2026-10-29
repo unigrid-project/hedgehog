@@ -52,7 +52,6 @@ import org.awaitility.Awaitility;
 import org.awaitility.core.ConditionFactory;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -240,13 +239,14 @@ public class ChainProxyEndToEndTest {
 			.pollInterval(Duration.ofMillis(PUMP_MILLIS));
 	}
 
-	/* The address the exit's connection to the server comes from, which the reply names */
-	private static InetSocketAddress bound(final SocksClient client) throws Exception {
+	/* The reply to a stream that opened names no address: where the exit connects from is for the exit alone to
+	   know */
+	private static void opened(final SocksClient client) throws Exception {
 		final Socks5CommandResponse reply = client.reply();
 
 		assertThat(reply.status(), is(Socks5CommandStatus.SUCCESS));
-		assertThat(reply.bndAddrType(), is(Socks5AddressType.IPv4));
-		return new InetSocketAddress(reply.bndAddr(), reply.bndPort());
+		assertThat(new SocksAddress(reply.bndAddrType(), reply.bndAddr(), reply.bndPort()),
+			equalTo(SocksAddress.UNSPECIFIED));
 	}
 
 	/* What the client got back is what it sent, compared by length and at the first byte that differs, as a hundred
@@ -288,12 +288,12 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), bytes("hello"))) {
 
-			final InetSocketAddress bound = bound(client);
+			opened(client);
 
 			assertReceived(client, bytes("hello"));
 			client.write(large);
 			assertReceived(client, join(bytes("hello"), large));
-			assertThat(echo.peers, contains(bound));
+			assertThat(echo.peers, hasSize(1));
 			assertThat(network.openRelays(), is(1));
 			assertThat(network.deadlines(), is(0L));
 			assertThat(network.openings(), hasSize(1));
@@ -311,11 +311,11 @@ public class ChainProxyEndToEndTest {
 			ChainClientTest.choosing(fleet, 0), onDuty);
 			SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			final InetSocketAddress bound = bound(client);
+			opened(client);
 
 			client.write(bytes("again"));
 			assertReceived(client, bytes("again"));
-			assertThat(echo.peers, contains(bound));
+			assertThat(echo.peers, hasSize(1));
 			assertThat(ChainClientTest.joinsTo(fleet, refusing), is(1L));
 			assertThat(ChainClientTest.joinsTo(fleet, onDuty), is(2L));
 		}
@@ -356,11 +356,11 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			final InetSocketAddress bound = bound(client);
+			opened(client);
 
 			client.write(bytes("ping"));
 			assertReceived(client, bytes("ping"));
-			assertThat(echo.peers, contains(bound));
+			assertThat(echo.peers, hasSize(1));
 			assertThat(network.openRelays(), is(1));
 
 			fleet.clock.addAndGet(2000);
@@ -376,7 +376,7 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			bound(client);
+			opened(client);
 			client.write(bytes("bye"));
 			assertReceived(client, bytes("bye"));
 
@@ -396,14 +396,14 @@ public class ChainProxyEndToEndTest {
 			fleet.activeIds()); SocksClient one = network.connect(echo.port(), NOTHING);
 			SocksClient other = network.connect(echo.port(), NOTHING)) {
 
-			final InetSocketAddress ofOne = bound(one);
-			final InetSocketAddress ofOther = bound(other);
+			opened(one);
+			opened(other);
 
 			one.write(first);
 			other.write(second);
 			assertReceived(one, first);
 			assertReceived(other, second);
-			assertThat(echo.peers, containsInAnyOrder(ofOne, ofOther));
+			assertThat(echo.peers, hasSize(2));
 			assertThat(network.openRelays(), is(2));
 			assertThat(network.openings(), hasSize(2));
 		}
@@ -418,7 +418,7 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(large.length); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			bound(client);
+			opened(client);
 			client.write(large);
 			assertEnded(network, echo, client);
 			assertReceived(client, large);
@@ -454,11 +454,11 @@ public class ChainProxyEndToEndTest {
 			fleet.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS);
 			network.sessions.tick();
 
-			final InetSocketAddress bound = bound(client);
+			opened(client);
 
 			client.write(bytes("other"));
 			assertReceived(client, bytes("other"));
-			assertThat(echo.peers, contains(bound));
+			assertThat(echo.peers, hasSize(1));
 			assertThat(network.openings().stream().map(network::named).toList(),
 				contains(equalTo(silent), not(equalTo(silent))));
 			assertThat(network.answers(), hasSize(1));
@@ -475,7 +475,7 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
 
-			bound(client);
+			opened(client);
 			client.write(bytes("one"));
 			assertReceived(client, bytes("one"));
 			echo.hold();
@@ -517,7 +517,7 @@ public class ChainProxyEndToEndTest {
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient old = network.connect(echo.port(), NOTHING)) {
 
-			final InetSocketAddress ofOld = bound(old);
+			opened(old);
 
 			old.write(bytes("one"));
 			assertReceived(old, bytes("one"));
@@ -535,7 +535,7 @@ public class ChainProxyEndToEndTest {
 			assertReceived(old, bytes("onetwo"));
 
 			try (SocksClient fresh = network.connect(echo.port(), NOTHING)) {
-				final InetSocketAddress ofFresh = bound(fresh);
+				opened(fresh);
 
 				fresh.write(bytes("new"));
 				assertReceived(fresh, bytes("new"));
@@ -558,7 +558,7 @@ public class ChainProxyEndToEndTest {
 				fleet.activeIds().forEach(id -> assertThat(fleet.host(id).retiredChains(), is(empty())));
 				fresh.write(bytes("more"));
 				assertReceived(fresh, bytes("newmore"));
-				assertThat(echo.peers, containsInAnyOrder(ofOld, ofFresh));
+				assertThat(echo.peers, hasSize(2));
 			}
 		}
 	}

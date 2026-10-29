@@ -133,8 +133,7 @@ public class SocksInitializerTest {
 		channel.writeInbound(Unpooled.wrappedBuffer(CONNECT_EXAMPLE_ORG));
 		tunnel.stream().connect(BOUND);
 		channel.runPendingTasks();
-		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, 0, 0, 1, (byte) 192, 0, 2, 7,
-			(byte) 0x9c, 0x40 }));
+		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, 0, 0, 1, 0, 0, 0, 0, 0, 0 }));
 		return channel;
 	}
 

@@ -38,10 +38,11 @@ import java.util.Optional;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* Serves the one command of a SOCKS5 connection: CONNECT opens a tunnel stream, the client hears the tunnel's
-   answer as its reply, and bytes then flow both ways until either side closes. Reads stop at the command and
-   resume when the stream opens, and stop again whenever the stream takes no more writes; the stream in turn
-   holds back what the destination sends while the client takes no more. UDP ASSOCIATE opens a UDP association
-   instead, which lasts as long as this connection does. */
+   answer as its reply, and bytes then flow both ways until either side closes. The reply of a stream that opened
+   binds no address, as the client is not to learn where the exit is. Reads stop at the command and resume when
+   the stream opens, and stop again whenever the stream takes no more writes; the stream in turn holds back what
+   the destination sends while the client takes no more. UDP ASSOCIATE opens a UDP association instead, which
+   lasts as long as this connection does. */
 final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	/* Reads stop at the command, so only what one read already held can arrive before the reply: at most
 	   64 KiB with Netty's default allocator. More than twice that means reads did not stop. */
@@ -196,14 +197,11 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		}
 	}
 
-	/* The client gets one reply only. It is built before anything changes, so that one that cannot be built does
-	   not leave the stream open with no reply sent. */
-	private void opened(SocksAddress bound) {
+	/* The client gets one reply only */
+	private void opened() {
 		if (awaitingTunnel() && context.channel().isActive()) {
-			final Socks5CommandResponse reply = success(bound);
-
 			open = true;
-			context.writeAndFlush(reply);
+			context.writeAndFlush(response(Socks5CommandStatus.SUCCESS));
 			early.forEach(this::relay);
 			early.clear();
 			context.channel().config().setAutoRead(stream.isWritable());
@@ -265,22 +263,14 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 
 	private void fail(TunnelFailure failure) {
 		refused = true;
-		context.writeAndFlush(response(failure.status(), SocksAddress.UNSPECIFIED))
+		context.writeAndFlush(response(failure.status()))
 			.addListener(ChannelFutureListener.CLOSE);
 	}
 
-	/* An exit may report a bound name the reply cannot carry, such as one with a label over 63 characters. The
-	   stream is open all the same, so the client still hears of it, only without a bound address. */
-	private static Socks5CommandResponse success(SocksAddress bound) {
-		try {
-			return response(Socks5CommandStatus.SUCCESS, bound);
-		} catch (IllegalArgumentException ex) {
-			return response(Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED);
-		}
-	}
+	private static Socks5CommandResponse response(Socks5CommandStatus status) {
+		final SocksAddress none = SocksAddress.UNSPECIFIED;
 
-	private static Socks5CommandResponse response(Socks5CommandStatus status, SocksAddress bound) {
-		return new DefaultSocks5CommandResponse(status, bound.type(), bound.host(), bound.port());
+		return new DefaultSocks5CommandResponse(status, none.type(), none.host(), none.port());
 	}
 
 	private static boolean isAssociate(Socks5CommandRequest request) {
@@ -305,7 +295,7 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 
 		@Override
 		public void connected(SocksAddress bound) {
-			loop.execute(() -> opened(bound));
+			loop.execute(SocksCommandHandler.this::opened);
 		}
 
 		@Override
