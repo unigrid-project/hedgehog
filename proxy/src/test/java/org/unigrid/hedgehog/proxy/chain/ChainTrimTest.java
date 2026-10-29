@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.proxy.chain;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -191,66 +192,122 @@ public class ChainTrimTest {
 		assertThat(chain.bytes(), lessThanOrEqualTo(limits.capacityBytes() + limits.reserveBytes()));
 	}
 
-	/* The writer idle past the cutoff loses its feed and what the chain kept of it, while a writer heard since, one to
-	   keep and one with an entry waiting past a gap keep theirs. What the forgotten writer wrote is older than the
-	   retention window, so it never starts a feed again. */
+	/* A feed whose last entry is older than the cutoff is forgotten with its head and what the chain kept of it, while a
+	   feed that ended since and one that never ended keep theirs, however long ago they were heard from. Everything the
+	   forgotten writer wrote is older than the retention window, so it never starts a feed again. */
 	@Example
-	public void forgetsAWriterIdlePastTheCutoff() {
+	public void forgetsAWriterWhoseFeedEndedBeforeTheCutoff() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final WriterKey recent = ChainFixtures.key(2);
-		final WriterKey kept = ChainFixtures.key(3);
-		final WriterKey waiting = ChainFixtures.key(4);
-		final List<Entry> idle = ChainFixtures.linked(WRITER, CHAIN, 2, NOW);
-		final Entry first = ChainFixtures.signed(waiting, CHAIN, 0, 0, NOW);
+		final WriterKey live = ChainFixtures.key(2);
+		final WriterKey recent = ChainFixtures.key(3);
+		final List<Entry> ended = ended(WRITER, NOW);
 
-		idle.forEach(chain::offer);
-		chain.offer(ChainFixtures.signed(kept, CHAIN, 0, 0, NOW));
-		chain.offer(first);
-		assertThat(chain.offer(ChainFixtures.signed(waiting, CHAIN, 2, 1, NOW)).admission(), is(Admission.AHEAD));
-		chain.offer(ChainFixtures.signed(recent, CHAIN, 0, 0, NOW + 2000));
+		ended.forEach(chain::offer);
+		chain.offer(ChainFixtures.signed(live, CHAIN, 0, 0, NOW));
+		ended(recent, NOW + 2000).forEach(chain::offer);
 		clock.set(NOW + 2000 + LIMITS.retentionMillis());
 
-		assertThat(chain.forgetIdle(NOW + 2000, Set.of(kept.id())), equalTo(Set.of(WRITER.id())));
-		assertThat(chain.heads().keySet(), equalTo(Set.of(recent.id(), kept.id(), waiting.id())));
+		assertThat(chain.forgetEnded(NOW + 2000), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(live.id(), recent.id())));
 		assertThat(chain.range(WRITER.id(), 0, 1), is(empty()));
 		assertThat(chain.entries().stream().filter(entry -> entry.header().writer().equals(WRITER.id())).toList(),
 			is(empty()));
 		assertThat(chain.bytes(), is(chain.entries().stream().mapToLong(Entry::size).sum()));
-		assertThat(chain.offer(idle.get(0)).admission(), is(Admission.EXPIRED));
-		assertThat(chain.offer(idle.get(1)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.offer(ended.get(0)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.offer(ended.get(1)).admission(), is(Admission.EXPIRED));
 		assertThat(chain.heads().containsKey(WRITER.id()), is(false));
 	}
 
 	/* A cutoff past the start of the retention window would let what a forgotten writer wrote start a feed again */
 	@Example
-	public void forgetsNoWriterHeardWithinTheRetentionWindowWhateverTheCutoff() {
+	public void forgetsNoFeedThatEndedWithinTheRetentionWindowWhateverTheCutoff() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
 
-		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW));
+		ended(WRITER, NOW).forEach(chain::offer);
 		clock.set(NOW + LIMITS.retentionMillis());
 
-		assertThat(chain.forgetIdle(NOW + 1000, Set.of()), is(empty()));
+		assertThat(chain.forgetEnded(NOW + 1000), is(empty()));
 		assertThat(chain.heads().keySet(), equalTo(Set.of(WRITER.id())));
 	}
 
-	/* A feed started after a head that came without its time counts from when the chain started it, and so does one
-	   that a gap skipped, so neither is forgotten the moment it starts */
+	/* Only its writer ends a feed, so a feed that went quiet without ending, one started after a head a member named
+	   and one a gap skipped past stay, as their writers may write again */
 	@Example
-	public void countsAFeedStartedAfterAHeadFromWhenItStarted() {
+	public void neverForgetsAFeedThatHasNotEnded() {
 		final AtomicLong clock = new AtomicLong(NOW);
 		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
-		final WriterKey skipped = ChainFixtures.key(2);
+		final WriterKey anchored = ChainFixtures.key(2);
+		final WriterKey skipped = ChainFixtures.key(3);
 
-		assertThat(chain.anchor(WRITER.id(), new Head(3, 1)), is(true));
-		assertThat(chain.offer(ChainFixtures.signed(skipped, CHAIN, 1, 1, NOW)).admission(), is(Admission.AHEAD));
-		clock.set(NOW + LIMITS.retentionMillis());
-		assertThat(chain.forgetIdle(NOW, Set.of()), is(empty()));
-
-		clock.addAndGet(1000);
+		chain.offer(ChainFixtures.signed(WRITER, CHAIN, 0, 0, NOW));
+		chain.anchor(anchored.id(), new Head(3, 1));
+		chain.offer(ChainFixtures.signed(skipped, CHAIN, 1, 1, NOW));
+		clock.set(NOW + LIMITS.retentionMillis() + 1000);
 		assertThat(chain.expireGaps(), hasSize(1));
-		assertThat(chain.forgetIdle(NOW + 1000, Set.of()), equalTo(Set.of(WRITER.id())));
-		assertThat(chain.heads().keySet(), equalTo(Set.of(skipped.id())));
+		clock.set(NOW + TimeUnit.DAYS.toMillis(1));
+
+		assertThat(chain.forgetEnded(clock.get()), is(empty()));
+		assertThat(chain.heads().keySet(), equalTo(Set.of(WRITER.id(), anchored.id(), skipped.id())));
+	}
+
+	/* A writer may stamp its last entry ahead of the clock, as far as the retention window allows. Its feed is forgotten
+	   by the stamp of that entry and not by the clock, so that entry is too old for the chain once it is forgotten, and
+	   neither it nor anything before it starts a feed again. */
+	@Example
+	public void forgetsAFeedThatEndedAheadOfTheClockOnlyOnceItsLastEntryAgedOut() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final List<Entry> ended = ended(WRITER, NOW + 20_000);
+
+		ended.forEach(chain::offer);
+		clock.set(NOW + LIMITS.retentionMillis() + 1000);
+		assertThat(chain.forgetEnded(clock.get() - LIMITS.retentionMillis()), is(empty()));
+		assertThat(chain.offer(ended.get(1)).admission(), is(Admission.DUPLICATE));
+
+		clock.set(NOW + 22_000 + LIMITS.retentionMillis());
+		assertThat(chain.forgetEnded(clock.get() - LIMITS.retentionMillis()), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.offer(ended.get(1)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.offer(ended.get(0)).admission(), is(Admission.EXPIRED));
+		assertThat(chain.heldBytes(), is(0L));
+		assertThat(chain.heads().containsKey(WRITER.id()), is(false));
+	}
+
+	/* A gap that skipped to the last entry of a feed ends the feed by the stamp of that entry, which may lie ahead of
+	   the clock, and the feed is forgotten once that entry aged out */
+	@Example
+	public void forgetsAFeedThatAGapSkippedToItsLastEntryOnceThatEntryAgedOut() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final FeedWriter writer = new FeedWriter(WRITER, CHAIN);
+
+		writer.write(NOW, ChainFixtures.TAG, Padding.padded(new byte[1], ChainFixtures.MAX_ENTRY_BYTES));
+
+		final Entry waited = writer.write(NOW, ChainFixtures.TAG, Padding.padded(new byte[1],
+			ChainFixtures.MAX_ENTRY_BYTES));
+		final Entry last = writer.writeLast(NOW + 20_000, ChainFixtures.TAG, Padding.padded(new byte[1],
+			ChainFixtures.MAX_ENTRY_BYTES));
+
+		chain.offer(waited);
+		chain.offer(last);
+		clock.set(NOW + LIMITS.retentionMillis() + 1000);
+		assertThat(chain.expireGaps(), hasSize(1));
+		assertThat(chain.forgetEnded(clock.get() - LIMITS.retentionMillis()), is(empty()));
+
+		clock.set(NOW + 20_000 + LIMITS.retentionMillis() + 1000);
+		assertThat(chain.forgetEnded(clock.get() - LIMITS.retentionMillis()), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.offer(last).admission(), is(Admission.EXPIRED));
+		assertThat(chain.offer(waited).admission(), is(Admission.EXPIRED));
+		assertThat(chain.heads().containsKey(WRITER.id()), is(false));
+	}
+
+	/* A feed of two entries one second apart, the second of which ends it */
+	private static List<Entry> ended(WriterKey key, long timestamp) {
+		final FeedWriter writer = new FeedWriter(key, CHAIN);
+		final byte[] payload = Padding.padded(new byte[1], ChainFixtures.MAX_ENTRY_BYTES);
+
+		return List.of(writer.write(timestamp, ChainFixtures.TAG, payload),
+			writer.writeLast(timestamp + 1000, ChainFixtures.TAG, payload));
 	}
 }

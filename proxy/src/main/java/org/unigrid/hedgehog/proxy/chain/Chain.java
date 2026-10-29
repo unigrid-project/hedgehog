@@ -50,10 +50,6 @@ public final class Chain {
 	private final NavigableSet<Entry> larger = new TreeSet<>(FIFO);
 	private final Map<WriterId, NavigableMap<Long, Entry>> retained = new HashMap<>();
 	private final Map<WriterId, NavigableMap<Long, Entry>> held = new HashMap<>();
-
-	/* When the chain started each feed that it started after a head, as an anchor names one or a gap skips to one: the
-	   head comes without its time, so the feed counts as heard from then */
-	private final Map<WriterId, Long> startedAt = new HashMap<>();
 	private long bytes;
 	private long largerBytes;
 	private long heldBytes;
@@ -123,25 +119,22 @@ public final class Chain {
 
 	/* Lets a feed join mid-stream after the given head, for a chain whose older entries are trimmed */
 	public synchronized boolean anchor(WriterId writer, Head head) {
-		if (!Feed.canStartAfter(head) || feeds.putIfAbsent(writer, new Feed(writer, head)) != null) {
-			return false;
-		}
-
-		startedAt.put(writer, clock.getAsLong());
-		return true;
+		return Feed.canStartAfter(head) && feeds.putIfAbsent(writer, new Feed(writer, head)) == null;
 	}
 
-	/* Forgets the writers that went quiet, so that the room they take comes free: each writer whose feed was last
-	   heard before the cutoff, that has nothing waiting past a gap and is not one to keep loses its feed, its head
-	   and what the chain retained of it. The cutoff is never later than the start of the retention window, so all a
-	   forgotten writer wrote is refused as EXPIRED from then on and never starts a feed again. */
-	public synchronized Set<WriterId> forgetIdle(long cutoffMillis, Set<WriterId> keep) {
+	/* Forgets the feeds that ended, so that the room their writers take comes free: each writer whose last entry is
+	   stamped before the cutoff loses its feed, its head and what the chain retained of it. A feed that did not end
+	   is never forgotten, as its writer may write again however long it was quiet. The cutoff is never later than the
+	   start of the retention window, and the stamps of a feed never run back, so all a forgotten writer wrote is
+	   refused as EXPIRED from then on and never starts a feed again. */
+	public synchronized Set<WriterId> forgetEnded(long cutoffMillis) {
 		final long cutoff = Math.min(cutoffMillis, clock.getAsLong() - limits.retentionMillis());
-		final Set<WriterId> idle = feeds.keySet().stream().filter(writer -> !keep.contains(writer)
-			&& !held.containsKey(writer) && heardAt(writer) < cutoff).collect(Collectors.toUnmodifiableSet());
+		final Set<WriterId> ended = feeds.values().stream()
+			.filter(feed -> feed.hasEnded() && feed.timestamp() < cutoff).map(Feed::writer)
+			.collect(Collectors.toUnmodifiableSet());
 
-		idle.forEach(this::forgetFeed);
-		return idle;
+		ended.forEach(this::forgetFeed);
+		return ended;
 	}
 
 	public synchronized List<Entry> entries() {
@@ -289,19 +282,13 @@ public final class Chain {
 
 		dropHeld(waiting);
 		feeds.put(writer, Feed.after(last));
-		startedAt.put(writer, clock.getAsLong());
 		return new Gap(writer, fromSeq, last.header().seq(), tags);
-	}
-
-	private long heardAt(WriterId writer) {
-		return Math.max(feeds.get(writer).timestamp(), startedAt.getOrDefault(writer, Long.MIN_VALUE));
 	}
 
 	private void forgetFeed(WriterId writer) {
 		List.copyOf(retained.getOrDefault(writer, Collections.emptyNavigableMap()).values()).forEach(this::forget);
 		retained.remove(writer);
 		feeds.remove(writer);
-		startedAt.remove(writer);
 	}
 
 	private void dropHeld(Map<Long, Entry> dropped) {
