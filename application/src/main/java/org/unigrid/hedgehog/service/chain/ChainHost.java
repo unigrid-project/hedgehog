@@ -796,6 +796,36 @@ public class ChainHost implements ChainService {
 		}
 	}
 
+	/* An entry of this node's own that is stemmed rather than flooded, as an exit does with every entry of its
+	   sessions. It is checked against the replica as an offer would be, counting what waits in the stem, and held in
+	   the embargo until it comes back by flood: only then does the chain append it, report it in its heads and serve it
+	   to a fetch. It goes to the successor of its writer for the period, never to one of the streams to avoid, and
+	   waits in the embargo while there is none. A writer the chain takes no more of is told FULL, as by post. */
+	public Admission postStem(final ChainId chainId, final Entry entry, final Set<Channel> avoid) {
+		if (chainId == null || !chainId.equals(entry.header().chainId())) {
+			return Admission.WRONG_CHAIN;
+		}
+
+		return hosting.find(chainId).map(hosted -> postStem(hosted, entry, avoid)).orElse(Admission.WRONG_CHAIN);
+	}
+
+	private Admission postStem(final HostedChain hosted, final Entry entry, final Set<Channel> avoid) {
+		final long now = clock.getAsLong();
+		final Admission admission = hosted.holdOwn(entry, now);
+
+		if (PASSES_ON.contains(admission)) {
+			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid, now);
+		}
+
+		return admission;
+	}
+
+	private void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
+		final Set<Channel> avoid, final long now) {
+
+		router.successor(hosted.getChain().id(), writer, avoid, now).ifPresent(next -> stemTo(next, entries));
+	}
+
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
 	private void handOver(final HostedChain hosted) {
 		try {

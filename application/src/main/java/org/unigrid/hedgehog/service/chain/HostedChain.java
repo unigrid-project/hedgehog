@@ -238,6 +238,27 @@ final class HostedChain {
 		return Optional.ofNullable(firstFrom.get(writer));
 	}
 
+	/* Holds an entry of this node's own in the embargo, where it waits to come back by flood, once the chain would
+	   take it in or hold it past a gap, counting what the embargo holds already as if it were in the chain. A writer
+	   that would be one too many is told FULL, as a post is. */
+	Admission holdOwn(final Entry entry, final long now) {
+		final WriterId writer = entry.header().writer();
+
+		synchronized (chain) {
+			if (!canTake(writer)) {
+				return Admission.FULL;
+			}
+
+			final Admission admission = chain.check(entry, embargo.bytes());
+
+			if (HOLDS_A_FEED.contains(admission)) {
+				embargo.hold(entry, true, now);
+			}
+
+			return admission;
+		}
+	}
+
 	/* Offering and counting happen under the chain's own lock, so streams that offer at once cannot take the
 	   writers past the limit. An entry of a writer that would be one too many is not offered at all. */
 	Optional<Offer> offer(final Entry entry) {

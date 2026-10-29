@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import net.jqwik.api.Example;
@@ -37,8 +38,11 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
+import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
+import org.unigrid.hedgehog.model.network.packet.FetchEntries;
+import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -48,6 +52,9 @@ public class ChainHostStemTest {
 	private static final String RELAY = "gn-0";
 	private static final List<String> OTHERS = List.of("gn-1", "gn-2", "gn-3");
 	private static final int MAX_ROUNDS = 25;
+
+	/* What a stemmed entry is answered: the first of a writer is taken, the later ones wait for it past a gap */
+	private static final Map<Boolean, Admission> PASSED_ON = Map.of(true, Admission.ACCEPTED, false, Admission.AHEAD);
 
 	private static ChainFleet group(final Function<String, RandomGenerator> stems) {
 		return group(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 30, 3), stems);
@@ -251,5 +258,89 @@ public class ChainHostStemTest {
 
 		assertThat(client.outboundMessages(), is(empty()));
 		assertThat(all(writtenBy(fleet, RELAY)), everyItem(is(instanceOf(ChainStem.class))));
+	}
+
+	/* The exit's own entries, which no member has seen yet */
+	private static final String EXIT = "gn-1";
+
+	private static Admission postStem(final ChainFleet fleet, final Entry entry) {
+		return fleet.host(EXIT).postStem(fleet.chain(), entry, Set.of());
+	}
+
+	/* The member stream of the exit that the stem of a writer went to, with what went there */
+	private static Map.Entry<String, List<Object>> stemmedTo(final Map<String, List<Object>> written) {
+		final List<Map.Entry<String, List<Object>>> stemmed = written.entrySet().stream()
+			.filter(sent -> !sent.getValue().isEmpty()).toList();
+
+		assertThat(stemmed, hasSize(1));
+		assertThat(stemmed.get(0).getValue(), everyItem(is(instanceOf(ChainStem.class))));
+		return stemmed.get(0);
+	}
+
+	@Example
+	public void theExitsHeadsHideEntriesStillInTheStem() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> other = entries(fleet, 2, 1);
+		final ChainHost exit = fleet.host(EXIT);
+		final FetchEntries request = FetchEntries.builder().chainId(fleet.chain())
+			.ranges(List.of(new FetchEntries.Range(ChainFleet.writer(1), 0, 1))).build();
+
+		own.forEach(entry -> assertThat(postStem(fleet, entry), is(PASSED_ON.get(entry.header().seq() == 0))));
+		exit.receive(fleet.stream(EXIT, RELAY), new ChainEntry(other));
+		writtenBy(fleet, EXIT);
+		exit.reconcileRound();
+
+		final ChainHeads announced = (ChainHeads) all(writtenBy(fleet, EXIT)).get(0);
+
+		assertThat(exit.chain(fleet.chain()).orElseThrow().heads().keySet(), is(Set.of(ChainFleet.writer(2))));
+		assertThat(announced.getHeads().keySet(), is(Set.of(ChainFleet.writer(2))));
+		assertThat(exit.fetch(fleet.stream(EXIT, RELAY), request), is(empty()));
+		assertThat(exit.join(fleet.client(EXIT, 3), JoinChain.builder().requestId(1).writer(ChainFleet.writer(3))
+			.chainId(fleet.chain()).build()).getHeads().keySet(), is(Set.of(ChainFleet.writer(2))));
+
+		exit.receive(fleet.stream(EXIT, "gn-2"), new ChainEntry(own));
+
+		assertThat(exit.chain(fleet.chain()).orElseThrow().heads().keySet(),
+			is(Set.of(ChainFleet.writer(1), ChainFleet.writer(2))));
+		assertThat(exit.fetch(fleet.stream(EXIT, RELAY), request), equalTo(own));
+		assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(0L));
+	}
+
+	@Example
+	public void aDroppedStemIsFloodedByTheEmbargo() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		int rounds = 0;
+
+		postStem(fleet, own.get(0));
+		stemmedTo(writtenBy(fleet, EXIT));
+
+		while (hosted(fleet, EXIT).getChain().entries().isEmpty() && rounds < MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			rounds++;
+		}
+
+		final Map<String, List<Object>> written = writtenBy(fleet, EXIT);
+
+		assertThat(rounds, is(greaterThanOrEqualTo((int) (StemEmbargo.OWN_MILLIS / 1000))));
+		assertThat(rounds, is(lessThan(MAX_ROUNDS)));
+		assertThat(written.keySet(), is(Set.copyOf(others(EXIT))));
+		assertThat(written.values(), everyItem(equalTo(List.of(new ChainEntry(own)))));
+	}
+
+	/* The replica of the exit has room for two entries, which the stem holds, so the third waits */
+	@Example
+	public void stemsNoEntryTheReplicaWouldHaveNoRoomFor() {
+		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 3);
+
+		assertThat(postStem(fleet, own.get(0)), is(Admission.ACCEPTED));
+		assertThat(postStem(fleet, own.get(1)), is(Admission.AHEAD));
+		writtenBy(fleet, EXIT);
+		assertThat(postStem(fleet, own.get(2)), is(Admission.FULL));
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(false));
 	}
 }
