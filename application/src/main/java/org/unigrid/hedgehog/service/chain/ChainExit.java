@@ -127,7 +127,8 @@ public class ChainExit implements ChainDrain {
 	}
 
 	private record Ended(ChainId chainId, long until) {
-		/* The chain of the writer of a session that ended, and until when its entries may still come back */
+		/* The chain of the writer of a session that ended, and until when it holds a place there and its entries may
+		   still come back */
 	}
 
 	private record Opening(ChainId chainId, ByteBuffer message) {
@@ -410,7 +411,7 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The writers of this exit that hold a place on the chain */
-	private long writersOn(final ChainId chainId, final long now) {
+	long writersOn(final ChainId chainId, final long now) {
 		final long drains = draining.values().stream().filter(held -> held.relayed().chain().id().equals(chainId))
 			.count();
 		final long gone = ended.values().stream().filter(writer -> writer.chainId().equals(chainId)
@@ -487,15 +488,19 @@ public class ChainExit implements ChainDrain {
 		return held.relayed().outbox().isDrained() || now >= held.until();
 	}
 
-	/* What the writer of the session posted may come back for as long as its chain keeps entries. The writer is in
-	   the record before its relay leaves the others. */
+	/* What the writer of the session posted may come back for as long as its chain keeps entries, and a chain forgets
+	   the feed once its last entry is that old. A Close that never reached the chain, as the outbox ended or the relay
+	   went with it still waiting, leaves a feed that never ends, which holds its place for as long as the host holds
+	   the chain. The writer is in the record before its relay leaves the others. */
 	private void letGo(final Relayed relayed, final long now) {
+		final boolean placed = relayed.outbox().isDrained() && !relayed.outbox().hasEnded();
+
 		ended.put(relayed.writer().writer(), new Ended(relayed.chain().id(),
-			now + relayed.chain().limits().retentionMillis()));
+			placed ? now + relayed.chain().limits().retentionMillis() : Long.MAX_VALUE));
 	}
 
 	private void forgetEnded(final long now) {
-		ended.values().removeIf(gone -> gone.until() < now);
+		ended.values().removeIf(gone -> gone.until() < now || host.chain(gone.chainId()).isEmpty());
 	}
 
 	/* A relay, a feed or a tick that fails is logged by the class of the failure alone, as a message may name a

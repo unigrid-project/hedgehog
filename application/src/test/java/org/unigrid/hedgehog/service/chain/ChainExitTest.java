@@ -1033,6 +1033,19 @@ public class ChainExitTest {
 		assertThat(caller.received, contains(CONNECTED, new Data(new byte[] { 1 })));
 	}
 
+	/* A relay that went before its Close reached the chain leaves a feed that never ended, which the chain keeps until
+	   it is dropped, so its writer goes on counting against the share of the exit once the retention window is past */
+	@Example
+	public void countsTheWriterOfARelayWhoseCloseNeverReachedTheChainForAsLongAsTheChainIsHeld() {
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(6)));
+
+		drainPastTheRetention(rig, rig.caller(1));
+		rig.fleet.clock.set(ChainFleet.NOW + 80_000);
+		rig.exit.tick();
+
+		assertThat(rig.exit.writersOn(rig.fleet.chain(), rig.fleet.clock.get()), is(1L));
+	}
+
 	/* A member that refuses every entry of the exit keeps the writers of its sessions paused for good, which says
 	   nothing about what their outboxes hold: a relay that ended with nothing waiting goes at the tick, so its place
 	   is free for the next opening */
