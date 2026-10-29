@@ -65,7 +65,8 @@ public class TunnelProducer {
 	}
 
 	/* The countries of the gridnodes, from the GeoIP database the node was given. A node that has none, or one it
-	   cannot read, knows no country, and a stream that names one fails. */
+	   cannot read, knows no country, and a stream that names one fails. The reader refuses some files it cannot make
+	   sense of with an unchecked exception, which must not keep the node from starting. */
 	static CountryLookup countryLookup(final Path database) {
 		try {
 			return MmdbCountryLookup.read(database);
@@ -74,7 +75,7 @@ public class TunnelProducer {
 		} catch (MmdbCountryLookup.TooLargeException ex) {
 			log.warn("The GeoIP database at {} holds {} bytes or more, over the {} bytes allowed, so a SOCKS5 "
 				+ "connection that names a country fails", database, ex.size(), MmdbCountryLookup.MAX_BYTES);
-		} catch (IOException ex) {
+		} catch (IOException | RuntimeException ex) {
 			log.warn("The GeoIP database at {} cannot be read ({}), so a SOCKS5 connection that names a country "
 				+ "fails", database, ex.getClass().getName());
 		}

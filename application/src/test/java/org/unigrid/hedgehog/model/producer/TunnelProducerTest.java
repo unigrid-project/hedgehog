@@ -252,6 +252,26 @@ public class TunnelProducerTest {
 		}
 	}
 
+	/* Metadata that is an empty map makes the reader fail with an unchecked exception of its own */
+	@Example
+	@SneakyThrows
+	public void knowsNoCountryFromAGeoipDatabaseWhoseMetadataTheReaderRefuses() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path database = fs.getPath(GEOIP);
+			final byte[] metadata = { (byte) 0xAB, (byte) 0xCD, (byte) 0xEF, 'M', 'a', 'x', 'M', 'i', 'n', 'd', '.', 'c',
+				'o', 'm', (byte) 0xE0 };
+
+			Files.createDirectories(database.getParent());
+			Files.write(database, metadata);
+
+			final List<ILoggingEvent> logged = loggedWhile(() -> assertThat(TunnelProducer.countryLookup(database),
+				sameInstance(CountryLookup.NONE)));
+
+			assertThat(levels(logged), equalTo(List.of(Level.WARN)));
+			assertThat(logged.get(0).getFormattedMessage(), containsString(GEOIP));
+		}
+	}
+
 	@Example
 	@SneakyThrows
 	public void knowsNoCountryFromAGeoipDatabaseItCannotRead() {
