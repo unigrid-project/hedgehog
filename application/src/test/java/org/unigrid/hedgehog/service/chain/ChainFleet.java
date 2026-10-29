@@ -25,6 +25,7 @@ import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.WriteBufferWaterMark;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -48,6 +49,7 @@ import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.slf4j.LoggerFactory;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.network.PendingRequests;
@@ -265,6 +267,21 @@ final class ChainFleet {
 	List<String> attachMembers(final String node, final ChainAttachment attachment) {
 		return gridnodes.stream().map(Gridnode::getId).filter(id -> Optional.ofNullable(streams.get(new Link(node, id)))
 			.filter(attachment.streams()::contains).isPresent()).toList();
+	}
+
+	/* Puts each gridnode at an address of a documentation range, from 192.0.2.1 on, and gives the lookup that finds
+	   it in the country the map holds for its id, so that a test can move a gridnode once the fleet is made */
+	CountryLookup located(final Map<String, String> countries) {
+		final Map<InetAddress, String> ids = new ConcurrentHashMap<>();
+
+		for (int number = 0; number < gridnodes.size(); number++) {
+			final InetAddress address = InetAddress.ofLiteral("192.0.2." + (number + 1));
+
+			gridnodes.get(number).setHostName(address.getHostAddress() + ":52883");
+			ids.put(address, gridnodes.get(number).getId());
+		}
+
+		return address -> Optional.ofNullable(ids.get(address)).map(countries::get);
 	}
 
 	/* An offline host gets no stream from the others until it is back */

@@ -73,6 +73,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import org.unigrid.hedgehog.jqwik.Expect;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -219,8 +220,8 @@ public class ChainClientTest {
 		}
 
 		ChainClient client(final RandomGenerator random, final Executor joins) {
-			return new ChainClient(() -> source.current(), directory(), id -> transport.streamTo(id), host,
-				pending, clock::get, random, joins);
+			return new ChainClient(() -> source.current(), directory(), CountryLookup.NONE,
+				id -> transport.streamTo(id), host, pending, clock::get, random, joins);
 		}
 
 		ChainClient client() {
@@ -313,13 +314,23 @@ public class ChainClientTest {
 		}
 	}
 
-	private static ChainClient clientOf(final ChainFleet fleet, final PendingRequests pending, final Random random) {
-		return new ChainClient(fleet.settings::get, fleet.directory(CLIENT), fleet.transport(CLIENT),
+	private static ChainClient clientOf(final ChainFleet fleet, final CountryLookup countries,
+		final PendingRequests pending, final RandomGenerator random) {
+
+		return new ChainClient(fleet.settings::get, fleet.directory(CLIENT), countries, fleet.transport(CLIENT),
 			fleet.host(CLIENT), pending, fleet.clock::get, random, Runnable::run);
 	}
 
+	private static ChainClient clientOf(final ChainFleet fleet, final PendingRequests pending, final Random random) {
+		return clientOf(fleet, CountryLookup.NONE, pending, random);
+	}
+
+	private static ChainClient clientOf(final ChainFleet fleet, final CountryLookup countries) {
+		return clientOf(fleet, countries, fleet.pending(CLIENT), new Random(1));
+	}
+
 	private static ChainClient clientOf(final ChainFleet fleet) {
-		return clientOf(fleet, fleet.pending(CLIENT), new Random(1));
+		return clientOf(fleet, CountryLookup.NONE);
 	}
 
 	private static ChainAttachment attached(final ChainFleet fleet, final ChainClient client) {
@@ -552,7 +563,13 @@ public class ChainClientTest {
 	}
 
 	private static Set<String> drawnExits(final ChainAttachment attachment) {
-		return IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Set.of()).orElseThrow().id())
+		return drawnExits(attachment, Optional.empty(), Set.of());
+	}
+
+	private static Set<String> drawnExits(final ChainAttachment attachment, final Optional<String> country,
+		final Set<String> excluded) {
+
+		return IntStream.range(0, 200).mapToObj(draw -> attachment.exit(country, excluded).orElseThrow().id())
 			.collect(Collectors.toSet());
 	}
 
@@ -608,8 +625,9 @@ public class ChainClientTest {
 		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
 		final String own = "gn-0";
 		final int hosted = fleet.view().groups().groupOf(own).orElseThrow();
-		final ChainClient client = new ChainClient(fleet.settings::get, fleet.directory(own), fleet.transport(own),
-			fleet.host(own), fleet.pending(own), fleet.clock::get, choosing(fleet, hosted), Runnable::run);
+		final ChainClient client = new ChainClient(fleet.settings::get, fleet.directory(own), CountryLookup.NONE,
+			fleet.transport(own), fleet.host(own), fleet.pending(own), fleet.clock::get, choosing(fleet, hosted),
+			Runnable::run);
 
 		assertThat(attached(fleet, client).group(), is(1 - hosted));
 		assertThat(joinsTo(fleet, fleet.view().groups().members(hosted)), is(0L));
@@ -629,8 +647,9 @@ public class ChainClientTest {
 		fleet.activeIds().stream().filter(id -> !id.equals(own)).forEach(id -> fleet.host(id).refresh());
 
 		final int hosted = fleet.view().groups().groupOf(own).orElseThrow();
-		final ChainClient client = new ChainClient(fleet.settings::get, fleet.directory(own), fleet.transport(own),
-			fleet.host(own), fleet.pending(own), fleet.clock::get, choosing(fleet, hosted), Runnable::run);
+		final ChainClient client = new ChainClient(fleet.settings::get, fleet.directory(own), CountryLookup.NONE,
+			fleet.transport(own), fleet.host(own), fleet.pending(own), fleet.clock::get, choosing(fleet, hosted),
+			Runnable::run);
 
 		assertThat(attached(fleet, client).group(), is(stale));
 		assertThat(joinsTo(fleet, fleet.view().groups().members(hosted)), is(0L));
@@ -804,8 +823,8 @@ public class ChainClientTest {
 
 		final ChainAttachment attachment = attached(fleet, clientOf(fleet));
 		final List<String> attachMembers = fleet.attachMembers(CLIENT, attachment);
-		final List<ExitCandidate> drawn = IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Set.of())
-			.orElseThrow()).toList();
+		final List<ExitCandidate> drawn = IntStream.range(0, 200).mapToObj(draw -> attachment.exit(Optional.empty(),
+			Set.of()).orElseThrow()).toList();
 
 		assertThat(attachment.members(), hasItem(unconnected));
 		assertThat(attachMembers, hasSize(2));
@@ -814,6 +833,27 @@ public class ChainClientTest {
 			.collect(Collectors.toSet())));
 		drawn.forEach(exit -> assertThat(exit.sealingKey(), equalTo(ChainFleet.sealingKey(exit.id()).publicKey()
 			.orElseThrow())));
+	}
+
+	/* Only a member in the country asked for is drawn, never an attach member there, and none for a country no
+	   member left is in */
+	@Example
+	public void choosesTheExitAmongTheMembersInTheAskedCountry() {
+		final ChainFleet fleet = ChainFleet.group();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainAttachment attachment = attached(fleet, clientOf(fleet, fleet.located(countries)));
+		final List<String> attachMembers = fleet.attachMembers(CLIENT, attachment);
+		final List<String> others = attachment.members().stream().filter(member -> !attachMembers.contains(member))
+			.toList();
+
+		attachment.members().forEach(member -> countries.put(member, "SE"));
+		countries.put(others.get(1), "NO");
+
+		assertThat(drawnExits(attachment, Optional.of("SE"), Set.of()), equalTo(Set.of(others.get(0))));
+		assertThat(drawnExits(attachment, Optional.of("NO"), Set.of()), equalTo(Set.of(others.get(1))));
+		assertThat(drawnExits(attachment, Optional.empty(), Set.of()), equalTo(Set.copyOf(others)));
+		assertThat(attachment.exit(Optional.of("SE"), Set.of(others.get(0))), equalTo(Optional.empty()));
+		assertThat(attachment.exit(Optional.of("DK"), Set.of()), equalTo(Optional.empty()));
 	}
 
 	/* Of a group of eight, the node attaches through two and passes over three more */
@@ -838,12 +878,12 @@ public class ChainClientTest {
 			.forEach(gridnode -> gridnode.setSealingKey(null));
 
 		for (int draw = 0; draw < 50; draw++) {
-			assertThat(attachment.exit(Set.of(others.get(3), others.get(4), others.get(5))).map(ExitCandidate::id),
-				equalTo(Optional.of(others.get(0))));
+			assertThat(attachment.exit(Optional.empty(), Set.of(others.get(3), others.get(4), others.get(5)))
+				.map(ExitCandidate::id), equalTo(Optional.of(others.get(0))));
 		}
 
-		assertThat(attachment.exit(Set.of(others.get(0), others.get(3), others.get(4), others.get(5))),
-			equalTo(Optional.empty()));
+		assertThat(attachment.exit(Optional.empty(), Set.of(others.get(0), others.get(3), others.get(4),
+			others.get(5))), equalTo(Optional.empty()));
 	}
 
 	@Example
@@ -1333,8 +1373,8 @@ public class ChainClientTest {
 	public void joinsOnDaemonThreadsOfItsOwnWhenNoExecutorIsGiven() throws Exception {
 		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
 		final ChainClient client = new ChainClient(() -> scripted.source.current(), scripted.directory(),
-			id -> scripted.transport.streamTo(id), scripted.host, scripted.pending, scripted.clock::get,
-			new Random(1));
+			CountryLookup.NONE, id -> scripted.transport.streamTo(id), scripted.host, scripted.pending,
+			scripted.clock::get, new Random(1));
 
 		final Thread thread = client.attachment().thenApply(attachment -> Thread.currentThread())
 			.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);

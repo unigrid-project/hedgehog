@@ -50,11 +50,11 @@ public class TunnelProducer {
 	   then. */
 	@Produces @Singleton
 	public Tunnel tunnel(final ChainHost host, final ChainTransport transport, final GridnodeDirectory directory,
-		final ProxySettingsSource settings, final PendingRequests pending) {
+		final CountryLookup countries, final ProxySettingsSource settings, final PendingRequests pending) {
 
 		final SecureRandom random = new SecureRandom();
 		final ScheduledThreadPoolExecutor scheduler = scheduler();
-		final ChainClient client = new ChainClient(settings, directory, transport, host, pending,
+		final ChainClient client = new ChainClient(settings, directory, countries, transport, host, pending,
 			System::currentTimeMillis, random);
 
 		return new ChainTunnel(settings, new ClientSessions(client, host, settings, System::currentTimeMillis,

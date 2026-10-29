@@ -43,6 +43,7 @@ import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
@@ -54,10 +55,10 @@ import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.chain.WriterKey;
+import org.unigrid.hedgehog.proxy.group.GroupChoice;
 import org.unigrid.hedgehog.proxy.group.GroupView;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.proxy.session.ExitCandidate;
-import org.unigrid.hedgehog.proxy.session.ExitSelector;
 import org.unigrid.hedgehog.proxy.session.NoiseNk;
 
 /* The client side of the shard groups: finds a group that takes this node, asks a member to let a writer of this
@@ -73,6 +74,7 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk;
 public final class ChainClient {
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
+	private final CountryLookup countries;
 	private final ChainTransport transport;
 	private final ChainHost host;
 	private final PendingRequests pending;
@@ -89,16 +91,21 @@ public final class ChainClient {
 
 	/* The joins run on threads of their own, as a caller may be an event loop and a join looks the streams up, which
 	   can resolve names: not the common pool, whose few CPU-bound workers a blocked lookup would hold */
+	@SuppressWarnings("checkstyle:ParameterNumber")
 	public ChainClient(final ProxySettingsSource settings, final GridnodeDirectory directory,
-		final ChainTransport transport, final ChainHost host, final PendingRequests pending,
-		final LongSupplier clock, final RandomGenerator random) {
+		final CountryLookup countries, final ChainTransport transport, final ChainHost host,
+		final PendingRequests pending, final LongSupplier clock, final RandomGenerator random) {
 
-		this(settings, directory, transport, host, pending, clock, random, Executors.newCachedThreadPool(body -> {
+		this(settings, directory, countries, transport, host, pending, clock, random, joinThreads());
+	}
+
+	private static Executor joinThreads() {
+		return Executors.newCachedThreadPool(body -> {
 			final Thread thread = new Thread(body, "chain-client-join");
 
 			thread.setDaemon(true);
 			return thread;
-		}));
+		});
 	}
 
 	/* The chain to write on, joined first if this node has none for the epoch or lost the one it had. Callers that
@@ -238,17 +245,19 @@ public final class ChainClient {
 	/* A member of the group is a candidate exit while it is active and announces a sealing key, unless the node
 	   asked it to attach: that member sees the node's address and learned its writer, whether it took the node or
 	   not, and as the exit it would see both ends of a session. Each session draws its exit at random among the
-	   candidates it did not pass over. */
-	private ExitSelector exitsAmong(final List<String> members, final List<String> askedMembers) {
-		return excluded -> {
-			final List<ExitCandidate> candidates = directory.active().stream()
+	   candidates in the country it names that it did not pass over. */
+	private ChainAttachment.Exits exitsAmong(final List<String> members, final List<String> askedMembers) {
+		return (country, excluded) -> {
+			final Map<String, Gridnode> candidates = directory.active().stream()
 				.filter(gridnode -> members.contains(gridnode.getId()))
 				.filter(gridnode -> !askedMembers.contains(gridnode.getId()))
-				.filter(gridnode -> !excluded.contains(gridnode.getId())).filter(ChainClient::hasSealingKey)
-				.map(gridnode -> new ExitCandidate(gridnode.getId(), gridnode.getSealingKey())).toList();
+				.filter(ChainClient::hasSealingKey)
+				.collect(Collectors.toMap(Gridnode::getId, Function.identity(), (first, second) -> first));
 
-			return candidates.isEmpty() ? Optional.empty()
-				: Optional.of(candidates.get(random.nextInt(candidates.size())));
+			return GroupChoice.exit(members.stream().filter(candidates::containsKey).toList(), country,
+				member -> countries.countryOfHost(candidates.get(member).getHostName()), excluded, random)
+				.map(candidates::get)
+				.map(gridnode -> new ExitCandidate(gridnode.getId(), gridnode.getSealingKey()));
 		};
 	}
 

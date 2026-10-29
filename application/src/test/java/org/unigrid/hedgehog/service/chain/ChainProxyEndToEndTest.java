@@ -58,6 +58,7 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Tag;
@@ -108,8 +109,8 @@ public class ChainProxyEndToEndTest {
 				new NettyExitConnector(destinations, CONNECT_TIMEOUT_MILLIS), Runnable::run, () -> { },
 				new NettyUdpConnector(destinations));
 			sessions = new ClientSessions(new ChainClient(fleet.settings::get, fleet.directory(CLIENT),
-				fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT), fleet.clock::get, random,
-				joins), fleet.host(CLIENT), fleet.settings::get, fleet.clock::get, new SecureRandom(),
+				CountryLookup.NONE, fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT),
+				fleet.clock::get, random, joins), fleet.host(CLIENT), fleet.settings::get, fleet.clock::get, new SecureRandom(),
 				new ManualScheduler());
 			onDuty.forEach(this::exit);
 			pump.setRemoveOnCancelPolicy(true);

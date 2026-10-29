@@ -25,9 +25,11 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -111,6 +113,9 @@ public class ClientSessionsTest {
 	private static final class Rig {
 		private final ChainFleet fleet;
 		private final List<ExitStub> exits;
+
+		/* The country of each gridnode, by its id, as the client finds it, which a test may set at any time */
+		private final Map<String, String> countries = new ConcurrentHashMap<>();
 		private final ManualScheduler scheduler = new ManualScheduler();
 		private final ChainClient client;
 		private final ClientSessions sessions;
@@ -135,9 +140,9 @@ public class ClientSessionsTest {
 			this.fleet = fleet;
 			exits = IntStream.range(0, ChainFleet.MEMBERS).mapToObj(number -> new ExitStub(fleet, number))
 				.toList();
-			client = new ChainClient(clientSettings, fleet.directory(CLIENT), fleet.transport(CLIENT),
-				fleet.host(CLIENT), fleet.pending(CLIENT), fleet.clock::get, new SecureRandom(),
-				Runnable::run);
+			client = new ChainClient(clientSettings, fleet.directory(CLIENT), fleet.located(countries),
+				fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT), fleet.clock::get,
+				new SecureRandom(), Runnable::run);
 			sessions = new ClientSessions(client, fleet.host(CLIENT), settings, clock, random, scheduler);
 		}
 
@@ -320,6 +325,30 @@ public class ClientSessionsTest {
 		assertThat(rig.opens(), hasSize(24));
 		assertThat(rig.opens().stream().map(Rig::exitOf).collect(Collectors.toSet()), equalTo(attachment.members()
 			.stream().filter(member -> !attachMembers.contains(member)).collect(Collectors.toSet())));
+	}
+
+	/* Of the members the client may use, one is in Sweden and none in Denmark */
+	@Example
+	public void opensASessionOnAnExitInTheCountryItNames() {
+		final Rig rig = new Rig(ChainFleet.group());
+		final CompletableFuture<ChainAttachment> joined = rig.client.attachment();
+
+		rig.fleet.deliver();
+
+		final ChainAttachment attachment = joined.join();
+		final List<String> attachMembers = rig.fleet.attachMembers(CLIENT, attachment);
+		final String swede = attachment.members().stream().filter(member -> !attachMembers.contains(member))
+			.findFirst().orElseThrow();
+		final Listener danish = new Listener();
+
+		attachment.members().forEach(member -> rig.countries.put(member, member.equals(swede) ? "SE" : "NO"));
+		IntStream.range(0, 8).forEach(number -> rig.sessions.open(CONNECT, Optional.of("SE"), new Listener()));
+		rig.sessions.open(CONNECT, Optional.of("DK"), danish);
+		rig.fleet.deliver();
+
+		assertThat(rig.opens(), hasSize(8));
+		assertThat(rig.opens().stream().map(Rig::exitOf).distinct().toList(), equalTo(List.of(swede)));
+		assertThat(danish.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
 	}
 
 	@Example

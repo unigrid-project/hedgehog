@@ -74,8 +74,8 @@ public class TunnelProducerTest {
 		final GridnodeDirectory directory = new TopologyGridnodeDirectory(() -> List.of(), () -> "client");
 		final ChainTransport transport = peer -> Optional.empty();
 
-		return new TunnelProducer().tunnel(new ChainHost(source, directory, transport), transport, directory, source,
-			new PendingRequests());
+		return new TunnelProducer().tunnel(new ChainHost(source, directory, transport), transport, directory,
+			CountryLookup.NONE, source, new PendingRequests());
 	}
 
 	/* What the tunnel tells about one stream, from whichever thread it tells it */

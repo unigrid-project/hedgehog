@@ -243,8 +243,6 @@ public final class ClientSessions implements SessionOpener {
 
 	private final class Handle implements SessionHandle {
 		private final Connect connect;
-
-		/* TODO: choose the group and the exit by this country */
 		private final Optional<String> country;
 		private final SessionListener listener;
 		private final OrderedDrain<SealedMessage> untold = new OrderedDrain<>(new ConcurrentLinkedQueue<>());
@@ -268,7 +266,8 @@ public final class ClientSessions implements SessionOpener {
 				}
 
 				chain = joined;
-				session = new ClientSession(joined.context(), attachment::exit, connect);
+				session = new ClientSession(joined.context(), excluded -> attachment.exit(country, excluded),
+					connect);
 				return session.open() ? Optional.empty() : Optional.of(new Close(CloseReason.UNREACHABLE));
 			});
 		}
