@@ -111,6 +111,11 @@
 			<version>2.15.1</version>
 		</dependency>
 		<dependency>
+			<groupId>com.maxmind.db</groupId>
+			<artifactId>maxmind-db</artifactId>
+			<version>3.2.0</version>
+		</dependency>
+		<dependency>
 			<groupId>org.jboss.weld.se</groupId>
 			<artifactId>weld-se-core</artifactId>
 			<version>5.1.0.Final</version>

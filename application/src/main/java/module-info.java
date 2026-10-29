@@ -67,6 +67,7 @@ module org.unigrid.hedgehog {
 	requires org.unigrid.hedgehog.s3;
 	requires org.unigrid.hedgehog.proxy;
 	requires org.bitcoinj.core;
+	requires com.maxmind.db;
 
 	opens org.unigrid.hedgehog.model.bootstrap to com.fasterxml.jackson.databind;
 	opens org.unigrid.hedgehog.server.rest.entity to com.fasterxml.jackson.databind;
