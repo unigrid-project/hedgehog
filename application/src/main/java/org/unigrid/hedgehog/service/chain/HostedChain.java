@@ -239,8 +239,9 @@ final class HostedChain {
 	}
 
 	/* Holds an entry of this node's own in the embargo, where it waits to come back by flood, once the chain would
-	   take it in or hold it past a gap, counting what the embargo holds already as if it were in the chain. A writer
-	   that would be one too many is told FULL, as a post is. */
+	   take it in or hold it past a gap, counting what the embargo holds already as if it were in the chain. Its writer
+	   takes a place as one with an entry in the chain does, under the same lock and limit, and a writer that would be
+	   one too many is told FULL, as a post is. */
 	Admission holdOwn(final Entry entry, final long now) {
 		final WriterId writer = entry.header().writer();
 
@@ -252,6 +253,7 @@ final class HostedChain {
 			final Admission admission = chain.check(entry, embargo.bytes());
 
 			if (HOLDS_A_FEED.contains(admission)) {
+				writers.add(writer);
 				embargo.hold(entry, true, now);
 			}
 

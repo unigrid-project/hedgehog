@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
@@ -44,7 +45,9 @@ import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.proxy.chain.Admission;
+import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostStemTest {
@@ -342,6 +345,19 @@ public class ChainHostStemTest {
 		assertThat(postStem(fleet, own.get(2)), is(Admission.FULL));
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(false));
+	}
+
+	/* A writer whose entries are all in the stem has a place on the chain as if they were in it */
+	@Example
+	public void aWriterInTheStemHoldsAPlace() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final HostedChain hosted = new HostedChain(new Chain(fleet.chain(), ProxySettings.DEFAULTS.chainLimits(),
+			fleet.clock::get), new Epoch(0), 1, new StemEmbargo(new Random(1)));
+
+		assertThat(hosted.holdOwn(entries(fleet, 1, 1).get(0), NOW), is(Admission.ACCEPTED));
+		assertThat(hosted.takesNewWriters(), is(false));
+		assertThat(hosted.holdOwn(entries(fleet, 2, 1).get(0), NOW), is(Admission.FULL));
+		assertThat(hosted.getEmbargo().holdsAnyOf(ChainFleet.writer(2)), is(false));
 	}
 
 	/* What a member refused is stemmed again while the stem still holds it, and what came back already is left to
