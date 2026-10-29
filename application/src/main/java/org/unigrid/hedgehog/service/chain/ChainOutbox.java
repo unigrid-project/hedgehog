@@ -111,9 +111,11 @@ public final class ChainOutbox implements Consumer<Entry> {
 		return ended;
 	}
 
-	/* Whether nothing waits to be placed, whatever pauses the writer. An outbox that ended dropped what waited. */
-	public synchronized boolean isDrained() {
-		return waiting.isEmpty() && !posting;
+	/* Whether nothing waits to be placed, whatever pauses the writer. An outbox that ended dropped what waited. What a
+	   writer of an exit stemmed is placed once it came back by flood, so the outbox has not drained while the embargo
+	   of its chain holds any of it; the host is asked outside the lock of the outbox. */
+	public boolean isDrained() {
+		return isSettled() && (mode == Mode.POST || !isInTheStem());
 	}
 
 	/* Run about once a second, on one thread. What a member refused is offered again before what waited is placed,
@@ -252,6 +254,14 @@ public final class ChainOutbox implements Consumer<Entry> {
 	private synchronized void end() {
 		ended = true;
 		waiting.clear();
+	}
+
+	private synchronized boolean isSettled() {
+		return waiting.isEmpty() && !posting;
+	}
+
+	private boolean isInTheStem() {
+		return host.hosted(chainId).filter(hosted -> hosted.getEmbargo().holdsAnyOf(writer)).isPresent();
 	}
 
 	private synchronized boolean isClear() {

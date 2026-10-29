@@ -1001,4 +1001,22 @@ public class ChainOutboxTest {
 		assertThat(stems.isWritable(), is(true));
 		assertThat(written().get(successor), equalTo(List.of(new ChainStem(entries))));
 	}
+
+	/* What an exit stems is placed once it came back by flood, so its outbox has not drained while the stem still
+	   holds any of it, though nothing waits in the outbox itself */
+	@Example
+	public void anExitsOutboxHasNotDrainedWhileTheStemHoldsItsEntries() {
+		final ChainOutbox stems = stemming();
+		final List<Entry> entries = mine(2);
+
+		entries.forEach(stems::accept);
+
+		final EmbeddedChannel successor = fleet.stream("gn-1", onlyOneOf(written()));
+
+		assertThat(stems.isDrained(), is(false));
+		host.receive(successor, ChainEntry.builder().entries(entries.subList(0, 1)).build());
+		assertThat(stems.isDrained(), is(false));
+		host.receive(successor, ChainEntry.builder().entries(entries.subList(1, 2)).build());
+		assertThat(stems.isDrained(), is(true));
+	}
 }
