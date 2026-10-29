@@ -100,7 +100,8 @@ public class JoinReplyIntegrityTest extends BaseCodecTest<JoinReply> {
 		@Mocked ChannelHandlerContext context) {
 
 		final ByteBuf in = Unpooled.buffer().writeLong(requestId).writeByte(Status.JOINED.ordinal())
-			.writeZero(ChainId.SIZE).writeShort(1).writeBytes(writer).writeLong(seq).writeLong(hash);
+			.writeZero(ChainId.SIZE).writeShort(1).writeBytes(writer).writeLong(seq).writeLong(hash).writeLong(0)
+			.writeByte(0);
 
 		assertThrows(IllegalArgumentException.class, () -> new JoinReplyDecoder().typedDecode(context, in));
 	}

@@ -94,7 +94,7 @@ public class ChainHeadsIntegrityTest extends BaseCodecTest<ChainHeads> {
 		@ForAll @Negative long seq, @ForAll long hash, @Mocked ChannelHandlerContext context) {
 
 		final ByteBuf in = Unpooled.buffer().writeZero(ChainId.SIZE).writeShort(1).writeBytes(writer)
-			.writeLong(seq).writeLong(hash);
+			.writeLong(seq).writeLong(hash).writeLong(0).writeByte(0);
 
 		assertThrows(IllegalArgumentException.class, () -> new ChainHeadsDecoder().typedDecode(context, in));
 	}

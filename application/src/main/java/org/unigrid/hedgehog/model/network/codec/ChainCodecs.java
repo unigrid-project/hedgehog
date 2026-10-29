@@ -49,6 +49,9 @@ public final class ChainCodecs {
 	/* What a frame of entries takes before its first entry: the frame header and the count */
 	public static final int ENTRIES_FRAME_OVERHEAD = FRAME_HEADER_BYTES + Short.BYTES;
 
+	/* The mark of a head whose entry ended its feed */
+	private static final byte LAST = 0x01;
+
 	private ChainCodecs() {
 		/* Static helpers only */
 	}
@@ -162,12 +165,15 @@ public final class ChainCodecs {
 		}
 	}
 
+	/* Each head goes with the stamp of its entry and whether that entry ended its feed, so that a feed started after
+	   it ends where the writer ended it and is forgotten in time */
 	public static void writeHeads(final ByteBuf out, final Map<WriterId, Head> heads) {
 		writeCount(out, heads.size(), MAX_HEADS_PER_PACKET);
 
 		heads.forEach((writer, head) -> {
 			writeWriter(out, writer);
-			out.writeLong(head.seq()).writeLong(head.hash());
+			out.writeLong(head.seq()).writeLong(head.hash()).writeLong(head.timestamp())
+				.writeByte(head.last() ? LAST : 0);
 		});
 	}
 
@@ -177,13 +183,26 @@ public final class ChainCodecs {
 
 		for (int i = 0; i < count; i++) {
 			final WriterId writer = readWriter(in);
-			final long seq = in.readLong();
+			final Head head = readHead(in);
 
-			if (heads.put(writer, new Head(seq, in.readLong())) != null) {
+			if (heads.put(writer, head) != null) {
 				throw new IllegalArgumentException("Writer " + writer + " has more than one head");
 			}
 		}
 
 		return heads;
+	}
+
+	private static Head readHead(final ByteBuf in) {
+		final long seq = in.readLong();
+		final long hash = in.readLong();
+		final long timestamp = in.readLong();
+		final byte mark = in.readByte();
+
+		if (mark != 0 && mark != LAST) {
+			throw new IllegalArgumentException("Unknown mark of a head " + Integer.toHexString(mark & 0xFF));
+		}
+
+		return new Head(seq, hash, timestamp, mark == LAST);
 	}
 }

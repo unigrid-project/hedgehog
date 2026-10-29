@@ -51,7 +51,8 @@ public final class ChainArbitraries {
 	}
 
 	public static Arbitrary<Head> head() {
-		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs()).as(Head::new);
+		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs(), Arbitraries.longs(),
+			Arbitraries.of(false, true)).as(Head::new);
 	}
 
 	public static Arbitrary<Map<WriterId, Head>> heads() {

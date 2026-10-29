@@ -91,6 +91,31 @@ public class ChainCodecsTest {
 		assertThat(buffer.isReadable(), is(false));
 	}
 
+	/* The stamp and the end of each head go along, which the equality of heads does not compare */
+	@Property(tries = 50)
+	public void headsKeepTheirStampAndTheirEndThroughTheRoundTrip(@ForAll("heads") Map<WriterId, Head> heads) {
+		final ByteBuf buffer = Unpooled.buffer();
+
+		ChainCodecs.writeHeads(buffer, heads);
+
+		final Map<WriterId, Head> read = ChainCodecs.readHeads(buffer);
+
+		heads.forEach((writer, head) -> {
+			assertThat(read.get(writer).timestamp(), is(head.timestamp()));
+			assertThat(read.get(writer).last(), is(head.last()));
+		});
+	}
+
+	@Property(tries = 30)
+	public void refusesAMarkOfAHeadItDoesNotKnow(@ForAll @Size(WriterId.SIZE) byte[] writer, @ForAll byte mark) {
+		Assume.that(mark != 0 && mark != 1);
+
+		final ByteBuf in = Unpooled.buffer().writeShort(1).writeBytes(writer).writeLong(0).writeLong(0).writeLong(0)
+			.writeByte(mark);
+
+		assertThrows(IllegalArgumentException.class, () -> ChainCodecs.readHeads(in));
+	}
+
 	@Property(tries = 30)
 	public void idsSurviveTheRoundTrip(@ForAll @Size(ChainId.SIZE) byte[] chain,
 		@ForAll @Size(WriterId.SIZE) byte[] writer) {
@@ -167,7 +192,7 @@ public class ChainCodecsTest {
 		final ByteBuf in = Unpooled.buffer().writeShort(2);
 
 		for (int i = 0; i < 2; i++) {
-			in.writeBytes(writer).writeLong(seq).writeLong(hash);
+			in.writeBytes(writer).writeLong(seq).writeLong(hash).writeLong(0).writeByte(0);
 		}
 
 		assertThrows(IllegalArgumentException.class, () -> ChainCodecs.readHeads(in));
@@ -177,7 +202,8 @@ public class ChainCodecsTest {
 	public void refusesNegativeHeadSequenceNumbers(@ForAll @Size(WriterId.SIZE) byte[] writer,
 		@ForAll @Negative long seq, @ForAll long hash) {
 
-		final ByteBuf in = Unpooled.buffer().writeShort(1).writeBytes(writer).writeLong(seq).writeLong(hash);
+		final ByteBuf in = Unpooled.buffer().writeShort(1).writeBytes(writer).writeLong(seq).writeLong(hash)
+			.writeLong(0).writeByte(0);
 
 		assertThrows(IllegalArgumentException.class, () -> ChainCodecs.readHeads(in));
 	}
