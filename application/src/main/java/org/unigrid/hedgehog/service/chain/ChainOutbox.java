@@ -24,6 +24,7 @@ import java.util.Deque;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
@@ -46,7 +47,7 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 public final class ChainOutbox implements Consumer<Entry> {
 	/* A client posts what it writes, which its replica floods to the members it attached through. An exit stems it,
 	   as the first member to flood the entries of a session would be its exit, and passes over the streams to avoid,
-	   the member the client of the session attached through among them. */
+	   the members the client of the session attached through, as far as the exit knows them when it stems an entry. */
 	public enum Mode { POST, STEM }
 
 	/* Every answer but FULL and those that say the chain holds the entry or is past it. An entry the chain will never
@@ -64,7 +65,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	private final WriterId writer;
 	private final Consumer<Boolean> writability;
 	private final Mode mode;
-	private final Set<Channel> avoid;
+	private final Supplier<Set<Channel>> avoid;
 	private final Deque<Entry> waiting = new ArrayDeque<>();
 
 	/* Held by whoever posts, accept or tick, so that no entry is posted while an earlier one is on its way */
@@ -80,7 +81,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	public ChainOutbox(final ChainHost host, final ChainId chainId, final WriterId writer,
 		final Consumer<Boolean> writability) {
 
-		this(host, chainId, writer, writability, Mode.POST, Set.of());
+		this(host, chainId, writer, writability, Mode.POST, Set::of);
 	}
 
 	/* Posts at once while nothing waits and nothing is on its way, and queues the entry behind them otherwise */
@@ -122,7 +123,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	   as lifting the pause of what waited would lift that refusal with it, and what is placed now goes out once. */
 	public void tick() {
 		if (mode == Mode.STEM) {
-			host.resend(chainId, writer, avoid);
+			host.resend(chainId, writer, avoid.get());
 		} else {
 			host.resend(chainId, writer);
 		}
@@ -138,7 +139,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 		Admission admission;
 
 		try {
-			admission = mode == Mode.STEM ? host.postStem(chainId, entry, avoid) : host.post(entry);
+			admission = mode == Mode.STEM ? host.postStem(chainId, entry, avoid.get()) : host.post(entry);
 		} catch (RuntimeException ex) {
 			log.warn("Posting an entry of this node failed with {}", ex.getClass().getName());
 			admission = Admission.FULL;

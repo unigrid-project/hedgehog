@@ -22,6 +22,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -925,7 +926,7 @@ public class ChainOutboxTest {
 	/* The outbox of an exit's session, which stems what it is handed and passes over the stream to gn-0 */
 	private ChainOutbox stemming() {
 		return new ChainOutbox(host, fleet.chain(), ChainFleet.writer(WRITER), announced::add, ChainOutbox.Mode.STEM,
-			Set.of(fleet.stream("gn-1", "gn-0")));
+			() -> Set.of(fleet.stream("gn-1", "gn-0")));
 	}
 
 	/* What the host wrote to each other member so far, taken off the streams */
@@ -1018,5 +1019,24 @@ public class ChainOutboxTest {
 		assertThat(stems.isDrained(), is(false));
 		host.receive(successor, ChainEntry.builder().entries(entries.subList(1, 2)).build());
 		assertThat(stems.isDrained(), is(true));
+	}
+
+	/* The members an exit avoids are those it knows of when it stems an entry: the second member a client attached
+	   through may become known only after the session began */
+	@Example
+	public void avoidsTheStreamsKnownWhenItStemsAnEntry() {
+		final AtomicReference<Set<Channel>> avoid = new AtomicReference<>(Set.of());
+		final ChainOutbox stems = new ChainOutbox(host, fleet.chain(), ChainFleet.writer(WRITER), announced::add,
+			ChainOutbox.Mode.STEM, avoid::get);
+		final List<Entry> entries = mine(2);
+
+		stems.accept(entries.get(0));
+
+		final String first = onlyOneOf(written());
+
+		avoid.set(Set.of(fleet.stream("gn-1", first)));
+		stems.accept(entries.get(1));
+
+		assertThat(onlyOneOf(written()), is(not(first)));
 	}
 }
