@@ -31,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,12 +73,15 @@ import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
+import org.unigrid.hedgehog.model.network.packet.JoinChain;
+import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -429,6 +433,26 @@ public class ChainExitTest {
 		}
 
 		return new Reached(caller, rig.sockets.get(0).closes::get);
+	}
+
+	/* One session of the caller that opens, takes the answer if the exit sends one, and ends at once. Only this
+	   session is handed what the exit writes, as the caller keeps no record of it. */
+	private static void churn(final Rig rig, final Caller caller) {
+		final ClientSession session = new ClientSession(caller.context, caller.exits, caller.connect);
+
+		session.open();
+		caller.send();
+		handTo(rig, session);
+		session.close(CloseReason.DONE);
+		caller.send();
+		handTo(rig, session);
+		rig.exit.tick();
+	}
+
+	private static void handTo(final Rig rig, final ClientSession session) {
+		for (Object out = rig.stream.readOutbound(); out != null; out = rig.stream.readOutbound()) {
+			((ChainEntry) out).getEntries().forEach(session::receive);
+		}
 	}
 
 	/* gn-0 refuses every entry the exit floods to it as one its chain has no room for, as a member that keeps the
@@ -872,6 +896,39 @@ public class ChainExitTest {
 
 		assertThat(caller.received, contains(CONNECTED, DONE));
 		assertThat(rig.exit.drainingRelays(), is(0));
+	}
+
+	/* A client that opens and ends sessions over and over leaves a writer of the exit on the chain for each, which
+	   holds a place there until its entries aged out. The exit answers no opening on a chain where the writers of its
+	   sessions hold their share of the places, so the churn of one client leaves the chain open to new clients. */
+	@Example
+	public void churnedSessionsOfOneClientNeverTakeTheExitPastItsShareOfAChain() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+		final ChainId chainId = rig.fleet.chain();
+
+		for (int round = 1; round <= HostedChain.MAX_WRITERS; round++) {
+			churn(rig, caller);
+
+			/* The stream brings in no more entries than its budget of a second */
+			if (round % 1000 == 0) {
+				rig.fleet.clock.addAndGet(1000);
+			}
+		}
+
+		final Set<WriterId> exitWriters = new HashSet<>(rig.fleet.host(EXIT).chain(chainId).orElseThrow().heads()
+			.keySet());
+
+		exitWriters.remove(caller.writer());
+		assertThat(exitWriters.size(), lessThanOrEqualTo(ChainExit.MAX_WRITERS_PER_CHAIN));
+		assertThat(rig.fleet.host(EXIT).join(new EmbeddedChannel(), JoinChain.builder().requestId(1)
+			.writer(ChainFleet.writer(999)).chainId(chainId).build()).getStatus(), is(JoinReply.Status.JOINED));
+
+		/* The writers of the sessions that ended count no more once their entries aged out */
+		rig.fleet.clock.addAndGet(31_000);
+		rig.exit.tick();
+		churn(rig, caller);
+		assertThat(rig.fleet.host(EXIT).chain(chainId).orElseThrow().heads().size(), is(exitWriters.size() + 2));
 	}
 
 	/* A member that refuses every entry of the exit keeps the writers of its sessions paused for good, which says

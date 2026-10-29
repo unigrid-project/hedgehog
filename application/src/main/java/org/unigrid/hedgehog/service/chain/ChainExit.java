@@ -25,7 +25,6 @@ import jakarta.inject.Inject;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -105,9 +104,11 @@ public class ChainExit implements ChainDrain {
 	   and what waited in its outbox goes with it. */
 	static final int MAX_DRAINING = MAX_RELAYS;
 
-	/* The most writers of ended sessions that are still known as this node's own. Past it the eldest is let go, and an
-	   entry of it that comes back is tried as an opening, which it is not. */
-	static final int MAX_ENDED_WRITERS = 4096;
+	/* The writers of this exit's sessions that hold a place on one chain: those of its relays, of the relays that drain
+	   and of the sessions that ended, until their entries aged out of the chain. An opening beyond it is left
+	   unanswered, so the client tries another exit after its timeout. Together the exits of a group of eight take at
+	   most half of the writers a chain takes, which leaves the other half to its clients. */
+	static final int MAX_WRITERS_PER_CHAIN = HostedChain.MAX_WRITERS / 16;
 
 	private static final int TICK_SECONDS = 1;
 
@@ -125,6 +126,10 @@ public class ChainExit implements ChainDrain {
 		/* A relay that ended, whose outbox places what waits in it until the chain took it all or the time is up */
 	}
 
+	private record Ended(ChainId chainId, long until) {
+		/* The chain of the writer of a session that ended, and until when its entries may still come back */
+	}
+
 	private record Opening(ChainId chainId, ByteBuffer message) {
 		/* The handshake message of an opening this node answered, on the chain it answered it on */
 	}
@@ -140,14 +145,10 @@ public class ChainExit implements ChainDrain {
 	private final Map<RelayKey, Draining> draining = new ConcurrentHashMap<>();
 	private final AtomicLong sessions = new AtomicLong();
 
-	/* The writers of the sessions that ended, oldest first, and until when their entries may still come back to this
-	   node, as a chain the host rebuilt takes them in again from the members until they age out */
-	private final Map<WriterId, Long> ended = Collections.synchronizedMap(new LinkedHashMap<>() {
-		@Override
-		protected boolean removeEldestEntry(final Map.Entry<WriterId, Long> eldest) {
-			return size() > MAX_ENDED_WRITERS;
-		}
-	});
+	/* The writers of the sessions that ended, as a chain the host rebuilt takes their entries in again from the
+	   members until they age out. The share of each chain bounds them, as no session starts on a chain where the
+	   writers of this exit hold it. */
+	private final Map<WriterId, Ended> ended = new ConcurrentHashMap<>();
 
 	/* The key of the writer that the next session takes. An entry is tried as an opening under it, as the answer names
 	   the writer, and another is drawn only once a session took it, so an entry that opens nothing draws no key. Only
@@ -345,7 +346,7 @@ public class ChainExit implements ChainDrain {
 		final long now = clock.getAsLong();
 
 		if (proxy.isPresent() && isYoung(entry, now) && isExitOn(chainId)
-			&& hasRoom(chainId, entry.header().writer())) {
+			&& hasRoom(chainId, entry.header().writer(), now)) {
 
 			final Opening opening = openingOf(chainId, entry);
 
@@ -398,12 +399,24 @@ public class ChainExit implements ChainDrain {
 			&& (host.hostedChains().contains(chainId) || host.retiredChains().contains(chainId));
 	}
 
-	/* The node, the chain and the writer of the opening each have a share of the relays. An exit at a limit stays
-	   silent, as it would for an opening that is not for it, and the client moves on after its timeout. */
-	private boolean hasRoom(final ChainId chainId, final WriterId writer) {
+	/* The node, the chain and the writer of the opening each have a share of the relays, and the writers of the
+	   sessions a share of the places on the chain. An exit at a limit stays silent, as it would for an opening that
+	   is not for it, and the client moves on after its timeout. */
+	private boolean hasRoom(final ChainId chainId, final WriterId writer, final long now) {
 		return relays.size() < MAX_RELAYS
 			&& held(relayed -> relayed.chain().id().equals(chainId)) < RELAYS_PER_CHAIN
-			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER;
+			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER
+			&& writersOn(chainId, now) < MAX_WRITERS_PER_CHAIN;
+	}
+
+	/* The writers of this exit that hold a place on the chain */
+	private long writersOn(final ChainId chainId, final long now) {
+		final long drains = draining.values().stream().filter(held -> held.relayed().chain().id().equals(chainId))
+			.count();
+		final long gone = ended.values().stream().filter(writer -> writer.chainId().equals(chainId)
+			&& writer.until() >= now).count();
+
+		return held(relayed -> relayed.chain().id().equals(chainId)) + drains + gone;
 	}
 
 	private long held(final Predicate<Relayed> which) {
@@ -477,13 +490,12 @@ public class ChainExit implements ChainDrain {
 	/* What the writer of the session posted may come back for as long as its chain keeps entries. The writer is in
 	   the record before its relay leaves the others. */
 	private void letGo(final Relayed relayed, final long now) {
-		ended.put(relayed.writer().writer(), now + relayed.chain().limits().retentionMillis());
+		ended.put(relayed.writer().writer(), new Ended(relayed.chain().id(),
+			now + relayed.chain().limits().retentionMillis()));
 	}
 
 	private void forgetEnded(final long now) {
-		synchronized (ended) {
-			ended.values().removeIf(until -> until < now);
-		}
+		ended.values().removeIf(gone -> gone.until() < now);
 	}
 
 	/* A relay, a feed or a tick that fails is logged by the class of the failure alone, as a message may name a
