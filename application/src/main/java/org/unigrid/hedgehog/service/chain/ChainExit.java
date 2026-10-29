@@ -243,10 +243,16 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The writers of the sessions that ended count as well, as a chain the host rebuilt takes their entries in again.
-	   A relay is let go of only once its writer is in that record, so the writer counts as this node's all along. */
+	   The tick moves a writer from the relays to those that drain and on to the record of ended ones, each time
+	   putting it in the next place before taking it out of the last, so looking in that same order never misses it. */
 	private boolean isOwn(final WriterId writer) {
-		return ended.containsKey(writer) || Stream.concat(relays.values().stream(), draining.values().stream()
-			.map(Draining::relayed)).anyMatch(relayed -> relayed.writer().writer().equals(writer));
+		return relays.values().stream().anyMatch(relayed -> writesAs(relayed, writer))
+			|| draining.values().stream().anyMatch(held -> writesAs(held.relayed(), writer))
+			|| ended.containsKey(writer);
+	}
+
+	private static boolean writesAs(final Relayed relayed, final WriterId writer) {
+		return relayed.writer().writer().equals(writer);
 	}
 
 	/* The Close of a session that failed to open an entry of its client reaches the relay like any message. A relay
