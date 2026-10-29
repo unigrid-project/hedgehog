@@ -38,6 +38,10 @@ public final class ChainCodecs {
 	public static final int MAX_ENTRIES_PER_PACKET = 64;
 	public static final int MAX_HEADS_PER_PACKET = 4096;
 
+	/* One head on the wire: its writer, sequence number, hash and stamp, and the mark of an entry that ended its
+	   feed. The frame decoder bounds the packets of heads by it. */
+	public static final int HEAD_BYTES = WriterId.SIZE + 3 * Long.BYTES + Byte.BYTES;
+
 	/* The most a frame of the stream chain traffic has to itself may take, header included. Any peer may open that
 	   stream, so the limit is far below the 256 MiB of the main stream, and above what seven entries of the
 	   largest size need, which is what ChainCodecs#batches fills a frame with. */

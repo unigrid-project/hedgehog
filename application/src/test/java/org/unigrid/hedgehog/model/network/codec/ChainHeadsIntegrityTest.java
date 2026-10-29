@@ -67,6 +67,16 @@ public class ChainHeadsIntegrityTest extends BaseCodecTest<ChainHeads> {
 		assertThat(encodeDecode(packet, new ChainHeadsEncoder(), new ChainHeadsDecoder(), context), equalTo(packet));
 	}
 
+	/* A heads packet with as many heads as a packet carries passes the stream that chain traffic has to itself */
+	@Property(tries = 1)
+	public void carriesTheMostHeadsOfAPacketThroughTheChainStream(@ForAll("chainIds") ChainId chainId,
+		@Mocked ChannelHandlerContext context) throws Exception {
+
+		final ChainHeads packet = ChainHeads.builder().chainId(chainId).heads(ChainArbitraries.mostHeads()).build();
+
+		assertThat(encodeDecode(packet, new ChainHeadsEncoder(), new ChainHeadsDecoder(), context), equalTo(packet));
+	}
+
 	@Property(tries = 5)
 	public void encoderRefusesTooManyHeads(@ForAll("chainIds") ChainId chainId,
 		@ForAll @IntRange(min = ChainCodecs.MAX_HEADS_PER_PACKET + 1, max = 2 * ChainCodecs.MAX_HEADS_PER_PACKET)

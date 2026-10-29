@@ -93,8 +93,7 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 	private static final int CHAIN_ID_SIZE = ChainId.SIZE;
 	private static final int WRITER_SIZE = WriterId.SIZE;
-	private static final int HEAD_SIZE = WRITER_SIZE + 2 * Long.BYTES;
-	private static final int HEADS_SIZE = Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * HEAD_SIZE;
+	private static final int HEADS_SIZE = Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * ChainCodecs.HEAD_BYTES;
 	private static final int RANGE_SIZE = WRITER_SIZE + 2 * Long.BYTES;
 
 	/* The stream that chain traffic has to itself is open to any peer and takes the chain packets, and the ping that

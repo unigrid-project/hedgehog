@@ -18,8 +18,11 @@
 
 package org.unigrid.hedgehog.model.network.codec;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -53,6 +56,13 @@ public final class ChainArbitraries {
 	public static Arbitrary<Head> head() {
 		return Combinators.combine(Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs(), Arbitraries.longs(),
 			Arbitraries.of(false, true)).as(Head::new);
+	}
+
+	/* As many heads as a packet carries, each with a stamp and an end, so that every byte of a head is on the wire */
+	public static Map<WriterId, Head> mostHeads() {
+		return IntStream.range(0, ChainCodecs.MAX_HEADS_PER_PACKET).boxed().collect(Collectors.toMap(
+			number -> new WriterId(ByteBuffer.allocate(WriterId.SIZE).putInt(number).array()),
+			number -> new Head(number, number, number * 1000L, number % 2 == 0)));
 	}
 
 	public static Arbitrary<Map<WriterId, Head>> heads() {

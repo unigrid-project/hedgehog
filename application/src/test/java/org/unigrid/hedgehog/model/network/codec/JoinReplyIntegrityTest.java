@@ -63,6 +63,17 @@ public class JoinReplyIntegrityTest extends BaseCodecTest<JoinReply> {
 		assertThat(encodeDecode(packet, new JoinReplyEncoder(), new JoinReplyDecoder(), context), equalTo(packet));
 	}
 
+	/* A reply with as many heads as a packet carries passes the stream that chain traffic has to itself */
+	@Property(tries = 1)
+	public void carriesTheMostHeadsOfAPacketThroughTheChainStream(@ForAll("chainIds") ChainId chainId,
+		@Mocked ChannelHandlerContext context) throws Exception {
+
+		final JoinReply packet = JoinReply.builder().requestId(1).status(Status.JOINED).chainId(chainId)
+			.heads(ChainArbitraries.mostHeads()).build();
+
+		assertThat(encodeDecode(packet, new JoinReplyEncoder(), new JoinReplyDecoder(), context), equalTo(packet));
+	}
+
 	@Property(tries = 30)
 	public void refusedReply(@ForAll long requestId, @ForAll Status status, @Mocked ChannelHandlerContext context)
 		throws Exception {

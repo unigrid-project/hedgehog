@@ -64,6 +64,8 @@ import org.unigrid.hedgehog.model.spork.SignatureLog;
 import org.unigrid.hedgehog.model.spork.SignatureLogEntry;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.GroupKey;
+import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 public class FrameDecoderTest {
 	private static final int HEADER_SIZE = 8;
@@ -218,6 +220,25 @@ public class FrameDecoderTest {
 			assertThat(channel.readInbound(), nullValue());
 			assertThat(channel.attr(Packet.KEY).get(), equalTo(type));
 		});
+	}
+
+	/* A join reply or a heads packet with as many heads as a packet carries passes the stream that chain traffic has
+	   to itself, and one byte more does not. A head is its writer, sequence number, hash, stamp and mark, written out
+	   here and not taken from the codec. */
+	@Example
+	public void takesExactlyTheMostHeadsOfAPacketOnTheChainStream() {
+		final int heads = Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * (WriterId.SIZE + 3 * Long.BYTES + 1);
+
+		Map.of(Packet.Type.JOIN_REPLY, Long.BYTES + 1 + ChainId.SIZE + heads, Packet.Type.CHAIN_HEADS,
+			ChainId.SIZE + heads).forEach((type, cap) -> {
+				final EmbeddedChannel atTheCap = new EmbeddedChannel(FrameDecoder.forChainStream());
+				final EmbeddedChannel beyond = new EmbeddedChannel(FrameDecoder.forChainStream());
+
+				atTheCap.writeInbound(headerOf(type, cap));
+				assertThat(atTheCap.readInbound(), nullValue());
+				assertThat(atTheCap.attr(Packet.KEY).get(), equalTo(type));
+				assertThrows(TooLongFrameException.class, () -> beyond.writeInbound(headerOf(type, cap + 1)));
+			});
 	}
 
 	@Property(tries = 50)
