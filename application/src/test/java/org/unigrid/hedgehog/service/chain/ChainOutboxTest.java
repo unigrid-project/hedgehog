@@ -22,12 +22,16 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -56,10 +60,12 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
@@ -914,5 +920,85 @@ public class ChainOutboxTest {
 		assertThat(heard, contains(false));
 		flaky.tick();
 		assertThat(heard, contains(false));
+	}
+
+	/* The outbox of an exit's session, which stems what it is handed and passes over the stream to gn-0 */
+	private ChainOutbox stemming() {
+		return new ChainOutbox(host, fleet.chain(), ChainFleet.writer(WRITER), announced::add, ChainOutbox.Mode.STEM,
+			Set.of(fleet.stream("gn-1", "gn-0")));
+	}
+
+	/* What the host wrote to each other member so far, taken off the streams */
+	private Map<String, List<Object>> written() {
+		final Map<String, List<Object>> written = new LinkedHashMap<>();
+
+		for (final String peer : List.of("gn-0", "gn-2", "gn-3")) {
+			final List<Object> packets = new ArrayList<>();
+			final EmbeddedChannel stream = fleet.stream("gn-1", peer);
+
+			for (Object packet = stream.readOutbound(); packet != null; packet = stream.readOutbound()) {
+				packets.add(packet);
+			}
+
+			written.put(peer, packets);
+		}
+
+		return written;
+	}
+
+	private static String onlyOneOf(final Map<String, List<Object>> written) {
+		final List<String> to = written.entrySet().stream().filter(sent -> !sent.getValue().isEmpty())
+			.map(Map.Entry::getKey).toList();
+
+		assertThat(to.size(), is(1));
+		return to.get(0);
+	}
+
+	@Example
+	public void anExitsOutboxStemsWhatItIsHandedInsteadOfPostingIt() {
+		final ChainOutbox stems = stemming();
+		final List<Entry> entries = mine(3);
+
+		entries.forEach(stems::accept);
+
+		final Map<String, List<Object>> written = written();
+		final String successor = onlyOneOf(written);
+
+		assertThat(successor, is(not("gn-0")));
+		assertThat(written.get(successor), equalTo(entries.stream().map(entry -> (Object) new ChainStem(List.of(entry)))
+			.toList()));
+		assertThat(host.chain(fleet.chain()).orElseThrow().entries(), is(empty()));
+		assertThat(stems.isWritable(), is(true));
+	}
+
+	/* The chain takes five entries, its reserve included, and those five wait in the stem, so the sixth waits in the
+	   outbox and the writer is paused */
+	@Example
+	public void waitsWhileTheReplicaWouldHaveNoRoomCountingTheStem() {
+		final ChainOutbox stems = stemming();
+
+		mine(6).forEach(stems::accept);
+
+		assertThat(written().values().stream().mapToLong(List::size).sum(), is(5L));
+		assertThat(stems.isWritable(), is(false));
+		assertThat(host.pauses().refusedFrom(fleet.chain(), ChainFleet.writer(WRITER)), is(OptionalLong.of(5)));
+	}
+
+	@Example
+	public void stemsAgainWhatTheSuccessorRefused() {
+		final ChainOutbox stems = stemming();
+
+		final List<Entry> entries = mine(2);
+
+		entries.forEach(stems::accept);
+
+		final String successor = onlyOneOf(written());
+
+		host.refused(fleet.stream("gn-1", successor), EntryRefused.of(entries.get(0), Admission.FULL));
+		assertThat(stems.isWritable(), is(false));
+		stems.tick();
+
+		assertThat(stems.isWritable(), is(true));
+		assertThat(written().get(successor), equalTo(List.of(new ChainStem(entries))));
 	}
 }

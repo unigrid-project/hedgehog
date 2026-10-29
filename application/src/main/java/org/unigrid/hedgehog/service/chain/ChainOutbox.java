@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.EnumSet;
@@ -31,17 +32,23 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
-/* Where one writer of this node posts its entries: into the chain, through the host. An entry the node's own replica
-   has no room for waits in here with every entry written after it, as a feed takes its entries in order, and the
-   writer is paused in WriterPauses at its sequence number, as when a member refuses one. The writer is writable
-   while nothing waits and nothing pauses it; whoever owns it stops producing meanwhile and hears of a change from
-   tick alone. The writers post under the locks of their sessions, which the listener takes too, so the lock of the
-   outbox guards its own fields only and is never held while the host or the listener is called. The replica also
-   answers FULL for a writer it takes no more of until the epoch changes, so a writer that can never be placed stays
-   paused until what waits is too old for the chain, which ends the outbox. */
+/* Where one writer of this node posts its entries: into the chain, through the host, or for a writer of an exit into
+   the stem, which the replica appends only once the entries come back by flood. An entry the node's own replica has
+   no room for, counting what waits in the stem, waits in here with every entry written after it, as a feed takes its
+   entries in order, and the writer is paused in WriterPauses at its sequence number, as when a member refuses one. The
+   writer is writable while nothing waits and nothing pauses it; whoever owns it stops producing meanwhile and hears of
+   a change from tick alone. The writers post under the locks of their sessions, which the listener takes too, so the
+   lock of the outbox guards its own fields only and is never held while the host or the listener is called. The
+   replica also answers FULL for a writer it takes no more of until the epoch changes, so a writer that can never be
+   placed stays paused until what waits is too old for the chain, which ends the outbox. */
 @Slf4j
 @RequiredArgsConstructor
 public final class ChainOutbox implements Consumer<Entry> {
+	/* A client posts what it writes, which its replica floods to the members it attached through. An exit stems it,
+	   as the first member to flood the entries of a session would be its exit, and passes over the streams to avoid,
+	   the member the client of the session attached through among them. */
+	public enum Mode { POST, STEM }
+
 	/* Every answer but FULL and those that say the chain holds the entry or is past it. An entry the chain will never
 	   take leaves a gap in the feed, which every later entry of the writer waits behind until it expires and breaks
 	   every session of the writer. FUTURE is among them though the clock may catch up: the writer holds the latest
@@ -56,6 +63,8 @@ public final class ChainOutbox implements Consumer<Entry> {
 	private final ChainId chainId;
 	private final WriterId writer;
 	private final Consumer<Boolean> writability;
+	private final Mode mode;
+	private final Set<Channel> avoid;
 	private final Deque<Entry> waiting = new ArrayDeque<>();
 
 	/* Held by whoever posts, accept or tick, so that no entry is posted while an earlier one is on its way */
@@ -67,6 +76,12 @@ public final class ChainOutbox implements Consumer<Entry> {
 	   and meanwhile its sessions end on their idle limit. */
 	private boolean ended;
 	private boolean told = true;
+
+	public ChainOutbox(final ChainHost host, final ChainId chainId, final WriterId writer,
+		final Consumer<Boolean> writability) {
+
+		this(host, chainId, writer, writability, Mode.POST, Set.of());
+	}
 
 	/* Posts at once while nothing waits and nothing is on its way, and queues the entry behind them otherwise */
 	@Override
@@ -104,7 +119,12 @@ public final class ChainOutbox implements Consumer<Entry> {
 	/* Run about once a second, on one thread. What a member refused is offered again before what waited is placed,
 	   as lifting the pause of what waited would lift that refusal with it, and what is placed now goes out once. */
 	public void tick() {
-		host.resend(chainId, writer);
+		if (mode == Mode.STEM) {
+			host.resend(chainId, writer, avoid);
+		} else {
+			host.resend(chainId, writer);
+		}
+
 		place();
 		announce();
 	}
@@ -116,7 +136,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 		Admission admission;
 
 		try {
-			admission = host.post(entry);
+			admission = mode == Mode.STEM ? host.postStem(chainId, entry, avoid) : host.post(entry);
 		} catch (RuntimeException ex) {
 			log.warn("Posting an entry of this node failed with {}", ex.getClass().getName());
 			admission = Admission.FULL;
