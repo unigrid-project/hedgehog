@@ -22,6 +22,7 @@ import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -101,7 +102,7 @@ public class TunnelTest {
 	public void shouldFailEveryStreamOfARefusingTunnelAtOnceWithItsOwnFailure() {
 		for (TunnelFailure failure : TunnelFailure.values()) {
 			final List<String> heard = new ArrayList<>();
-			final TunnelStream stream = Tunnel.refusing(failure).open(TARGET, listenerOf(heard));
+			final TunnelStream stream = Tunnel.refusing(failure).open(TARGET, Optional.of("SE"), listenerOf(heard));
 
 			assertThat(heard, equalTo(List.of("failed " + failure)));
 			stream.write(new byte[] { 1 });
@@ -150,7 +151,7 @@ public class TunnelTest {
 	   nothing more, whatever it does with it */
 	private static List<String> associated(Tunnel tunnel) {
 		final List<String> heard = new ArrayList<>();
-		final AssociationStream association = tunnel.associate(new AssociationListener() {
+		final AssociationStream association = tunnel.associate(Optional.of("SE"), new AssociationListener() {
 			@Override
 			public void opened() {
 				heard.add("opened");
@@ -190,7 +191,7 @@ public class TunnelTest {
 
 	@Example
 	public void shouldRefuseEveryAssociationOfATunnelThatRelaysNoDatagrams() {
-		final Tunnel streamsOnly = (destination, listener) -> {
+		final Tunnel streamsOnly = (destination, country, listener) -> {
 			throw new AssertionError("An association opened a stream");
 		};
 

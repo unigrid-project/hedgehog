@@ -63,8 +63,9 @@ public class TunnelProducerTest {
 	/* What the tunnel tells about one stream, from whichever thread it tells it */
 	private static List<String> heardOpening(final Tunnel tunnel) {
 		final List<String> heard = new CopyOnWriteArrayList<>();
+		final SocksAddress destination = new SocksAddress(Socks5AddressType.DOMAIN, "example.org", 443);
 
-		tunnel.open(new SocksAddress(Socks5AddressType.DOMAIN, "example.org", 443), new TunnelListener() {
+		tunnel.open(destination, Optional.empty(), new TunnelListener() {
 			@Override
 			public void connected(SocksAddress bound) {
 				heard.add("connected");

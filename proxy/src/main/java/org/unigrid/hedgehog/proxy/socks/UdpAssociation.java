@@ -35,6 +35,7 @@ import io.netty.util.NetUtil;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -95,10 +96,10 @@ final class UdpAssociation implements AssociationListener {
 
 	/* A connection without an IP address at the client's end, or a tunnel that throws, has no association to give,
 	   and the client hears so rather than waiting */
-	void start(Tunnel tunnel) {
+	void start(Tunnel tunnel, Optional<String> country) {
 		try {
 			clientAddress = ((InetSocketAddress) control.channel().remoteAddress()).getAddress();
-			stream = tunnel.associate(this);
+			stream = tunnel.associate(country, this);
 		} catch (RuntimeException ex) {
 			refuse(Socks5CommandStatus.FAILURE);
 		}

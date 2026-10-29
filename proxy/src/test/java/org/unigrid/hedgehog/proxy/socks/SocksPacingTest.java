@@ -32,6 +32,7 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -77,8 +78,8 @@ public class SocksPacingTest {
 	}
 
 	/* The echo tunnel, with every call of setReadable on its streams noted in order */
-	private TunnelStream open(SocksAddress destination, TunnelListener listener) {
-		final TunnelStream stream = tunnel.open(destination, listener);
+	private TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
+		final TunnelStream stream = tunnel.open(destination, country, listener);
 
 		return new TunnelStream() {
 			@Override

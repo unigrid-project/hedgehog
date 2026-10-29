@@ -94,6 +94,7 @@ public class ChainAssociationTest {
 		private Consumer<SessionListener> opening = listener -> { };
 		private RuntimeException refusal;
 		private volatile Connect connect;
+		private volatile Optional<String> country;
 		private volatile SessionListener listener;
 		private volatile boolean writable = true;
 		private volatile boolean underLock;
@@ -101,8 +102,11 @@ public class ChainAssociationTest {
 		private int opens;
 
 		@Override
-		public SessionHandle open(final Connect connect, final SessionListener listener) {
+		public SessionHandle open(final Connect connect, final Optional<String> country,
+			final SessionListener listener) {
+
 			this.connect = connect;
+			this.country = country;
 			this.listener = listener;
 			opens++;
 			opening.accept(listener);
@@ -274,14 +278,14 @@ public class ChainAssociationTest {
 	}
 
 	private AssociationStream opened() {
-		final AssociationStream association = tunnel.associate(heard);
+		final AssociationStream association = tunnel.associate(Optional.empty(), heard);
 
 		session.listener.received(CONNECTED);
 		return association;
 	}
 
 	private AssociationStream ended(final Ending ending) {
-		final AssociationStream association = ending.heard.contains(OPENED) ? opened() : tunnel.associate(heard);
+		final AssociationStream association = ending.heard.contains(OPENED) ? opened() : tunnel.associate(Optional.empty(), heard);
 
 		switch (ending) {
 			case REFUSED -> session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE,
@@ -366,8 +370,14 @@ public class ChainAssociationTest {
 	}
 
 	@Example
+	public void passesTheCountryToTheSession() {
+		tunnel.associate(Optional.of("NO"), heard);
+		assertThat(session.country, equalTo(Optional.of("NO")));
+	}
+
+	@Example
 	public void opensASessionThatAssociatesAndReportsWhenTheExitIsReady() {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 
 		assertThat(session.connect, equalTo(new Connect(Socks5CommandType.UDP_ASSOCIATE, SocksAddress.UNSPECIFIED)));
 		assertThat(session.opens, is(1));
@@ -383,7 +393,7 @@ public class ChainAssociationTest {
 	public void failsWithTheReplyTheExitGaveAndIgnoresTheCloseThatFollows(@ForAll @IntRange(min = 1, max = 8) int code) {
 		final Socks5CommandStatus status = Socks5CommandStatus.valueOf((byte) code);
 
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		session.listener.received(new Connected(status, SocksAddress.UNSPECIFIED));
 		session.listener.received(new Close(CloseReason.REFUSED));
 
@@ -395,7 +405,7 @@ public class ChainAssociationTest {
 	   as it likes, as the front end hangs up on an association that has ended already */
 	@Example
 	public void closesTheSessionOfAnAssociationTheExitRefusedThoughTheExitDoesNot() {
-		final AssociationStream association = tunnel.associate(heard);
+		final AssociationStream association = tunnel.associate(Optional.empty(), heard);
 
 		session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE, SocksAddress.UNSPECIFIED));
 		association.close();
@@ -410,7 +420,7 @@ public class ChainAssociationTest {
 	public void closesTheSessionOfAnAssociationRefusedBeforeItsHandleCameBack() {
 		session.opening = listener -> listener.received(new Connected(Socks5CommandStatus.CONNECTION_REFUSED,
 			SocksAddress.UNSPECIFIED));
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed CONNECTION_REFUSED")));
 		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
@@ -418,7 +428,7 @@ public class ChainAssociationTest {
 
 	@Property(tries = 10)
 	public void failsWithTheReasonOfASessionThatClosedBeforeItsReply(@ForAll CloseReason reason) {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		session.listener.received(new Close(reason));
 		session.listener.received(new Close(reason));
 
@@ -473,7 +483,7 @@ public class ChainAssociationTest {
 	/* The exit relays nothing before it has set the association up, so what comes earlier is not its to send */
 	@Example
 	public void dropsTheDatagramsOfTheExitBeforeItsReply() {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		session.listener.received(new Datagram(ANSWERING, new byte[] { 1 }));
 		session.listener.received(CONNECTED);
 		session.listener.received(new Datagram(ANSWERING, new byte[] { 2 }));
@@ -514,7 +524,7 @@ public class ChainAssociationTest {
 
 	@Example
 	public void dropsDatagramsBeforeTheExitRepliedAndKeepsNoneForLater() {
-		final AssociationStream association = tunnel.associate(heard);
+		final AssociationStream association = tunnel.associate(Optional.empty(), heard);
 
 		assertThat(association.send(REMOTE, new byte[] { 1 }), is(false));
 		session.listener.received(CONNECTED);
@@ -620,7 +630,7 @@ public class ChainAssociationTest {
 			}
 		};
 
-		association.set(tunnel.associate(heard));
+		association.set(tunnel.associate(Optional.empty(), heard));
 		session.listener.received(CONNECTED);
 		session.listener.received(new Datagram(ANSWERING, new byte[] { 9 }));
 		session.listener.received(new Close(CloseReason.DONE));
@@ -637,7 +647,7 @@ public class ChainAssociationTest {
 		final AtomicReference<AssociationStream> association = new AtomicReference<>();
 
 		heard.reaction = event -> association.get().close();
-		association.set(tunnel.associate(heard));
+		association.set(tunnel.associate(Optional.empty(), heard));
 		session.listener.received(new Close(CloseReason.UNREACHABLE));
 
 		assertThat(heard.events, equalTo(List.of("failed NETWORK_UNREACHABLE")));
@@ -665,7 +675,7 @@ public class ChainAssociationTest {
 
 	@Example
 	public void expiresAnAssociationThatNoExitAnswersInTime() {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		timers.advance(ChainTunnel.DEADLINE_MILLIS - 1);
 		assertThat(heard.events, empty());
 		assertThat(session.closes, empty());
@@ -690,7 +700,7 @@ public class ChainAssociationTest {
 	/* A deadline that had started when the association ended runs its command all the same */
 	@Example
 	public void tellsNothingWhenADeadlineThatHadStartedRunsAfterTheAssociationWasClosed() {
-		final AssociationStream association = tunnel.associate(heard);
+		final AssociationStream association = tunnel.associate(Optional.empty(), heard);
 		final Runnable command = timers.only().command;
 
 		association.close();
@@ -702,7 +712,7 @@ public class ChainAssociationTest {
 
 	@Example
 	public void tellsNothingMoreWhenADeadlineThatHadStartedRunsAfterTheSessionFailed() {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 
 		final Runnable command = timers.only().command;
 
@@ -716,7 +726,7 @@ public class ChainAssociationTest {
 	@Example
 	public void closesTheSessionOfAnAssociationThatExpiredBeforeItsHandleCameBack() {
 		session.opening = listener -> timers.advance(ChainTunnel.DEADLINE_MILLIS);
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed TTL_EXPIRED")));
 		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
@@ -730,7 +740,7 @@ public class ChainAssociationTest {
 			session.listener.received(CONNECTED);
 		});
 
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		exit.start();
 		meet(start);
 		timers.only().command.run();
@@ -764,7 +774,7 @@ public class ChainAssociationTest {
 
 	@Example
 	public void decidesBetweenTheReplyAndTheDeadlineUnderTheLockOfTheAssociation() throws InterruptedException {
-		tunnel.associate(heard);
+		tunnel.associate(Optional.empty(), heard);
 		blockedOnTheAssociation(List.of(() -> session.listener.received(CONNECTED), timers.only().command));
 
 		assertThat(heard.events, either(equalTo(List.of(OPENED))).or(equalTo(List.of("failed TTL_EXPIRED"))));
@@ -794,7 +804,7 @@ public class ChainAssociationTest {
 			final Heard listener = new Heard();
 
 			spork.set(current);
-			following.associate(listener);
+			following.associate(Optional.empty(), listener);
 			heardPerAssociation.add(listener.events);
 		}
 
@@ -811,7 +821,7 @@ public class ChainAssociationTest {
 			new ChainTunnel(() -> {
 				throw new IllegalStateException("The spork of " + REMOTE + " cannot be read");
 			}, session, timers),
-			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), (connect, listener) -> {
+			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), (connect, country, listener) -> {
 				throw new IllegalStateException("No session to " + REMOTE);
 			}, timers),
 			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), session, stopped));
@@ -822,7 +832,7 @@ public class ChainAssociationTest {
 		final List<ILoggingEvent> warnings = warningsWhile(() -> broken.forEach(each -> {
 			final Heard failed = new Heard();
 
-			each.associate(failed);
+			each.associate(Optional.empty(), failed);
 			heardPerAssociation.add(failed.events);
 		}));
 
@@ -838,7 +848,7 @@ public class ChainAssociationTest {
 	public void tellsAFailureTheSessionGaveBeforeAssociateReturned() {
 		session.opening = listener -> listener.received(new Close(CloseReason.UNREACHABLE));
 
-		final AssociationStream association = tunnel.associate(heard);
+		final AssociationStream association = tunnel.associate(Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed NETWORK_UNREACHABLE")));
 		prodAfterTheEnd(association);
@@ -857,10 +867,10 @@ public class ChainAssociationTest {
 		for (SealedMessage outcome : outcomes) {
 			final Heard listener = new Heard();
 			final AssociationStream association = new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS),
-				(connect, told) -> {
+				(connect, country, told) -> {
 					told.received(outcome);
 					throw new IllegalStateException("No session");
-				}, timers).associate(listener);
+				}, timers).associate(Optional.empty(), listener);
 
 			assertThat(association.send(REMOTE, new byte[] { 1 }), is(false));
 			heardPerAssociation.add(listener.events);

@@ -84,14 +84,18 @@ public class ChainTunnelTest {
 		private RuntimeException refusal;
 		private RuntimeException closeFailure;
 		private volatile Connect connect;
+		private volatile Optional<String> country;
 		private volatile SessionListener listener;
 		private volatile boolean writable = true;
 		private int piece = CHUNK;
 		private int opens;
 
 		@Override
-		public SessionHandle open(final Connect connect, final SessionListener listener) {
+		public SessionHandle open(final Connect connect, final Optional<String> country,
+			final SessionListener listener) {
+
 			this.connect = connect;
+			this.country = country;
 			this.listener = listener;
 			opens++;
 			opening.accept(listener);
@@ -263,7 +267,7 @@ public class ChainTunnelTest {
 	}
 
 	private TunnelStream opened() {
-		final TunnelStream stream = tunnel.open(DESTINATION, heard);
+		final TunnelStream stream = tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		session.listener.received(CONNECTED);
 		return stream;
@@ -278,7 +282,7 @@ public class ChainTunnelTest {
 
 	private TunnelStream ended(final Ending ending) {
 		final TunnelStream stream = ending.heard.contains(HEARD_CONNECTED) ? opened()
-			: tunnel.open(DESTINATION, heard);
+			: tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		switch (ending) {
 			case REFUSED -> session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE,
@@ -338,8 +342,14 @@ public class ChainTunnelTest {
 	}
 
 	@Example
+	public void passesTheCountryToTheSession() {
+		tunnel.open(DESTINATION, Optional.of("SE"), heard);
+		assertThat(session.country, equalTo(Optional.of("SE")));
+	}
+
+	@Example
 	public void opensASessionThatConnectsToTheDestination() {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		assertThat(session.connect, equalTo(new Connect(Socks5CommandType.CONNECT, DESTINATION)));
 		assertThat(heard.events, equalTo(List.of()));
@@ -352,7 +362,7 @@ public class ChainTunnelTest {
 	public void failsWithTheReplyTheExitGaveAndIgnoresTheCloseThatFollows(@ForAll @IntRange(min = 1, max = 8) int code) {
 		final Socks5CommandStatus status = Socks5CommandStatus.valueOf((byte) code);
 
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		session.listener.received(new Connected(status, SocksAddress.UNSPECIFIED));
 		session.listener.received(new Close(CloseReason.REFUSED));
 
@@ -364,7 +374,7 @@ public class ChainTunnelTest {
 	   as it likes, as the front end hangs up on a stream that has ended already */
 	@Example
 	public void closesTheSessionOfAStreamTheExitRefusedThoughTheExitDoesNot() {
-		final TunnelStream stream = tunnel.open(DESTINATION, heard);
+		final TunnelStream stream = tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		session.listener.received(new Connected(Socks5CommandStatus.HOST_UNREACHABLE, SocksAddress.UNSPECIFIED));
 		stream.close();
@@ -379,7 +389,7 @@ public class ChainTunnelTest {
 	public void closesTheSessionOfAStreamRefusedBeforeItsHandleCameBack() {
 		session.opening = listener -> listener.received(new Connected(Socks5CommandStatus.CONNECTION_REFUSED,
 			SocksAddress.UNSPECIFIED));
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed CONNECTION_REFUSED")));
 		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
@@ -387,7 +397,7 @@ public class ChainTunnelTest {
 
 	@Property(tries = 10)
 	public void failsWithTheReasonOfASessionThatClosedBeforeItsReply(@ForAll CloseReason reason) {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		session.listener.received(new Close(reason));
 		session.listener.received(new Close(reason));
 
@@ -407,7 +417,7 @@ public class ChainTunnelTest {
 
 	@Example
 	public void tellsNothingOfTheChainBeforeTheReply() {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		session.listener.writabilityChanged(false);
 		session.listener.received(new Data(new byte[] { 1 }));
 		session.listener.received(CONNECTED);
@@ -577,7 +587,7 @@ public class ChainTunnelTest {
 
 		final SessionListener ofFirst = session.listener;
 		final Heard other = new Heard();
-		final TunnelStream second = tunnel.open(DESTINATION, other);
+		final TunnelStream second = tunnel.open(DESTINATION, Optional.empty(), other);
 		final SessionListener ofSecond = session.listener;
 
 		ofSecond.received(CONNECTED);
@@ -593,7 +603,7 @@ public class ChainTunnelTest {
 	/* A deadline that had started when the stream ended runs its command all the same */
 	@Example
 	public void tellsNothingWhenADeadlineThatHadStartedRunsAfterTheStreamWasClosed() {
-		final TunnelStream stream = tunnel.open(DESTINATION, heard);
+		final TunnelStream stream = tunnel.open(DESTINATION, Optional.empty(), heard);
 		final Runnable command = timers.only().command;
 
 		stream.close();
@@ -605,7 +615,7 @@ public class ChainTunnelTest {
 
 	@Example
 	public void tellsNothingMoreWhenADeadlineThatHadStartedRunsAfterTheSessionFailed() {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		final Runnable command = timers.only().command;
 
@@ -732,7 +742,7 @@ public class ChainTunnelTest {
 
 	@Example
 	public void isNotWritableWithoutASession() {
-		final TunnelStream refused = new ChainTunnel(Optional::empty, session, timers).open(DESTINATION, heard);
+		final TunnelStream refused = new ChainTunnel(Optional::empty, session, timers).open(DESTINATION, Optional.empty(), heard);
 
 		assertThat(refused.isWritable(), is(false));
 	}
@@ -804,7 +814,7 @@ public class ChainTunnelTest {
 
 	@Example
 	public void expiresAStreamThatNoExitAnswersInTime() {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		timers.advance(ChainTunnel.DEADLINE_MILLIS - 1);
 		assertThat(heard.events, empty());
 		assertThat(session.closes, empty());
@@ -829,7 +839,7 @@ public class ChainTunnelTest {
 	@Example
 	public void closesTheSessionOfAStreamThatExpiredBeforeItsHandleCameBack() {
 		session.opening = listener -> timers.advance(ChainTunnel.DEADLINE_MILLIS);
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed TTL_EXPIRED")));
 		assertThat(session.closes, equalTo(List.of(CloseReason.DONE)));
@@ -843,7 +853,7 @@ public class ChainTunnelTest {
 			session.listener.received(CONNECTED);
 		});
 
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		exit.start();
 		meet(start);
 		timers.only().command.run();
@@ -858,7 +868,7 @@ public class ChainTunnelTest {
 	/* Both wait for the lock of the stream, so whichever takes it first decides and the other finds it decided */
 	@Example
 	public void decidesBetweenTheReplyAndTheDeadlineUnderTheLockOfTheStream() throws InterruptedException {
-		tunnel.open(DESTINATION, heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		final List<Thread> racing = List.of(new Thread(() -> session.listener.received(CONNECTED)),
 			new Thread(timers.only().command));
@@ -925,7 +935,7 @@ public class ChainTunnelTest {
 		for (final Optional<ProxySettings> current : refusing) {
 			final Heard refused = new Heard();
 
-			new ChainTunnel(() -> current, session, timers).open(DESTINATION, refused);
+			new ChainTunnel(() -> current, session, timers).open(DESTINATION, Optional.empty(), refused);
 			assertThat(refused.events, equalTo(List.of("failed NOT_ALLOWED")));
 		}
 
@@ -945,7 +955,7 @@ public class ChainTunnelTest {
 			final Heard listener = new Heard();
 
 			spork.set(current);
-			following.open(DESTINATION, listener);
+			following.open(DESTINATION, Optional.empty(), listener);
 			heardPerStream.add(listener.events);
 		}
 
@@ -961,7 +971,7 @@ public class ChainTunnelTest {
 			new ChainTunnel(() -> {
 				throw new IllegalStateException("The spork cannot be read");
 			}, session, timers),
-			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), (connect, listener) -> {
+			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), (connect, country, listener) -> {
 				throw new IllegalStateException("No session");
 			}, timers),
 			new ChainTunnel(() -> Optional.of(ProxySettings.DEFAULTS), session, stopped));
@@ -971,7 +981,7 @@ public class ChainTunnelTest {
 		for (ChainTunnel each : broken) {
 			final Heard failed = new Heard();
 
-			each.open(DESTINATION, failed);
+			each.open(DESTINATION, Optional.empty(), failed);
 			assertThat(failed.events, equalTo(List.of("failed GENERAL_FAILURE")));
 		}
 
@@ -983,7 +993,7 @@ public class ChainTunnelTest {
 	public void tellsAFailureTheSessionGaveBeforeOpenReturned() {
 		session.opening = listener -> listener.received(new Close(CloseReason.UNREACHABLE));
 
-		final TunnelStream stream = tunnel.open(DESTINATION, heard);
+		final TunnelStream stream = tunnel.open(DESTINATION, Optional.empty(), heard);
 
 		assertThat(heard.events, equalTo(List.of("failed NETWORK_UNREACHABLE")));
 		prodAfterTheEnd(stream);
@@ -998,8 +1008,8 @@ public class ChainTunnelTest {
 			throw new IllegalStateException("The front end failed");
 		};
 
-		new ChainTunnel(Optional::empty, session, timers).open(DESTINATION, heard);
-		tunnel.open(DESTINATION, heard);
+		new ChainTunnel(Optional::empty, session, timers).open(DESTINATION, Optional.empty(), heard);
+		tunnel.open(DESTINATION, Optional.empty(), heard);
 		session.listener.received(new Close(CloseReason.UNREACHABLE));
 
 		assertThat(heard.events, equalTo(List.of("failed NOT_ALLOWED", "failed NETWORK_UNREACHABLE")));

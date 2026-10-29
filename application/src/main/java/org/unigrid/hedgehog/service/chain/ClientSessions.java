@@ -90,8 +90,10 @@ public final class ClientSessions implements SessionOpener {
 
 	/* Nothing would time out a session once the scheduler is gone, so none is started then */
 	@Override
-	public SessionHandle open(final Connect connect, final SessionListener listener) {
-		final Handle handle = new Handle(connect, listener);
+	public SessionHandle open(final Connect connect, final Optional<String> country,
+		final SessionListener listener) {
+
+		final Handle handle = new Handle(connect, country, listener);
 
 		if (scheduler.isShutdown()) {
 			handle.end(CloseReason.UNREACHABLE);
@@ -241,14 +243,18 @@ public final class ClientSessions implements SessionOpener {
 
 	private final class Handle implements SessionHandle {
 		private final Connect connect;
+
+		/* TODO: choose the group and the exit by this country */
+		private final Optional<String> country;
 		private final SessionListener listener;
 		private final OrderedDrain<SealedMessage> untold = new OrderedDrain<>(new ConcurrentLinkedQueue<>());
 		private volatile Attached chain;
 		private volatile boolean ended;
 		private ClientSession session;
 
-		private Handle(final Connect connect, final SessionListener listener) {
+		private Handle(final Connect connect, final Optional<String> country, final SessionListener listener) {
 			this.connect = connect;
+			this.country = country;
 			this.listener = listener;
 		}
 

@@ -18,12 +18,14 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import java.util.Optional;
 import org.unigrid.hedgehog.proxy.session.Connect;
 
 @FunctionalInterface
 public interface SessionOpener {
 	/* Starts a session towards an exit that carries the Connect, and returns its handle at once: the chain is
 	   joined, the exit chosen and the handshake made in the background, and the listener hears the outcome. When
-	   the chain is joined already, the handshake is made, and a failure told, on the calling thread. */
-	SessionHandle open(Connect connect, SessionListener listener);
+	   the chain is joined already, the handshake is made, and a failure told, on the calling thread. The country is
+	   the upper-case ISO 3166-1 alpha-2 code of the country the exit is to be in, empty for any. */
+	SessionHandle open(Connect connect, Optional<String> country, SessionListener listener);
 }

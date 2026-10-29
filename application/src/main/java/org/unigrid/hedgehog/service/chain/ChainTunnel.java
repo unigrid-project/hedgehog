@@ -68,30 +68,33 @@ public final class ChainTunnel implements Tunnel {
 	private final ScheduledExecutorService timers;
 
 	@Override
-	public TunnelStream open(final SocksAddress destination, final TunnelListener listener) {
+	public TunnelStream open(final SocksAddress destination, final Optional<String> country,
+		final TunnelListener listener) {
+
 		final ChainStream stream = new ChainStream(listener);
 
-		start(stream, ProxySettings::connectAllowed, Socks5CommandType.CONNECT, destination);
+		start(stream, ProxySettings::connectAllowed, Socks5CommandType.CONNECT, destination, country);
 		return stream;
 	}
 
 	/* The exit relays the datagrams from a socket of its own, so it needs no address from the client */
 	@Override
-	public AssociationStream associate(final AssociationListener listener) {
+	public AssociationStream associate(final Optional<String> country, final AssociationListener listener) {
 		final ChainAssociation association = new ChainAssociation(listener);
 
-		start(association, ProxySettings::udpAllowed, Socks5CommandType.UDP_ASSOCIATE, SocksAddress.UNSPECIFIED);
+		start(association, ProxySettings::udpAllowed, Socks5CommandType.UDP_ASSOCIATE, SocksAddress.UNSPECIFIED,
+			country);
 		return association;
 	}
 
 	/* What cannot start is failed, so that the front end has a reply to give */
 	private void start(final TunnelSession opening, final Predicate<ProxySettings> allowed,
-		final Socks5CommandType command, final SocksAddress destination) {
+		final Socks5CommandType command, final SocksAddress destination, final Optional<String> country) {
 
 		try {
 			if (settings.current().filter(allowed).isPresent()) {
 				opening.deadline = timers.schedule(opening::expire, DEADLINE_MILLIS, TimeUnit.MILLISECONDS);
-				opening.attach(sessions.open(new Connect(command, destination), opening));
+				opening.attach(sessions.open(new Connect(command, destination), country, opening));
 			} else {
 				opening.fail(TunnelFailure.NOT_ALLOWED);
 			}

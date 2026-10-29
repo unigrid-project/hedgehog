@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.proxy.socks;
 
 import java.util.Objects;
+import java.util.Optional;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* Fails every stream and association before open or associate returns, so a caller must not assume it holds the
@@ -31,13 +32,13 @@ final class RefusingTunnel implements Tunnel, TunnelStream, AssociationStream {
 	}
 
 	@Override
-	public TunnelStream open(SocksAddress destination, TunnelListener listener) {
+	public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
 		listener.failed(failure);
 		return this;
 	}
 
 	@Override
-	public AssociationStream associate(AssociationListener listener) {
+	public AssociationStream associate(Optional<String> country, AssociationListener listener) {
 		listener.failed(failure);
 		return this;
 	}

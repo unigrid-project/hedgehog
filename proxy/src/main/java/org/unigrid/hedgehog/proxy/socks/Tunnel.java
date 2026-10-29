@@ -18,25 +18,27 @@
 
 package org.unigrid.hedgehog.proxy.socks;
 
+import java.util.Optional;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* What the SOCKS front end needs from the network: a stream to a destination, and an association for datagrams.
    The client side of the proxy implements it by driving a session over a shard group chain, so the exit resolves
-   names, connects and relays. */
+   names, connects and relays. The country is the upper-case ISO 3166-1 alpha-2 code of the country the client
+   wants its exit in, and empty when it named none. */
 @FunctionalInterface
 public interface Tunnel {
 	/* Starts opening a stream and returns its handle at once. The listener hears connected or failed exactly
 	   once, within a bounded time, then received and writabilityChanged until closed. A stream that goes silent
 	   ends with closed: the front end cuts nothing after the command, so the deadline is the tunnel's. Its calls
 	   may come from any thread, even from within open. */
-	TunnelStream open(SocksAddress destination, TunnelListener listener);
+	TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener);
 
 	/* Starts opening a UDP association and returns its handle at once. The listener hears opened or failed exactly
 	   once, within a bounded time, then received until closed, from any thread, even from within associate. A
 	   tunnel that does not relay datagrams fails every association before associate returns, as a command it does
 	   not support. */
-	default AssociationStream associate(AssociationListener listener) {
-		return refusing(TunnelFailure.COMMAND_UNSUPPORTED).associate(listener);
+	default AssociationStream associate(Optional<String> country, AssociationListener listener) {
+		return refusing(TunnelFailure.COMMAND_UNSUPPORTED).associate(country, listener);
 	}
 
 	/* A tunnel that fails every stream and association for the same reason */

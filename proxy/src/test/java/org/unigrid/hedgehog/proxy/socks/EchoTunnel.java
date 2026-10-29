@@ -23,6 +23,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import org.unigrid.hedgehog.proxy.session.Datagram;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
@@ -34,8 +35,8 @@ final class EchoTunnel implements Tunnel {
 	final List<EchoAssociation> associations = new ArrayList<>();
 
 	@Override
-	public TunnelStream open(SocksAddress destination, TunnelListener listener) {
-		final EchoStream stream = new EchoStream(destination, listener);
+	public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
+		final EchoStream stream = new EchoStream(destination, country, listener);
 
 		streams.add(stream);
 		return stream;
@@ -47,8 +48,8 @@ final class EchoTunnel implements Tunnel {
 	}
 
 	@Override
-	public AssociationStream associate(AssociationListener listener) {
-		final EchoAssociation association = new EchoAssociation(listener);
+	public AssociationStream associate(Optional<String> country, AssociationListener listener) {
+		final EchoAssociation association = new EchoAssociation(country, listener);
 
 		associations.add(association);
 		return association;
@@ -62,6 +63,7 @@ final class EchoTunnel implements Tunnel {
 	/* Keeps the datagrams the front end sends; the test decides when the association opens, fails, ends or breaks,
 	   and what comes back from the exit. It notes a call made while the front end held its listener's lock. */
 	static final class EchoAssociation implements AssociationStream {
+		final Optional<String> country;
 		final AssociationListener listener;
 		final List<Datagram> sent = new ArrayList<>();
 		boolean accepting = true;
@@ -70,7 +72,8 @@ final class EchoTunnel implements Tunnel {
 		boolean closeBroken;
 		boolean calledUnderLock;
 
-		EchoAssociation(AssociationListener listener) {
+		EchoAssociation(Optional<String> country, AssociationListener listener) {
+			this.country = country;
 			this.listener = listener;
 		}
 
@@ -118,6 +121,7 @@ final class EchoTunnel implements Tunnel {
 
 	static final class EchoStream implements TunnelStream {
 		final SocksAddress destination;
+		final Optional<String> country;
 		final TunnelListener listener;
 		final ByteArrayOutputStream written = new ByteArrayOutputStream();
 		final Deque<byte[]> echoes = new ArrayDeque<>();
@@ -126,8 +130,9 @@ final class EchoTunnel implements Tunnel {
 		boolean closed;
 		boolean broken;
 
-		EchoStream(SocksAddress destination, TunnelListener listener) {
+		EchoStream(SocksAddress destination, Optional<String> country, TunnelListener listener) {
 			this.destination = destination;
+			this.country = country;
 			this.listener = listener;
 		}
 

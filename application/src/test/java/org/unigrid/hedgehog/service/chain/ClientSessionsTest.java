@@ -253,7 +253,7 @@ public class ClientSessionsTest {
 	public void carriesTheMessagesOfASessionBothWays() {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 
@@ -286,7 +286,7 @@ public class ClientSessionsTest {
 	public void carriesTheMessagesOfEverySessionOfAnAttachmentToItsOwnEnd() {
 		final Rig rig = new Rig(ChainFleet.group());
 		final List<Listener> listeners = Stream.generate(Listener::new).limit(3).toList();
-		final List<SessionHandle> handles = listeners.stream().map(listener -> rig.sessions.open(CONNECT, listener))
+		final List<SessionHandle> handles = listeners.stream().map(listener -> rig.sessions.open(CONNECT, Optional.empty(), listener))
 			.toList();
 
 		rig.fleet.deliver();
@@ -310,7 +310,7 @@ public class ClientSessionsTest {
 	public void exitIsNeverAnAttachMember() {
 		final Rig rig = new Rig(ChainFleet.group());
 
-		IntStream.range(0, 24).forEach(number -> rig.sessions.open(CONNECT, new Listener()));
+		IntStream.range(0, 24).forEach(number -> rig.sessions.open(CONNECT, Optional.empty(), new Listener()));
 		rig.fleet.deliver();
 
 		final ChainAttachment attachment = rig.attachment();
@@ -327,7 +327,7 @@ public class ClientSessionsTest {
 		final Rig rig = new Rig(ChainFleet.group());
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		rig.fleet.deliver();
 		rig.mute(false);
 		rig.after(ClientSession.ACCEPT_TIMEOUT_MILLIS - 1);
@@ -358,8 +358,8 @@ public class ClientSessionsTest {
 		}, fleet.settings::get, new SecureRandom());
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, new Listener());
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		fleet.deliver();
 		fleet.clock.addAndGet(ClientSession.ACCEPT_TIMEOUT_MILLIS);
 
@@ -378,7 +378,7 @@ public class ClientSessionsTest {
 		final ChainFleet fleet = ChainFleet.group();
 		final Rig rig = new Rig(fleet, fleet.clock::get, fleet.settings::get, seeded(seed));
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		assertThat(handle.maxDataBytes(), is(0));
 		assertThat(handle.isWritable(), is(false));
@@ -407,7 +407,7 @@ public class ClientSessionsTest {
 		final Listener listener = new Listener();
 
 		fleet.settings.set(Optional.empty());
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
 	}
@@ -418,7 +418,7 @@ public class ClientSessionsTest {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener).close(CloseReason.DONE);
+		rig.sessions.open(CONNECT, Optional.empty(), listener).close(CloseReason.DONE);
 		rig.fleet.settings.set(Optional.empty());
 		rig.fleet.deliver();
 
@@ -431,7 +431,7 @@ public class ClientSessionsTest {
 		final Listener listener = new Listener();
 
 		rig.scheduler.shutdown();
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 
 		assertThat(listener.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
@@ -444,7 +444,7 @@ public class ClientSessionsTest {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		rig.after(IDLE_MILLIS - 1);
 		assertThat(listener.messages, equalTo(List.of()));
@@ -460,7 +460,7 @@ public class ClientSessionsTest {
 	public void tellsTheExitWhenItsOpenerClosesTheSession() {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 		handle.close(CloseReason.DONE);
@@ -479,7 +479,7 @@ public class ClientSessionsTest {
 		final Listener listener = new Listener();
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 
 		final ChainAttachment attachment = rig.attachment();
@@ -514,8 +514,8 @@ public class ClientSessionsTest {
 		final Listener lost = new Listener();
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, kept);
-		rig.sessions.open(CONNECT, lost);
+		rig.sessions.open(CONNECT, Optional.empty(), kept);
+		rig.sessions.open(CONNECT, Optional.empty(), lost);
 		rig.fleet.deliver();
 
 		final ChainAttachment attachment = rig.attachment();
@@ -548,7 +548,7 @@ public class ClientSessionsTest {
 		final Listener listener = new Listener();
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		rig.strangerLoses(rig.opens().get(0).header().tag());
 		assertThat(listener.messages, equalTo(List.of()));
@@ -569,7 +569,7 @@ public class ClientSessionsTest {
 
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 		final List<SealedMessage> told = new ArrayList<>();
 		final List<SealedMessage> sent = new ArrayList<>(List.of(CONNECT));
 		boolean live = true;
@@ -654,7 +654,7 @@ public class ClientSessionsTest {
 	@Example
 	public void leavesTheChainOfAnEarlierEpochOnceItsSessionsAreOver() {
 		final Rig rig = new Rig(ChainFleet.group());
-		final SessionHandle first = rig.sessions.open(CONNECT, new Listener());
+		final SessionHandle first = rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 
 		rig.fleet.deliver();
 
@@ -663,7 +663,7 @@ public class ClientSessionsTest {
 
 		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
 		rig.fleet.refreshAll();
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		rig.fleet.deliver();
 
 		final ChainAttachment later = rig.attachment();
@@ -689,7 +689,7 @@ public class ClientSessionsTest {
 		final Rig rig = new Rig(ChainFleet.group());
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 
 		final ChainAttachment earlier = rig.attachment();
@@ -697,7 +697,7 @@ public class ClientSessionsTest {
 
 		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
 		rig.fleet.refreshAll();
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		rig.fleet.deliver();
 
 		exit.send(CONNECTED);
@@ -716,13 +716,13 @@ public class ClientSessionsTest {
 		final Listener ended = new Listener();
 		final Listener running = new Listener();
 
-		rig.sessions.open(CONNECT, ended);
+		rig.sessions.open(CONNECT, Optional.empty(), ended);
 		rig.fleet.deliver();
 		rig.answering().session().send(new Close(CloseReason.DONE));
 		rig.fleet.deliver();
 		rig.after(0);
 
-		final SessionHandle handle = rig.sessions.open(CONNECT, running);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), running);
 
 		rig.fleet.deliver();
 		rig.fleet.clock.addAndGet(15_000);
@@ -740,7 +740,7 @@ public class ClientSessionsTest {
 	public void keepsAChainThatNoSessionRunsOnWhileItIsTheOneInUse() {
 		final Rig rig = new Rig(ChainFleet.group());
 
-		rig.sessions.open(CONNECT, new Listener()).close(CloseReason.DONE);
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener()).close(CloseReason.DONE);
 		rig.fleet.deliver();
 
 		final ChainAttachment attachment = rig.attachment();
@@ -764,7 +764,7 @@ public class ClientSessionsTest {
 		final List<Boolean> closing = closedFirst ? List.of(true, false) : List.of(false, true);
 
 		closing.forEach(closed -> {
-			final SessionHandle handle = rig.sessions.open(CONNECT, new Listener());
+			final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 
 			if (closed) {
 				handle.close(CloseReason.DONE);
@@ -782,7 +782,7 @@ public class ClientSessionsTest {
 	@Example
 	public void leavesTheChainWhenTheProxyTurnsOffWhileASessionRunsOnIt() {
 		final Rig rig = new Rig(ChainFleet.group());
-		final SessionHandle handle = rig.sessions.open(CONNECT, new Listener());
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 
 		rig.fleet.deliver();
 
@@ -813,7 +813,7 @@ public class ClientSessionsTest {
 		}, new SecureRandom());
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		proxy.set(Optional.empty());
 		fleet.deliver();
 
@@ -828,7 +828,7 @@ public class ClientSessionsTest {
 	public void pausesWhileTheChainHasNoRoomAndGoesOnWhenItHas() {
 		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 
@@ -843,7 +843,7 @@ public class ClientSessionsTest {
 		assertThat(listener.writability, equalTo(List.of(false)));
 
 		final Listener late = new Listener();
-		final SessionHandle joined = rig.sessions.open(CONNECT, late);
+		final SessionHandle joined = rig.sessions.open(CONNECT, Optional.empty(), late);
 
 		assertThat(joined.isWritable(), is(false));
 
@@ -866,14 +866,14 @@ public class ClientSessionsTest {
 	public void tellsTheOpenersThatReadThatTheChainHadNoRoomWhenItTakesThePostAtTheNextTick() {
 		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 		rig.fleet.clock.addAndGet(15_000);
 		handle.send(new Data(new byte[300]));
 
 		final Listener late = new Listener();
-		final SessionHandle joined = rig.sessions.open(CONNECT, late);
+		final SessionHandle joined = rig.sessions.open(CONNECT, Optional.empty(), late);
 
 		assertThat(handle.isWritable(), is(false));
 		assertThat(joined.isWritable(), is(false));
@@ -895,7 +895,7 @@ public class ClientSessionsTest {
 		final ProxySettings tiny = ChainFleet.smallChains(HANDSHAKE_ENTRIES + 1);
 		final Rig rig = new Rig(ChainFleet.group(tiny));
 		final Listener stuck = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, stuck);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), stuck);
 
 		rig.fleet.deliver();
 
@@ -932,7 +932,7 @@ public class ClientSessionsTest {
 	@Example
 	public void joinsWithANewWriterAtOnceWhenTheClockSteppedBackFurtherThanTheChainKeepsEntries() {
 		final Rig rig = new Rig(ChainFleet.group());
-		final SessionHandle handle = rig.sessions.open(CONNECT, new Listener());
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 
 		rig.fleet.deliver();
 
@@ -955,7 +955,7 @@ public class ClientSessionsTest {
 	private static void carriesOnWithANewWriter(final Rig rig, final ChainAttachment earlier,
 		final List<Session> answered, final Listener listener) {
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		assertThat(rig.attachment().writerId(), not(equalTo(earlier.writerId())));
 
@@ -975,7 +975,7 @@ public class ClientSessionsTest {
 		final Listener listener = new Listener();
 
 		rig.mute(true);
-		rig.sessions.open(CONNECT, new Listener() {
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener() {
 			@Override
 			public void writabilityChanged(final boolean writable) {
 				thrown.set(true);
@@ -983,13 +983,13 @@ public class ClientSessionsTest {
 			}
 		});
 
-		final SessionHandle closing = rig.sessions.open(CONNECT, closed);
+		final SessionHandle closing = rig.sessions.open(CONNECT, Optional.empty(), closed);
 
 		rig.fleet.deliver();
 		closing.close(CloseReason.DONE);
 		rig.mute(false);
 
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 		handle.send(new Data(new byte[800]));
@@ -1022,7 +1022,7 @@ public class ClientSessionsTest {
 			}
 		};
 
-		handle.set(rig.sessions.open(CONNECT, listener));
+		handle.set(rig.sessions.open(CONNECT, Optional.empty(), listener));
 		rig.fleet.deliver();
 		rig.answering().session().send(CONNECTED);
 		rig.fleet.deliver();
@@ -1057,7 +1057,7 @@ public class ClientSessionsTest {
 		final ExecutorService threads = Executors.newFixedThreadPool(openers);
 		final Callable<SessionHandle> open = () -> {
 			start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
-			return rig.sessions.open(CONNECT, new Listener());
+			return rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		};
 
 		try {
@@ -1085,7 +1085,7 @@ public class ClientSessionsTest {
 		final Listener draining = new Listener();
 		final Listener fresh = new Listener();
 
-		rig.sessions.open(CONNECT, draining);
+		rig.sessions.open(CONNECT, Optional.empty(), draining);
 		rig.fleet.deliver();
 
 		final ChainAttachment earlier = rig.attachment();
@@ -1093,7 +1093,7 @@ public class ClientSessionsTest {
 		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
 		rig.fleet.refreshAll();
 		rig.sessions.tick();
-		rig.sessions.open(CONNECT, fresh);
+		rig.sessions.open(CONNECT, Optional.empty(), fresh);
 		rig.fleet.deliver();
 
 		assertThat(rig.attachment().chainId(), not(equalTo(earlier.chainId())));
@@ -1115,7 +1115,7 @@ public class ClientSessionsTest {
 		final List<ChainAttachment> attachments = new ArrayList<>();
 
 		for (int epoch = 0; epoch < 6; epoch++) {
-			rig.sessions.open(CONNECT, new Listener());
+			rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 			rig.fleet.deliver();
 			attachments.add(rig.attachment());
 			rig.fleet.clock.addAndGet(60_000);
@@ -1158,9 +1158,9 @@ public class ClientSessionsTest {
 		};
 		final Listener closing = new Listener();
 
-		handle.set(rig.sessions.open(CONNECT, ending));
+		handle.set(rig.sessions.open(CONNECT, Optional.empty(), ending));
 
-		final SessionHandle closed = rig.sessions.open(CONNECT, closing);
+		final SessionHandle closed = rig.sessions.open(CONNECT, Optional.empty(), closing);
 
 		rig.fleet.deliver();
 
@@ -1193,7 +1193,7 @@ public class ClientSessionsTest {
 		final Rig rig = withSpork(fleet, spork);
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		turnTheEpoch(rig);
 		spork.set(Optional.of(epochOf(120)));
@@ -1214,7 +1214,7 @@ public class ClientSessionsTest {
 		final Rig rig = withSpork(fleet, spork);
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		spork.set(Optional.empty());
 		turnTheEpoch(rig);
@@ -1239,7 +1239,7 @@ public class ClientSessionsTest {
 			return fleet.settings.get();
 		}, new SecureRandom());
 		final Listener listener = new Listener();
-		final SessionHandle handle = rig.sessions.open(CONNECT, listener);
+		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 
@@ -1262,7 +1262,7 @@ public class ClientSessionsTest {
 		final Rig rig = new Rig(ChainFleet.group(epochOf(3600)));
 		final Listener listener = new Listener();
 
-		rig.sessions.open(CONNECT, listener);
+		rig.sessions.open(CONNECT, Optional.empty(), listener);
 		rig.fleet.deliver();
 		rig.after(EPOCH_MILLIS);
 		rig.after(-EPOCH_MILLIS);
@@ -1286,7 +1286,7 @@ public class ClientSessionsTest {
 			return fleet.settings.get();
 		}, fleet.clock::get, fleet.settings::get, new SecureRandom());
 
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		rig.fleet.deliver();
 		reads.set(0);
 		rig.sessions.tick();
@@ -1294,7 +1294,7 @@ public class ClientSessionsTest {
 
 		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
 		rig.fleet.refreshAll();
-		rig.sessions.open(CONNECT, new Listener());
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
 		rig.fleet.deliver();
 		reads.set(0);
 		rig.sessions.tick();

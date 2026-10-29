@@ -48,6 +48,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -469,15 +470,28 @@ public class SocksAssociateTest {
 	}
 
 	@Example
+	public void shouldHandTheCountryOfTheConnectionToTheTunnel() {
+		control.attr(SocksPasswordHandler.COUNTRY).set("NO");
+		requestAssociation();
+		assertThat(tunnel.association().country, equalTo(Optional.of("NO")));
+	}
+
+	@Example
+	public void shouldAskForNoCountryOnBehalfOfAConnectionThatNamedNone() {
+		requestAssociation();
+		assertThat(tunnel.association().country, equalTo(Optional.empty()));
+	}
+
+	@Example
 	public void shouldFailAnAssociationTheTunnelThrowsOn() {
 		connect(new Tunnel() {
 			@Override
-			public TunnelStream open(SocksAddress destination, TunnelListener listener) {
+			public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
 				throw new IllegalStateException("The tunnel is down");
 			}
 
 			@Override
-			public AssociationStream associate(AssociationListener listener) {
+			public AssociationStream associate(Optional<String> country, AssociationListener listener) {
 				throw new IllegalStateException("The tunnel is down");
 			}
 		}, binder(SOCKET));
@@ -495,13 +509,13 @@ public class SocksAssociateTest {
 
 		connect(new Tunnel() {
 			@Override
-			public TunnelStream open(SocksAddress destination, TunnelListener listener) {
-				return tunnel.open(destination, listener);
+			public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
+				return tunnel.open(destination, country, listener);
 			}
 
 			@Override
-			public AssociationStream associate(AssociationListener listener) {
-				tunnel.associate(listener);
+			public AssociationStream associate(Optional<String> country, AssociationListener listener) {
+				tunnel.associate(country, listener);
 				listener.opened();
 				throw new IllegalStateException("The tunnel broke after it opened");
 			}
@@ -867,7 +881,7 @@ public class SocksAssociateTest {
 		final UdpAssociation association = new UdpAssociation(control.pipeline().context(handler), binder(SOCKET),
 			0, new SubstituteLogger("udp", events, false));
 
-		association.start(tunnel);
+		association.start(tunnel, Optional.empty());
 		tunnel.association().open();
 		control.runPendingTasks();
 

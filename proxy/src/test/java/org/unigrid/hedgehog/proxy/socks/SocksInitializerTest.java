@@ -34,6 +34,7 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -112,15 +113,15 @@ public class SocksInitializerTest {
 	/* Answers every stream and association at once, on the event loop of the connection that asked */
 	private static final class AnsweringTunnel implements Tunnel {
 		@Override
-		public TunnelStream open(SocksAddress destination, TunnelListener listener) {
+		public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
 			listener.connected(BOUND);
-			return new EchoTunnel.EchoStream(destination, listener);
+			return new EchoTunnel.EchoStream(destination, country, listener);
 		}
 
 		@Override
-		public AssociationStream associate(AssociationListener listener) {
+		public AssociationStream associate(Optional<String> country, AssociationListener listener) {
 			listener.opened();
-			return new EchoTunnel.EchoAssociation(listener);
+			return new EchoTunnel.EchoAssociation(country, listener);
 		}
 	}
 
@@ -198,6 +199,35 @@ public class SocksInitializerTest {
 		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, 2, 1, 0 }));
 		assertThat(tunnel.streams.size(), is(1));
 		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Example
+	public void shouldOpenTheStreamTowardsTheCountryTheUsernameNames() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 2, 0, 2 }, new byte[] { 1, 2, 's', 'e', 0 },
+			CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.of("SE")));
+	}
+
+	@Example
+	public void shouldAskForNoCountryOfAClientThatSendsNoCredentials() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(NO_AUTH_GREETING, CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void shouldAskForNoCountryOfAClientWithAnEmptyUsername() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }, EMPTY_CREDENTIALS,
+			CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.empty()));
 	}
 
 	@Example

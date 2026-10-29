@@ -33,6 +33,7 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import io.netty.util.NetUtil;
 import java.io.ByteArrayOutputStream;
+import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -260,9 +261,22 @@ public class SocksCommandTest {
 	}
 
 	@Example
+	public void shouldHandTheCountryOfTheConnectionToTheTunnel() {
+		channel.attr(SocksPasswordHandler.COUNTRY).set("SE");
+		channel.writeInbound(request(Socks5CommandType.CONNECT, TARGET));
+		assertThat(tunnel.stream().country, equalTo(Optional.of("SE")));
+	}
+
+	@Example
+	public void shouldAskForNoCountryOnBehalfOfAConnectionThatNamedNone() {
+		channel.writeInbound(request(Socks5CommandType.CONNECT, TARGET));
+		assertThat(tunnel.stream().country, equalTo(Optional.empty()));
+	}
+
+	@Example
 	public void shouldFailACommandTheTunnelThrowsOn() {
 		final EmbeddedChannel client = new EmbeddedChannel(new Socks5CommandRequestDecoder(),
-			new SocksCommandHandler((destination, listener) -> {
+			new SocksCommandHandler((destination, country, listener) -> {
 				throw new IllegalStateException("The tunnel is down");
 			}));
 
@@ -497,8 +511,8 @@ public class SocksCommandTest {
 
 	@Example
 	public void shouldOpenAStreamWhoseTunnelConnectsBeforeOpenReturns() {
-		final Tunnel eager = (destination, listener) -> {
-			final TunnelStream stream = tunnel.open(destination, listener);
+		final Tunnel eager = (destination, country, listener) -> {
+			final TunnelStream stream = tunnel.open(destination, country, listener);
 
 			listener.connected(BOUND);
 			return stream;

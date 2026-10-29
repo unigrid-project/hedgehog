@@ -137,7 +137,7 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	private void associate(int clientPort) {
 		association = new UdpAssociation(context, binder, clientPort);
 		context.pipeline().replace(Socks5CommandRequestDecoder.class, null, new Socks5CommandRequestDecoder());
-		association.start(tunnel);
+		association.start(tunnel, country());
 	}
 
 	/* A second command is a protocol violation; bytes the decoder cannot read as one are ignored, and so is
@@ -158,10 +158,15 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		}
 	}
 
+	/* What the client named in its username, if it did */
+	private Optional<String> country() {
+		return Optional.ofNullable(context.channel().attr(SocksPasswordHandler.COUNTRY).get());
+	}
+
 	/* A tunnel that throws has no stream to give, and the client hears so rather than waiting for a reply */
 	private void openStream(SocksAddress destination) {
 		try {
-			stream = tunnel.open(destination, new Listener(context.executor()));
+			stream = tunnel.open(destination, country(), new Listener(context.executor()));
 		} catch (RuntimeException ex) {
 			fail(TunnelFailure.GENERAL_FAILURE);
 		}
