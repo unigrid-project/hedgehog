@@ -205,6 +205,18 @@ public class FeedWriterTest {
 			new byte[0]));
 	}
 
+	/* The stamp of the latest entry, which a clock that went back does not lower */
+	@Example
+	public void shouldTellTheStampOfItsLatestEntry() {
+		final FeedWriter writer = new FeedWriter(ChainFixtures.key(1), CHAIN);
+
+		assertThat(writer.timestamp(), is(Long.MIN_VALUE));
+		writer.write(NOW + 1500, ChainFixtures.TAG, new byte[0]);
+		assertThat(writer.timestamp(), is(NOW + 1000));
+		writer.write(NOW, ChainFixtures.TAG, new byte[0]);
+		assertThat(writer.timestamp(), is(NOW + 1000));
+	}
+
 	/* The last entry of a feed says so, and the writer signs nothing after it */
 	@Example
 	public void shouldWriteNothingAfterTheLastEntryOfItsFeed() {

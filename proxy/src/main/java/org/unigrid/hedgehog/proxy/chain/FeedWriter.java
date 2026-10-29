@@ -55,6 +55,11 @@ public final class FeedWriter {
 		return chainId;
 	}
 
+	/* The stamp of the latest entry the writer signed, Long.MIN_VALUE before the first */
+	public synchronized long timestamp() {
+		return timestamp;
+	}
+
 	/* The clock is in epoch milliseconds and the stamp in whole seconds of it, rounded down: within one second, the
 	   time between two entries tells no one how far apart their writers are. A feed refuses time that runs
 	   backwards, so a clock that goes back holds the last timestamp. The lock is the writer's own monitor so that a
