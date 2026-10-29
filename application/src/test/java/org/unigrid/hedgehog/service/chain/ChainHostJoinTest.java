@@ -56,12 +56,14 @@ import static org.hamcrest.Matchers.sameInstance;
 import org.unigrid.hedgehog.model.network.codec.ChainArbitraries;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.codec.JoinReplyEncoder;
+import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.GroupView;
@@ -76,6 +78,7 @@ public class ChainHostJoinTest {
 	private static final int STREAMS = 1000;
 	private static final int TIMEOUT_SECONDS = 30;
 	private static final long EPOCH_MILLIS = 3_600_000;
+	private static final long BEYOND_RETENTION_MILLIS = 31_000;
 	private static final long[] REQUEST_IDS = {0, 1, -1, Long.MIN_VALUE, Long.MAX_VALUE};
 	private static final ChainId UNHOSTED = new ChainId(new byte[ChainId.SIZE]);
 
@@ -588,6 +591,36 @@ public class ChainHostJoinTest {
 
 		assertThat(reply.getHeads(), equalTo(chain.heads()));
 		assertThat(reply.getHeads().size(), is(1));
+	}
+
+	/* A writer that posted once, ended its feed and left holds its place on the chain only until its last entry is
+	   past the retention window, so writers that come and go cannot close a chain to new clients for the rest of the
+	   epoch */
+	@Example
+	public void churnedWritersDoNotLockOutNewClients() {
+		final ChainFleet fleet = new ChainFleet(20);
+		final ChainHost host = hostOf(fleet, "gn-3");
+		final ChainId chainId = host.hostedChains().get(0);
+		final byte[] payload = ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
+
+		for (int writer = 0; writer < HostedChain.MAX_WRITERS; writer++) {
+			final EmbeddedChannel stream = new EmbeddedChannel();
+
+			assertThat(join(host, stream, writer, chainId).getStatus(), is(JoinReply.Status.JOINED));
+			host.receive(stream, ChainEntry.builder().entries(List.of(new FeedWriter(ChainFleet.key(writer), chainId)
+				.writeLast(ChainFleet.NOW, ChainFleet.TAG, payload))).build());
+			leave(host, stream, chainId, writer);
+		}
+
+		assertThat(join(host, new EmbeddedChannel(), HostedChain.MAX_WRITERS, chainId).getStatus(),
+			is(JoinReply.Status.FULL));
+
+		fleet.clock.addAndGet(BEYOND_RETENTION_MILLIS);
+		host.maintain();
+
+		assertThat(join(host, new EmbeddedChannel(), HostedChain.MAX_WRITERS, chainId).getStatus(),
+			is(JoinReply.Status.JOINED));
+		assertThat(host.chain(chainId).orElseThrow().heads(), equalTo(Map.of()));
 	}
 
 	@Example @SneakyThrows
