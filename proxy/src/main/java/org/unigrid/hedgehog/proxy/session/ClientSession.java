@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Completed;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiation;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiator;
@@ -93,6 +94,11 @@ public final class ClientSession {
 
 	public synchronized Optional<String> exit() {
 		return Optional.ofNullable(attempt).map(Attempt::exit);
+	}
+
+	/* The writer of the exit, once its answer completed the handshake */
+	public synchronized Optional<WriterId> peer() {
+		return Optional.ofNullable(session).map(Session::peer);
 	}
 
 	/* Whether the entry is the next one this session waits for: the answer while it opens, then the exit's next
