@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.chain.FnvJ64;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 /* Where this member passes the entries of the stem on, as Dandelion++ (Fanti et al., 2018) has it. For each chain and
@@ -44,21 +45,33 @@ final class StemRouter {
 	static final long PERIOD_MILLIS = 60_000;
 	static final int SUCCESSORS = 2;
 
-	private record Period(long number, boolean diffuses, List<Channel> successors, Map<WriterId, Channel> routes,
-		Map<WriterId, Set<Channel>> barred, Set<WriterId> rerouted) {
-		/* The mode and the successors of one chain for one period, the successor of each writer routed in it, the
-		   successor that refused an entry of a writer, which gets none of it for the rest of the period, and the
-		   writers moved on a refusal already */
+	private record Period(long number, boolean diffuses, List<Channel> successors, long key,
+		Map<WriterId, Channel> routes, Map<WriterId, Set<Channel>> barred, Set<WriterId> rerouted) {
+		/* The mode and the successors of one chain for one period, the key that routes the writers past the most it
+		   keeps, the successor of each writer routed in it, the successor that refused an entry of a writer, which
+		   gets none of it for the rest of the period, and the writers moved on a refusal already */
 	}
 
 	private final RandomGenerator random;
 	private final Function<ChainId, List<Channel>> members;
 	private final Map<ChainId, Period> periods = new HashMap<>();
 
+	/* The most writers of one chain that a period keeps a route for, as many as the chain takes. A writer past them
+	   goes by a hash of its id under the key of the period, which keeps it on one successor for the period as well,
+	   and a stream that floods the stem with fresh writers makes the router hold no more. A refusal moves such a writer
+	   nowhere, as there is no route of it to move. */
+	private final int maxRoutes;
+
 	/* The members are the streams of a chain to the other members of its group, as the host holds them now */
 	StemRouter(final RandomGenerator random, final Function<ChainId, List<Channel>> members) {
+		this(random, members, HostedChain.MAX_WRITERS);
+	}
+
+	/* A parameter only so that a test reaches the cap without routing thousands of writers */
+	StemRouter(final RandomGenerator random, final Function<ChainId, List<Channel>> members, final int maxRoutes) {
 		this.random = random;
 		this.members = members;
+		this.maxRoutes = maxRoutes;
 	}
 
 	synchronized boolean diffuses(final ChainId chainId, final long now) {
@@ -81,6 +94,10 @@ final class StemRouter {
 
 		if (routed != null && open.contains(routed)) {
 			return Optional.of(routed);
+		}
+
+		if (routed == null && period.routes().size() >= maxRoutes) {
+			return Optional.of(open.get((int) Long.remainderUnsigned(keyed(period.key(), writer), open.size())));
 		}
 
 		final Channel chosen = open.get(random.nextInt(open.size()));
@@ -107,6 +124,11 @@ final class StemRouter {
 		period.barred().put(writer, Set.of(successor));
 		period.routes().remove(writer);
 		return successor(chainId, writer, avoid, now);
+	}
+
+	/* How many writers the period keeps a route for, for a test */
+	synchronized int routed(final ChainId chainId, final long now) {
+		return period(chainId, now).routes().size();
 	}
 
 	/* The successors drawn for the period, for a test */
@@ -162,8 +184,8 @@ final class StemRouter {
 			return held;
 		}
 
-		final Period drawn = new Period(number, random.nextBoolean(), drawn(chainId), new HashMap<>(),
-			new HashMap<>(), new HashSet<>());
+		final Period drawn = new Period(number, random.nextBoolean(), drawn(chainId), random.nextLong(),
+			new HashMap<>(), new HashMap<>(), new HashSet<>());
 
 		periods.put(chainId, drawn);
 		return drawn;
@@ -175,6 +197,15 @@ final class StemRouter {
 
 		Collections.shuffle(candidates, random);
 		return List.copyOf(candidates.subList(0, Math.min(SUCCESSORS, candidates.size())));
+	}
+
+	/* A hash of the id of a writer under the key, mixed as SplitMix64 mixes its state */
+	private static long keyed(final long key, final WriterId writer) {
+		long mixed = key ^ FnvJ64.hash(writer.bytes());
+
+		mixed = (mixed ^ (mixed >>> 30)) * 0xbf58476d1ce4e5b9L;
+		mixed = (mixed ^ (mixed >>> 27)) * 0x94d049bb133111ebL;
+		return mixed ^ (mixed >>> 31);
 	}
 
 	private static long numberOf(final long now) {

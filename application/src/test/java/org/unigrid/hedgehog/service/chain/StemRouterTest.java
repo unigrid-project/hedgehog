@@ -209,4 +209,28 @@ public class StemRouterTest {
 		assertThat(router.successor(CHAIN, writer, Set.copyOf(members), NOW), is(Optional.empty()));
 		assertThat(router.hasSuccessor(CHAIN, Set.copyOf(members), NOW), is(false));
 	}
+
+	/* Past the most writers the router keeps a route for, a writer goes by a hash of its id under a key of the period,
+	   so it keeps one successor for the period without the router holding anything for it */
+	@Property(tries = 10)
+	public void routesWritersPastTheCapByAKeyedHashWithoutKeepingThem(@ForAll long seed) {
+		final List<Channel> members = streams(5);
+		final StemRouter router = new StemRouter(new SplittableRandom(seed), chainId -> members, 2);
+		final Set<Channel> drawn = new HashSet<>();
+
+		for (int writer = 0; writer < WRITERS; writer++) {
+			final Optional<Channel> first = router.successor(CHAIN, ChainFleet.writer(writer), Set.of(), NOW);
+
+			assertThat(router.successor(CHAIN, ChainFleet.writer(writer), Set.of(), NOW + 1000), is(first));
+			first.ifPresent(drawn::add);
+		}
+
+		assertThat(router.routed(CHAIN, NOW), is(2));
+		assertThat(drawn, hasSize(StemRouter.SUCCESSORS));
+
+		for (final Channel avoided : drawn) {
+			assertThat(router.successor(CHAIN, ChainFleet.writer(WRITERS - 1), Set.of(avoided), NOW).orElseThrow(),
+				is(not(avoided)));
+		}
+	}
 }
