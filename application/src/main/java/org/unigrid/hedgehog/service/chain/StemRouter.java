@@ -36,11 +36,12 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 /* Where this member passes the entries of the stem on, as Dandelion++ (Fanti et al., 2018) has it. For each chain and
    each period of a minute the member is either a relay or a diffuser, with even odds, and keeps two successors drawn
    among the streams to the other members of the group, never a client's. Every entry of one writer goes to the same
-   successor for the whole period. A successor that closes or leaves the group is passed over, and nothing is drawn in
-   its place while the other one is there. A writer for which no drawn successor is left but avoided or gone, as an
-   exit avoids the two members its client attached through, is routed to another member for the period instead, as
-   it would otherwise have none in many a period of a small group. A successor that refused an entry of a writer is
-   never replaced that way, so refusals cannot walk the stem of a writer to members outside the draw. */
+   successor for the whole period. A successor that closes or leaves the group is passed over for the other one. A
+   writer for which each drawn successor is avoided or gone, as when an exit avoids the two members its client
+   attached through, or when one successor went and the writer avoids the other, is routed to another member for the
+   period instead, as it would otherwise have none in many a period of a small group. A successor that refused an
+   entry of a writer counts as gone for the writer but is never replaced that way, so refusals cannot walk the stem
+   of a writer to members outside the draw. */
 final class StemRouter {
 	static final long PERIOD_MILLIS = 60_000;
 	static final int SUCCESSORS = 2;
