@@ -32,6 +32,7 @@ public final class Feed {
 	private long nextSeq;
 	private long prev;
 	private long timestamp = Long.MIN_VALUE;
+	private boolean ended;
 
 	public Feed(WriterId writer) {
 		this.writer = Objects.requireNonNull(writer, "writer");
@@ -47,6 +48,19 @@ public final class Feed {
 		this.head = head;
 		nextSeq = head.seq() + 1;
 		prev = head.hash();
+	}
+
+	/* A feed that starts after an entry it never saw linked, as when a gap skips to it. Its time and whether it ended
+	   are taken from the entry only when it is the last one, as nothing follows it whose time it could check. */
+	public static Feed after(Entry entry) {
+		final Feed feed = new Feed(entry.header().writer(), new Head(entry.header().seq(), entry.hash()));
+
+		if (entry.header().last()) {
+			feed.ended = true;
+			feed.timestamp = entry.header().timestamp();
+		}
+
+		return feed;
 	}
 
 	public static boolean canStartAfter(Head head) {
@@ -65,6 +79,11 @@ public final class Feed {
 		return nextSeq;
 	}
 
+	/* Whether the head is the last entry of the feed, after which the feed takes nothing */
+	public boolean hasEnded() {
+		return ended;
+	}
+
 	/* The stamp of the last entry the feed took, Long.MIN_VALUE while it took none */
 	public long timestamp() {
 		return timestamp;
@@ -77,7 +96,7 @@ public final class Feed {
 			return Link.FOREIGN;
 		}
 
-		if (header.seq() == LAST_SEQ) {
+		if (cannotFollow(header.seq())) {
 			return Link.BROKEN;
 		}
 
@@ -96,9 +115,15 @@ public final class Feed {
 			nextSeq = head.seq() + 1;
 			prev = head.hash();
 			timestamp = entry.header().timestamp();
+			ended = entry.header().last();
 		}
 
 		return link;
+	}
+
+	/* Nothing follows the last sequence number, nor the last entry of a feed that ended */
+	private boolean cannotFollow(long seq) {
+		return seq == LAST_SEQ || ended && seq > head.seq();
 	}
 
 	/* Time never runs backwards within a feed, so the merged chain keeps every feed in seq order */

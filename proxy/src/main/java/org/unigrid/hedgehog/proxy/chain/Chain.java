@@ -260,12 +260,14 @@ public final class Chain {
 	}
 
 	/* An anchor can move a feed past entries that already waited, and a feed never moves backwards, so
-	   what waits at or below its head is dropped and the gap is judged by what still waits past it */
+	   what waits at or below its head is dropped and the gap is judged by what still waits past it. Nothing waits
+	   for a feed that ended. */
 	private Optional<Gap> expire(WriterId writer, long cutoff) {
-		final long nextSeq = feeds.getOrDefault(writer, new Feed(writer)).nextSeq();
+		final Feed feed = feeds.getOrDefault(writer, new Feed(writer));
+		final long nextSeq = feed.nextSeq();
 		final NavigableMap<Long, Entry> waiting = held.get(writer);
 
-		dropHeld(waiting.headMap(nextSeq));
+		dropHeld(feed.hasEnded() ? waiting : waiting.headMap(nextSeq));
 
 		if (waiting.isEmpty()) {
 			held.remove(writer);
@@ -276,14 +278,17 @@ public final class Chain {
 			? Optional.of(skip(writer, nextSeq)) : Optional.empty();
 	}
 
+	/* The feed goes on after the last entry that waited, or ends at the first one that ends it, as nothing past that
+	   can follow */
 	private Gap skip(WriterId writer, long fromSeq) {
 		final NavigableMap<Long, Entry> waiting = held.remove(writer);
-		final Entry last = waiting.lastEntry().getValue();
+		final Entry last = waiting.values().stream().filter(entry -> entry.header().last()).findFirst()
+			.orElse(waiting.lastEntry().getValue());
 		final Set<Tag> tags = waiting.values().stream().map(entry -> entry.header().tag())
 			.collect(Collectors.toSet());
 
 		dropHeld(waiting);
-		feeds.put(writer, new Feed(writer, new Head(last.header().seq(), last.hash())));
+		feeds.put(writer, Feed.after(last));
 		startedAt.put(writer, clock.getAsLong());
 		return new Gap(writer, fromSeq, last.header().seq(), tags);
 	}
@@ -304,7 +309,8 @@ public final class Chain {
 		dropped.clear();
 	}
 
-	/* Appends what waited for the entry just appended and drops what waited but no longer links */
+	/* Appends what waited for the entry just appended and drops what waited but no longer links, and all that waited
+	   once the feed ended */
 	private void release(Feed feed, List<Entry> appended) {
 		final NavigableMap<Long, Entry> waiting = held.getOrDefault(feed.writer(), Collections.emptyNavigableMap());
 
@@ -318,8 +324,8 @@ public final class Chain {
 			}
 		}
 
-		if (waiting.isEmpty()) {
-			held.remove(feed.writer());
+		if (feed.hasEnded() || waiting.isEmpty()) {
+			Optional.ofNullable(held.remove(feed.writer())).ifPresent(this::dropHeld);
 		}
 	}
 

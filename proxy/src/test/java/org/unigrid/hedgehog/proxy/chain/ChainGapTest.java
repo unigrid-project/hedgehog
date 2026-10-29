@@ -50,6 +50,10 @@ public class ChainGapTest {
 		return new Tag(bytes);
 	}
 
+	private static byte[] padded(int number) {
+		return Padding.padded(new byte[] { (byte) number }, ChainFixtures.MAX_ENTRY_BYTES);
+	}
+
 	private static Entry signed(WriterKey key, long seq, long prev, long timestamp, Tag tag) {
 		return key.sign(new EntryHeader(CHAIN, key.id(), seq, prev, timestamp, tag),
 			Padding.padded(new byte[] { (byte) seq }, ChainFixtures.MAX_ENTRY_BYTES));
@@ -73,6 +77,52 @@ public class ChainGapTest {
 		chain.offer(fifth);
 		clock.set(NOW + 30_001);
 		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 1, 4, Set.of(tag(3), tag(4))))));
+	}
+
+	/* A chain takes nothing a writer signs after the last entry of its feed, and drops what waited past it once the
+	   last entry arrives, as nothing can ever follow */
+	@Example
+	public void shouldTakeNothingPastTheLastEntryOfAFeed() {
+		final Chain chain = new Chain(CHAIN, LIMITS, () -> NOW);
+		final FeedWriter writer = new FeedWriter(WRITER, CHAIN);
+		final Entry first = writer.write(NOW, tag(1), padded(0));
+		final Entry last = writer.writeLast(NOW, tag(2), padded(1));
+		final Entry waited = signed(WRITER, 3, 0, NOW, tag(3));
+
+		assertThat(chain.offer(waited).admission(), is(Admission.AHEAD));
+		chain.offer(first);
+		assertThat(chain.offer(last).admission(), is(Admission.ACCEPTED));
+		assertThat(chain.offer(new FeedWriter(OTHER, CHAIN).writeLast(NOW, tag(1), padded(0))).admission(),
+			is(Admission.ACCEPTED));
+		assertThat(chain.heldBytes(), is(0L));
+		assertThat(chain.offer(signed(WRITER, 2, last.hash(), NOW, tag(4))).admission(), is(Admission.BROKEN));
+		assertThat(chain.offer(waited).admission(), is(Admission.BROKEN));
+		assertThat(chain.heldBytes(), is(0L));
+		assertThat(chain.heads().get(WRITER.id()), equalTo(new Head(1, last.hash())));
+	}
+
+	/* A gap that skips to the last entry of a feed ends the feed there, whatever waited past it */
+	@Example
+	public void shouldEndAFeedWhereAGapSkippedToItsLastEntry() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+		final FeedWriter writer = new FeedWriter(WRITER, CHAIN);
+
+		writer.write(NOW, tag(1), padded(0));
+
+		final Entry second = writer.write(NOW, tag(2), padded(1));
+		final Entry last = writer.writeLast(NOW, tag(3), padded(2));
+
+		chain.offer(second);
+		chain.offer(last);
+		chain.offer(signed(WRITER, 3, last.hash(), NOW, tag(4)));
+		clock.set(NOW + 31_000);
+
+		assertThat(chain.expireGaps(), equalTo(List.of(new Gap(WRITER.id(), 0, 2, Set.of(tag(2), tag(3), tag(4))))));
+		assertThat(chain.heldBytes(), is(0L));
+		assertThat(chain.heads(), equalTo(Map.of(WRITER.id(), new Head(2, last.hash()))));
+		assertThat(chain.offer(signed(WRITER, 3, last.hash(), clock.get(), tag(5))).admission(),
+			is(Admission.BROKEN));
 	}
 
 	@Example

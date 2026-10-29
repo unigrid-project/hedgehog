@@ -29,7 +29,7 @@ public enum Link {
 	/* Older than the head */
 	REPLAYED,
 	/* At the next sequence number or the head, but not linked to what came before or running back in time, or
-	   the last sequence number, which nothing can follow */
+	   the last sequence number, or anything past the last entry of the feed, which nothing can follow */
 	BROKEN,
 	/* Signed by another writer */
 	FOREIGN

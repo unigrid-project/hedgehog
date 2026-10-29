@@ -54,6 +54,25 @@ public class FeedTest {
 		assertThat(feed.nextSeq(), is((long) count));
 	}
 
+	/* Nothing follows the last entry of a feed, neither the next entry nor one past it, while the last entry itself
+	   and those before it are still known */
+	@Example
+	public void shouldCallWhatFollowsTheLastEntryBroken() {
+		final FeedWriter writer = new FeedWriter(WRITER, CHAIN);
+		final Entry first = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
+		final Entry last = writer.writeLast(NOW, ChainFixtures.TAG, new byte[0]);
+		final Feed feed = new Feed(WRITER.id());
+
+		feed.append(first);
+		assertThat(feed.hasEnded(), is(false));
+		assertThat(feed.append(last), is(Link.NEXT));
+		assertThat(feed.hasEnded(), is(true));
+		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 2, last.hash(), NOW)), is(Link.BROKEN));
+		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 3, 0, NOW)), is(Link.BROKEN));
+		assertThat(feed.check(last), is(Link.DUPLICATE));
+		assertThat(feed.check(first), is(Link.REPLAYED));
+	}
+
 	@Example
 	public void shouldStartWithSequenceZeroAndNoPrevious() {
 		final Feed feed = new Feed(WRITER.id());
