@@ -171,4 +171,23 @@ public class StemRouterTest {
 		router.forgetBefore(NOW + StemRouter.PERIOD_MILLIS);
 		assertThat(router.periods(), is(0));
 	}
+
+	/* An exit avoids both members its client attached through, which may be both successors of the period: the writer
+	   is then routed to another member for the period, and has none only when every member is avoided */
+	@Property(tries = 20)
+	public void routesAWriterWhoseSuccessorsAreBothAvoidedToAnotherMember(@ForAll long seed) {
+		final List<Channel> members = streams(4);
+		final StemRouter router = router(seed, members);
+		final Set<Channel> successors = routes(router, NOW).stream().flatMap(Optional::stream)
+			.collect(Collectors.toSet());
+		final WriterId writer = ChainFleet.writer(WRITERS + 1);
+		final Channel other = router.successor(CHAIN, writer, successors, NOW).orElseThrow();
+
+		assertThat(successors, hasSize(StemRouter.SUCCESSORS));
+		assertThat(other, is(not(in(successors))));
+		assertThat(router.successor(CHAIN, writer, successors, NOW + 1000), is(Optional.of(other)));
+		assertThat(router.hasSuccessor(CHAIN, successors, NOW), is(true));
+		assertThat(router.successor(CHAIN, writer, Set.copyOf(members), NOW), is(Optional.empty()));
+		assertThat(router.hasSuccessor(CHAIN, Set.copyOf(members), NOW), is(false));
+	}
 }

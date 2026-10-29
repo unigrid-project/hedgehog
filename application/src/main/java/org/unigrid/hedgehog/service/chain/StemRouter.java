@@ -35,7 +35,9 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
    each period of a minute the member is either a relay or a diffuser, with even odds, and keeps two successors drawn
    among the streams to the other members of the group, never a client's. Every entry of one writer goes to the same
    successor for the whole period. A successor that closes or leaves the group is passed over and nothing is drawn in
-   its place before the period is over, so a member that drops its streams cannot steer the stem to another. */
+   its place before the period is over, so a member that drops its streams cannot steer the stem to another. A writer
+   that avoids both successors, as an exit avoids the two members its client attached through, is routed to another
+   member for the period instead, as it would otherwise have none in many a period of a small group. */
 final class StemRouter {
 	static final long PERIOD_MILLIS = 60_000;
 	static final int SUCCESSORS = 2;
@@ -59,7 +61,8 @@ final class StemRouter {
 	}
 
 	/* The successor a writer is routed to in this period, or the other one while that one is avoided or gone, and
-	   none while both are. What is avoided is checked on every call, whatever the writer was routed to before. */
+	   another member while both are avoided; none while both are gone. What is avoided is checked on every call,
+	   whatever the writer was routed to before. */
 	synchronized Optional<Channel> successor(final ChainId chainId, final WriterId writer, final Set<Channel> avoid,
 		final long now) {
 
@@ -98,11 +101,19 @@ final class StemRouter {
 		return periods.size();
 	}
 
+	/* The successors of the period that are still there and not avoided, or when every one still there is avoided,
+	   the other members that are not */
 	private List<Channel> open(final ChainId chainId, final Period period, final Set<Channel> avoid) {
 		final List<Channel> current = members.apply(chainId);
+		final List<Channel> left = period.successors().stream()
+			.filter(successor -> current.contains(successor) && successor.isActive()).toList();
 
-		return period.successors().stream().filter(successor -> !avoid.contains(successor)
-			&& current.contains(successor) && successor.isActive()).toList();
+		if (!left.isEmpty() && avoid.containsAll(left)) {
+			return current.stream().filter(member -> member.isActive() && !avoid.contains(member)
+				&& !left.contains(member)).distinct().toList();
+		}
+
+		return left.stream().filter(successor -> !avoid.contains(successor)).toList();
 	}
 
 	private Period period(final ChainId chainId, final long now) {
