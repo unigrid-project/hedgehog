@@ -105,9 +105,10 @@ public class ChainExit implements ChainDrain {
 	static final int MAX_DRAINING = MAX_RELAYS;
 
 	/* The writers of this exit's sessions that hold a place on one chain: those of its relays, of the relays that drain
-	   and of the sessions that ended, until their entries aged out of the chain. An opening beyond it is left
-	   unanswered, so the client tries another exit after its timeout. Together the exits of a group of eight take at
-	   most half of the writers a chain takes, which leaves the other half to its clients. */
+	   and of the sessions that ended, until their Close aged out of the chain, or for as long as the chain lasts when
+	   it never got there. An opening beyond it is left unanswered, so the client tries another exit after its timeout.
+	   Together the exits of a group of eight take at most half of the writers a chain takes, which leaves the other
+	   half to its clients. */
 	static final int MAX_WRITERS_PER_CHAIN = HostedChain.MAX_WRITERS / 16;
 
 	private static final int TICK_SECONDS = 1;
