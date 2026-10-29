@@ -39,7 +39,7 @@ public class BaseCodecTest<T> extends BaseMockedWeldTest {
 	/* The packets of the stream that chain traffic has to itself, which the main stream refuses */
 	private static final Set<Packet.Type> CHAIN_PACKETS = EnumSet.of(Packet.Type.JOIN_CHAIN, Packet.Type.JOIN_REPLY,
 		Packet.Type.CHAIN_ENTRY, Packet.Type.CHAIN_HEADS, Packet.Type.FETCH_ENTRIES, Packet.Type.ENTRY_REFUSED,
-		Packet.Type.LEAVE_CHAIN);
+		Packet.Type.LEAVE_CHAIN, Packet.Type.CHAIN_STEM);
 
 	protected Optional<Pair<MutableInt, MutableInt>> getSizeHolder() {
 		return Optional.of(Pair.of(new MutableInt(), new MutableInt()));

@@ -52,7 +52,8 @@ public class Packet {
 		LEDGER_TRANSACTION((short) 4000), LEDGER_CONSENSUS((short) 4010), LEDGER_HEARTBEAT((short) 4020),
 		LEDGER_STATUS((short) 4030), LEDGER_BLOCK_REQUEST((short) 4040), LEDGER_BLOCK_BATCH((short) 4050),
 		JOIN_CHAIN((short) 5000), JOIN_REPLY((short) 5010), CHAIN_ENTRY((short) 5020), CHAIN_HEADS((short) 5030),
-		FETCH_ENTRIES((short) 5040), ENTRY_REFUSED((short) 5050), LEAVE_CHAIN((short) 5060);
+		FETCH_ENTRIES((short) 5040), ENTRY_REFUSED((short) 5050), LEAVE_CHAIN((short) 5060),
+		CHAIN_STEM((short) 5070);
 
 		private static final Map<Short, Type> BY_VALUE = Arrays.stream(values())
 			.collect(Collectors.toMap(Type::getValue, type -> type));

@@ -25,6 +25,8 @@ import org.unigrid.hedgehog.model.network.codec.ChainEntryDecoder;
 import org.unigrid.hedgehog.model.network.codec.ChainEntryEncoder;
 import org.unigrid.hedgehog.model.network.codec.ChainHeadsDecoder;
 import org.unigrid.hedgehog.model.network.codec.ChainHeadsEncoder;
+import org.unigrid.hedgehog.model.network.codec.ChainStemDecoder;
+import org.unigrid.hedgehog.model.network.codec.ChainStemEncoder;
 import org.unigrid.hedgehog.model.network.codec.EntryRefusedDecoder;
 import org.unigrid.hedgehog.model.network.codec.EntryRefusedEncoder;
 import org.unigrid.hedgehog.model.network.codec.FetchEntriesDecoder;
@@ -60,6 +62,7 @@ public final class ChainPipeline {
 		return List.of(new JoinChainEncoder(), new JoinChainDecoder(),
 			new JoinReplyEncoder(), new JoinReplyDecoder(),
 			new ChainEntryEncoder(), new ChainEntryDecoder(),
+			new ChainStemEncoder(), new ChainStemDecoder(),
 			new ChainHeadsEncoder(), new ChainHeadsDecoder(),
 			new FetchEntriesEncoder(), new FetchEntriesDecoder(),
 			new EntryRefusedEncoder(), new EntryRefusedDecoder(),

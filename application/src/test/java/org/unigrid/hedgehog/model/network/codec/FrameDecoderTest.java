@@ -34,6 +34,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -129,7 +130,7 @@ public class FrameDecoderTest {
 	/* The types of the stream that chain traffic has to itself, which the main stream takes nothing of */
 	private static final Set<Packet.Type> CHAIN_TYPES = Set.of(Packet.Type.JOIN_CHAIN, Packet.Type.JOIN_REPLY,
 		Packet.Type.CHAIN_ENTRY, Packet.Type.CHAIN_HEADS, Packet.Type.FETCH_ENTRIES, Packet.Type.ENTRY_REFUSED,
-		Packet.Type.LEAVE_CHAIN);
+		Packet.Type.LEAVE_CHAIN, Packet.Type.CHAIN_STEM);
 
 	/* Types that no codec reads or writes */
 	private static final Set<Packet.Type> UNREAD_TYPES = Set.of(Packet.Type.UNDEFINED,
@@ -239,6 +240,25 @@ public class FrameDecoderTest {
 				assertThat(atTheCap.attr(Packet.KEY).get(), equalTo(type));
 				assertThrows(TooLongFrameException.class, () -> beyond.writeInbound(headerOf(type, cap + 1)));
 			});
+	}
+
+	/* A stem carries entries as a flood does, so the stream that chain traffic has to itself takes a frame of either
+	   up to the limit of a frame */
+	@Example
+	public void takesAStemAsLargeAsAFloodOnTheChainStream() {
+		final int cap = ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES;
+
+		List.of(Packet.Type.CHAIN_ENTRY, Packet.Type.CHAIN_STEM).forEach(type -> {
+			final EmbeddedChannel atTheCap = new EmbeddedChannel(FrameDecoder.forChainStream());
+			final EmbeddedChannel beyond = new EmbeddedChannel(FrameDecoder.forChainStream());
+			final EmbeddedChannel empty = new EmbeddedChannel(FrameDecoder.forChainStream());
+
+			atTheCap.writeInbound(headerOf(type, cap));
+			assertThat(atTheCap.readInbound(), nullValue());
+			assertThat(atTheCap.attr(Packet.KEY).get(), equalTo(type));
+			assertThrows(TooLongFrameException.class, () -> beyond.writeInbound(headerOf(type, cap + 1)));
+			assertThrows(CorruptedFrameException.class, () -> empty.writeInbound(headerOf(type, 1)));
+		});
 	}
 
 	@Property(tries = 50)

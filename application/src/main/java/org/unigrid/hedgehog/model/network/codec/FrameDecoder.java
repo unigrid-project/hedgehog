@@ -106,6 +106,8 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			Long.BYTES + 1 + CHAIN_ID_SIZE + HEADS_SIZE)),
 		Map.entry(Packet.Type.CHAIN_ENTRY, new BodySize(Short.BYTES,
 			ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES)),
+		Map.entry(Packet.Type.CHAIN_STEM, new BodySize(Short.BYTES,
+			ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES)),
 		Map.entry(Packet.Type.CHAIN_HEADS, new BodySize(CHAIN_ID_SIZE + Short.BYTES, CHAIN_ID_SIZE + HEADS_SIZE)),
 		Map.entry(Packet.Type.FETCH_ENTRIES, new BodySize(CHAIN_ID_SIZE + Short.BYTES,
 			CHAIN_ID_SIZE + Short.BYTES + ChainCodecs.MAX_HEADS_PER_PACKET * RANGE_SIZE)),
