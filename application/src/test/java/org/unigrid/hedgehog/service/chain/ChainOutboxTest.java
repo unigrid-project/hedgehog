@@ -985,9 +985,10 @@ public class ChainOutboxTest {
 		assertThat(host.pauses().refusedFrom(fleet.chain(), ChainFleet.writer(WRITER)), is(OptionalLong.of(5)));
 	}
 
-	/* What the successor refused is stemmed again, to another member and never to that one */
+	/* A refusal of the successor pauses the writer until the next tick, as one of the chain does, and the successor
+	   gets nothing more of the writer, nor does the member the outbox avoids */
 	@Example
-	public void stemsAgainWhatTheSuccessorRefusedToAnotherMember() {
+	public void sendsNothingMoreToTheSuccessorThatRefused() {
 		final ChainOutbox stems = stemming();
 		final List<Entry> entries = mine(2);
 
@@ -998,12 +999,13 @@ public class ChainOutboxTest {
 		host.refused(fleet.stream("gn-1", successor), EntryRefused.of(entries.get(0), Admission.FULL));
 		assertThat(stems.isWritable(), is(false));
 		stems.tick();
+		mine(3).subList(2, 3).forEach(stems::accept);
 
 		final Map<String, List<Object>> again = written();
 
 		assertThat(stems.isWritable(), is(true));
 		assertThat(again.get(successor), is(empty()));
-		assertThat(again.get(onlyOneOf(again)), equalTo(List.of(new ChainStem(entries))));
+		assertThat(again.get("gn-0"), is(empty()));
 	}
 
 	/* What an exit stems is placed once it came back by flood, so its outbox has not drained while the stem still

@@ -132,22 +132,41 @@ public class StemRouterTest {
 		assertThat(router.hasSuccessor(CHAIN, Set.copyOf(members), NOW), is(false));
 	}
 
-	/* A stream that closed or that is no longer one of the members is no successor, and nothing else is drawn in its
-	   place before the period is over */
+	/* A stream that closed or that is no longer one of the members is no successor, and nothing is drawn in its place
+	   while the other is there; once both went, a writer is routed to another member for the period */
 	@Example
-	public void passesOverASuccessorThatWentAway() {
+	public void passesOverASuccessorThatWentAwayAndReplacesBothOnceBothWent() {
 		final List<Channel> members = new ArrayList<>(streams(2));
 		final StemRouter router = new StemRouter(new SplittableRandom(3), chainId -> List.copyOf(members));
 		final WriterId writer = ChainFleet.writer(1);
 		final Channel first = router.successor(CHAIN, writer, Set.of(), NOW).orElseThrow();
 		final Channel other = members.get(0) == first ? members.get(1) : members.get(0);
+		final Channel joined = new EmbeddedChannel();
 
 		first.close();
 		assertThat(router.successor(CHAIN, writer, Set.of(), NOW).orElseThrow(), is(other));
 		members.remove(other);
-		members.add(new EmbeddedChannel());
-		assertThat(router.successor(CHAIN, writer, Set.of(), NOW), is(Optional.empty()));
-		assertThat(router.successor(CHAIN, writer, Set.of(), NOW + StemRouter.PERIOD_MILLIS).isPresent(), is(true));
+		members.add(joined);
+		assertThat(router.successor(CHAIN, writer, Set.of(), NOW), is(Optional.of(joined)));
+	}
+
+	/* A successor that refused an entry of a writer is never replaced by a member outside the draw of the period,
+	   however often the successors refuse, so refusals cannot walk the stem of a writer to a member of their choice */
+	@Property(tries = 20)
+	public void routesAWriterToNoMemberOutsideTheDrawWhateverItsSuccessorsRefuse(@ForAll long seed) {
+		final List<Channel> members = streams(5);
+		final StemRouter router = router(seed, members);
+		final Set<Channel> drawn = routes(router, NOW).stream().flatMap(Optional::stream).collect(Collectors.toSet());
+		final WriterId writer = ChainFleet.writer(WRITERS + 1);
+
+		for (int refusal = 0; refusal < 4; refusal++) {
+			router.successor(CHAIN, writer, Set.of(), NOW).ifPresent(successor -> router.refused(CHAIN, writer,
+				successor, NOW));
+		}
+
+		router.successor(CHAIN, writer, Set.of(), NOW).ifPresent(successor ->
+			assertThat(successor, is(in(drawn))));
+		assertThat(drawn, hasSize(StemRouter.SUCCESSORS));
 	}
 
 	@Example
