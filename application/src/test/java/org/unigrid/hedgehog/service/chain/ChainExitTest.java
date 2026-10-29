@@ -2593,4 +2593,28 @@ public class ChainExitTest {
 		rig.exit.tick();
 		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(1L));
 	}
+
+	/* Besides the member the client's entries come in from, the exit holds a stream to one member only, and that one
+	   takes no writes: the exit has nowhere to stem an answer and stays silent, and answers once the stream takes
+	   writes again */
+	@Example
+	public void answersNoOpeningWhileItsOnlySuccessorTakesNoWrites() {
+		final Rig rig = new Rig();
+		final EmbeddedChannel successor = rig.fleet.stream(EXIT, "gn-2");
+
+		rig.fleet.offline("gn-3");
+		rig.fleet.host(EXIT).refresh();
+		ChainFleet.unwritable(successor);
+		rig.caller(1).open();
+
+		assertThat(rig.accepts(), is(0));
+		assertThat(rig.exit.heldRelays(), is(0));
+
+		successor.flush();
+		successor.outboundMessages().clear();
+		rig.caller(2).open();
+
+		assertThat(rig.accepts(), is(1));
+		assertThat(rig.exit.heldRelays(), is(1));
+	}
 }

@@ -171,10 +171,13 @@ final class StemRouter {
 			&& !period.successors().contains(member)).distinct().toList();
 	}
 
+	/* A stream that takes no writes is passed over while it does not, as what it was handed would pile up in memory,
+	   so an exit whose only successor stopped reading answers no opening */
 	private static boolean isOpen(final List<Channel> current, final Channel stream, final Set<Channel> avoid,
 		final Set<Channel> barred) {
 
-		return current.contains(stream) && stream.isActive() && !avoid.contains(stream) && !barred.contains(stream);
+		return current.contains(stream) && stream.isActive() && stream.isWritable() && !avoid.contains(stream)
+			&& !barred.contains(stream);
 	}
 
 	private Period period(final ChainId chainId, final long now) {

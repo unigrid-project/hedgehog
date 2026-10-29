@@ -751,10 +751,13 @@ public class ChainHostStemTest {
 
 		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
 
-		ChainFleet.unwritable(fleet.stream(EXIT, successor));
+		others(EXIT).forEach(member -> ChainFleet.unwritable(fleet.stream(EXIT, member)));
 		postStem(fleet, own.get(1));
+		others(EXIT).forEach(member -> fleet.stream(EXIT, member).flush());
+		writtenBy(fleet, EXIT);
 		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
 
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(true));
 		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getValue(), equalTo(List.of(new ChainStem(own.subList(0, 1)))));
 	}
 
