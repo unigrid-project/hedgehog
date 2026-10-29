@@ -106,6 +106,10 @@ final class HostedChain {
 	   the thread that replaced it has just written. */
 	@Getter @Setter private volatile List<Channel> memberStreams = List.of();
 
+	/* The ids of the other members of the group of a chain this node hosts, as they were while the chain was current,
+	   whose streams each refresh looks up again; none for a chain the node follows */
+	@Getter @Setter private volatile List<String> members = List.of();
+
 	/* Whether what the chain takes in from other nodes is flooded on. A node that only follows a chain leaves that
 	   to the members, which flood to each other. */
 	@Getter @Setter private volatile boolean relaying = true;

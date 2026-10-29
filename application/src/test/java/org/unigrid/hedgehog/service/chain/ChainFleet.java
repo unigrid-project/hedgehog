@@ -341,6 +341,14 @@ final class ChainFleet {
 		offline.remove(id);
 	}
 
+	/* The stream between two hosts closes and a new one takes its place, as when a member reconnects */
+	EmbeddedChannel reconnect(final String owner, final String peer) {
+		final EmbeddedChannel fresh = new SynchronizedChannel();
+
+		Optional.ofNullable(streams.put(new Link(owner, peer), fresh)).ifPresent(Channel::close);
+		return fresh;
+	}
+
 	EmbeddedChannel stream(final String owner, final String peer) {
 		return streams.computeIfAbsent(new Link(owner, peer), link -> new SynchronizedChannel());
 	}

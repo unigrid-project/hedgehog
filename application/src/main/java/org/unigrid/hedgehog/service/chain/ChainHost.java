@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -416,15 +417,22 @@ public class ChainHost implements ChainService {
 	}
 
 	/* Looked up once per refresh and not per packet, because finding a connection scans the topology and resolves
-	   the address of the gridnode: the cost is bounded by the size of the group. The chains share one immutable
-	   list, which the netty threads read through a volatile field while this thread writes the next one. A stream
-	   that is not open is no stream of a member; the list is as old as the refresh, so a stream that closes
-	   later is dropped by the next one. */
+	   the address of the gridnode: the cost is bounded by the size of the group. The chains of one group share one
+	   immutable list, which the netty threads read through a volatile field while this thread writes the next one. A
+	   stream that is not open is no stream of a member; the list is as old as the refresh, so a stream that closes
+	   later is dropped by the next one. A retired chain keeps the members it had when it was current and has their
+	   streams looked up again too, so that a member that reconnected is a member of it as well, as an exit may still
+	   stem the entries of a session that drains on it. */
 	private void holdStreams(final Hosting next) {
-		final List<Channel> streams = next.peers().stream().map(this::lookUp).flatMap(Optional::stream)
-			.filter(Channel::isActive).toList();
+		final Map<List<String>, List<Channel>> streams = new HashMap<>();
 
-		next.current().values().forEach(hosted -> hosted.setMemberStreams(streams));
+		next.current().values().forEach(hosted -> hosted.setMembers(next.peers()));
+		next.all().filter(hosted -> !hosted.getMembers().isEmpty()).forEach(hosted -> hosted.setMemberStreams(
+			streams.computeIfAbsent(hosted.getMembers(), this::streamsTo)));
+	}
+
+	private List<Channel> streamsTo(final List<String> members) {
+		return members.stream().map(this::lookUp).flatMap(Optional::stream).filter(Channel::isActive).toList();
 	}
 
 	/* One broken lookup leaves that member without a stream, not every member, and the refresh which runs about

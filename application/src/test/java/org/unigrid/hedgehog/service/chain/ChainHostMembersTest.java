@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -437,5 +438,28 @@ public class ChainHostMembersTest {
 		assertThat(host.get().hostedChains(), is(not(equalTo(first))));
 		assertThat(seenWhileAsking, is(not(empty())));
 		seenWhileAsking.forEach(seen -> assertThat(seen, equalTo(first)));
+	}
+
+	/* A member that reconnected holds a new stream to this node, which the chains of an epoch that ended take as the
+	   stream of a member too, as an exit may still stem the entries of a session that drains on one to it */
+	@Example
+	public void takesTheNewStreamOfAMemberThatReconnectedOnARetiredChainToo() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainHost host = fleet.host("gn-0");
+		final ChainId retiring = fleet.chain();
+		final EmbeddedChannel old = fleet.stream("gn-0", "gn-1");
+
+		fleet.clock.addAndGet(TimeUnit.HOURS.toMillis(1));
+		host.refresh();
+		assertThat(host.retiredChains().contains(retiring), is(true));
+
+		final EmbeddedChannel fresh = fleet.reconnect("gn-0", "gn-1");
+
+		host.refresh();
+
+		final HostedChain retired = host.hosted(retiring).orElseThrow();
+
+		assertThat(retired.trusts(fresh), is(true));
+		assertThat(retired.trusts(old), is(false));
 	}
 }
