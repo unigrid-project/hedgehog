@@ -18,12 +18,14 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
@@ -35,6 +37,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
@@ -382,5 +385,81 @@ public class ChainHostStemTest {
 
 		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(false));
 		assertThat(writtenBy(fleet, EXIT).get(successor.getKey()), equalTo(List.of(new ChainStem(own.subList(1, 3)))));
+	}
+
+	private record Reach(long posted, long flooded) {
+		/* How many entries of the exit went out, and how many of them a member flooded */
+	}
+
+	/* A group of the given size in which gn-1 writes the given number of entries for each of the writers, a few of them
+	   in each of several periods of the stem, avoiding what the function gives for a writer. Nothing ticks, so no
+	   embargo fires, and every packet is handed over before the next entry goes out. */
+	private static Reach stemThrough(final ChainFleet fleet, final int writers,
+		final Function<Integer, Set<Channel>> avoid) {
+
+		final List<Entry> posted = new ArrayList<>();
+
+		for (int writer = 0; writer < writers; writer++) {
+			if (writer % 5 == 0) {
+				fleet.clock.addAndGet(StemRouter.PERIOD_MILLIS);
+			}
+
+			for (final Entry entry : ChainFleet.entries(ChainFleet.key(100 + writer), fleet.chain(), 2,
+				fleet.clock.get())) {
+
+				assertThat(fleet.host(EXIT).postStem(fleet.chain(), entry, avoid.apply(writer)),
+					is(in(PASSED_ON.values())));
+				posted.add(entry);
+				fleet.deliver();
+			}
+		}
+
+		final Map<Entry, String> firstFlooder = new LinkedHashMap<>();
+
+		fleet.deliveries.stream().filter(delivery -> delivery.packet() instanceof ChainEntry)
+			.forEach(delivery -> ((ChainEntry) delivery.packet()).getEntries()
+				.forEach(entry -> firstFlooder.putIfAbsent(entry, delivery.from())));
+
+		assertThat(posted.stream().map(firstFlooder::get).filter(EXIT::equals).toList(), is(empty()));
+		return new Reach(posted.size(), posted.stream().filter(firstFlooder::containsKey).count());
+	}
+
+	/* Whatever the modes and successors of the members, the exit is never the first to flood an entry of its own while
+	   no embargo fired. Most entries reach a flood that way; those that went round the stem wait for an embargo. */
+	@Example
+	public void theExitNeverFloodsItsEntryFirst() {
+		final ChainFleet fleet = ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3), ChainFleet::seeded);
+		final Reach reach = stemThrough(fleet, 40, writer -> Set.of());
+
+		assertThat(reach.flooded() * 2, is(greaterThanOrEqualTo(reach.posted())));
+	}
+
+	@Example
+	public void theExitNeverFloodsItsEntryFirstInAGroupOfFour() {
+		final ChainFleet fleet = group(ChainFleet::seeded);
+		final Reach reach = stemThrough(fleet, 40, writer -> Set.of());
+
+		assertThat(reach.flooded() * 2, is(greaterThanOrEqualTo(reach.posted())));
+	}
+
+	/* A client attached through gn-0 alone, whose entries the exit first hears from there: the stems of the exit's
+	   sessions with that client never go to gn-0 */
+	@Example
+	public void stemsNeverGoToTheMemberAClientAttachedThrough() {
+		final ChainFleet fleet = ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3), ChainFleet::seeded);
+		final EmbeddedChannel client = fleet.client(RELAY, 1);
+
+		fleet.host(RELAY).receive(client, new ChainEntry(entries(fleet, 1, 1)));
+		fleet.deliver();
+
+		final Optional<Channel> attachMember = hosted(fleet, EXIT).firstFrom(ChainFleet.writer(1));
+
+		assertThat(attachMember, is(Optional.of(fleet.stream(EXIT, RELAY))));
+		stemThrough(fleet, 40, writer -> Set.of(attachMember.orElseThrow()));
+		assertThat(fleet.deliveries.stream().filter(delivery -> delivery.from().equals(EXIT)
+			&& delivery.to().equals(RELAY)).map(ChainFleet.Delivery::packet).toList(),
+			everyItem(is(instanceOf(ChainEntry.class))));
+		assertThat(fleet.deliveries.stream().filter(delivery -> delivery.from().equals(EXIT)
+			&& delivery.packet() instanceof ChainStem).count(), is(greaterThanOrEqualTo(40L)));
 	}
 }
