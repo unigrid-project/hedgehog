@@ -343,4 +343,28 @@ public class ChainHostStemTest {
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(false));
 	}
+
+	/* What a member refused is stemmed again while the stem still holds it, and what came back already is left to
+	   reconcile: an exit that flooded its own entries again would show the member which refused them whose they are */
+	@Example
+	public void resendsThroughTheStemWhatItStillHolds() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 3);
+		final ChainHost exit = fleet.host(EXIT);
+
+		own.forEach(entry -> postStem(fleet, entry));
+
+		final Map.Entry<String, List<Object>> successor = stemmedTo(writtenBy(fleet, EXIT));
+		final EmbeddedChannel stream = fleet.stream(EXIT, successor.getKey());
+
+		exit.receive(fleet.stream(EXIT, RELAY.equals(successor.getKey()) ? "gn-2" : RELAY),
+			new ChainEntry(own.subList(0, 1)));
+		writtenBy(fleet, EXIT);
+		exit.refused(stream, EntryRefused.of(own.get(0), Admission.FULL));
+		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(true));
+		exit.resend(fleet.chain(), ChainFleet.writer(1), Set.of());
+
+		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(false));
+		assertThat(writtenBy(fleet, EXIT).get(successor.getKey()), equalTo(List.of(new ChainStem(own.subList(1, 3)))));
+	}
 }

@@ -1121,6 +1121,24 @@ public class ChainHost implements ChainService {
 		});
 	}
 
+	/* The same for a writer whose entries go out through the stem, avoiding the given streams as its posts do: what the
+	   embargo still holds of it from the lowest sequence number refused is stemmed again. What came back already is
+	   left to reconcile, as flooding it again would show the member that refused it whose it is. */
+	public void resend(final ChainId chainId, final WriterId writer, final Set<Channel> avoid) {
+		pauses.refusedFrom(chainId, writer).ifPresent(seq -> {
+			pauses.resume(chainId, writer);
+			hosting.find(chainId).ifPresent(hosted -> stemAgain(hosted, writer, seq, avoid));
+		});
+	}
+
+	private void stemAgain(final HostedChain hosted, final WriterId writer, final long seq, final Set<Channel> avoid) {
+		final List<Entry> held = hosted.getEmbargo().ownFrom(writer, seq);
+
+		if (!held.isEmpty()) {
+			stemOwn(hosted, writer, held, avoid, clock.getAsLong());
+		}
+	}
+
 	/* The chain holds the entries already, so they are queued without an offer, and go out like a post: in the order
 	   of the queue, by the delivery executor, to every stream, and told to no listener */
 	private void queueAgain(final HostedChain hosted, final WriterId writer, final long seq) {
