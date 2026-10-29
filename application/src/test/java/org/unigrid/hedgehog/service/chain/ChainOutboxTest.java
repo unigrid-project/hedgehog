@@ -972,17 +972,17 @@ public class ChainOutboxTest {
 		assertThat(stems.isWritable(), is(true));
 	}
 
-	/* The chain takes five entries, its reserve included, and those five wait in the stem, so the sixth waits in the
-	   outbox and the writer is paused */
+	/* The chain takes five entries, its reserve included, and keeps one of them for what it relays; the other four
+	   wait in the stem, so the fifth waits in the outbox and the writer is paused */
 	@Example
 	public void waitsWhileTheReplicaWouldHaveNoRoomCountingTheStem() {
 		final ChainOutbox stems = stemming();
 
-		mine(6).forEach(stems::accept);
+		mine(5).forEach(stems::accept);
 
-		assertThat(written().values().stream().mapToLong(List::size).sum(), is(5L));
+		assertThat(written().values().stream().mapToLong(List::size).sum(), is(4L));
 		assertThat(stems.isWritable(), is(false));
-		assertThat(host.pauses().refusedFrom(fleet.chain(), ChainFleet.writer(WRITER)), is(OptionalLong.of(5)));
+		assertThat(host.pauses().refusedFrom(fleet.chain(), ChainFleet.writer(WRITER)), is(OptionalLong.of(4)));
 	}
 
 	/* A refusal of the successor pauses the writer until the next tick, as one of the chain does, and the successor

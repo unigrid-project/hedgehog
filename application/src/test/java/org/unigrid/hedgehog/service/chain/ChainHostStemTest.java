@@ -57,6 +57,7 @@ import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
+import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
@@ -242,19 +243,36 @@ public class ChainHostStemTest {
 	}
 
 	/* What a relay holds for others has a share of its own, a quarter of the capacity, past which it refuses more,
-	   so a member that fills it makes no entry of a session of the exit on that node FULL */
+	   and that share is kept free of the entries of this node's own, so a member that fills it makes no entry of a
+	   session of the exit on that node FULL while the replica has room for the share besides */
 	@Example
 	public void relayedEntriesUpToTheirShareLeaveTheOwnEntriesTheirRoom() {
 		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
 		final List<Entry> relayed = entries(fleet, 2, 3);
-		final List<Entry> own = entries(fleet, 1, 9);
+		final List<Entry> own = entries(fleet, 1, 7);
 
 		assertThat(stem(fleet, EXIT, RELAY, relayed.subList(0, 2)), is(empty()));
 		assertThat(stem(fleet, EXIT, RELAY, relayed.subList(2, 3)),
 			equalTo(List.of(EntryRefused.of(relayed.get(2), Admission.FULL))));
 		own.forEach(entry -> assertThat(postStem(fleet, entry), is(in(PASSED_ON.values()))));
 		assertThat(hosted(fleet, EXIT).getEmbargo().relayedBytes(), is(2L * own.get(0).size()));
-		assertThat(hosted(fleet, EXIT).getEmbargo().ownBytes(), is(9L * own.get(0).size()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().ownBytes(), is(7L * own.get(0).size()));
+	}
+
+	/* A chain of room for nine entries keeps two of them for what it relays, so it stems seven of its own and holds
+	   two for others, and what waits in the stem never comes to more than the chain takes */
+	@Example
+	public void ownEntriesAndTheRelayedShareNeverExceedTheRoom() {
+		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 8);
+		final List<Entry> relayed = entries(fleet, 2, 3);
+		final ChainLimits limits = ChainFleet.smallChains(9).chainLimits();
+
+		own.subList(0, 7).forEach(entry -> assertThat(postStem(fleet, entry), is(in(PASSED_ON.values()))));
+		assertThat(postStem(fleet, own.get(7)), is(Admission.FULL));
+		assertThat(stem(fleet, EXIT, RELAY, relayed), equalTo(List.of(EntryRefused.of(relayed.get(2),
+			Admission.FULL))));
+		assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(limits.capacityBytes() + limits.reserveBytes()));
 	}
 
 	/* An entry that comes back by flood is in the chain, and the embargo has nothing left to flood */
@@ -382,18 +400,18 @@ public class ChainHostStemTest {
 		assertThat(written.values(), everyItem(equalTo(List.of(new ChainEntry(own)))));
 	}
 
-	/* The replica of the exit has room for two entries, which the stem holds, so the third waits */
+	/* The replica of the exit has room for two entries, one of them kept for what it relays, and the stem holds the
+	   other, so the next waits */
 	@Example
 	public void stemsNoEntryTheReplicaWouldHaveNoRoomFor() {
 		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(false));
-		final List<Entry> own = entries(fleet, 1, 3);
+		final List<Entry> own = entries(fleet, 1, 2);
 
 		assertThat(postStem(fleet, own.get(0)), is(Admission.ACCEPTED));
-		assertThat(postStem(fleet, own.get(1)), is(Admission.AHEAD));
 		writtenBy(fleet, EXIT);
-		assertThat(postStem(fleet, own.get(2)), is(Admission.FULL));
+		assertThat(postStem(fleet, own.get(1)), is(Admission.FULL));
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
-		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(false));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(false));
 	}
 
 	/* A writer whose entries are all in the stem has a place on the chain as if they were in it */

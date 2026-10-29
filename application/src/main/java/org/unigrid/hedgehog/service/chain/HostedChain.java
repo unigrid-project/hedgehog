@@ -63,7 +63,8 @@ final class HostedChain {
 	   timer, of two seconds and an exponential two on average, so what honest members pass through a relay in that
 	   time is a small part of what the chain takes in its retention window, of thirty seconds by default: a quarter
 	   leaves room many times over, while a member that stems all it may makes the relay hold no more. The entries of
-	   this node's own are counted apart, so that what it relays never makes its own sessions FULL. */
+	   this node's own keep the share free in the room of the replica, whatever it holds of it, so that what it relays
+	   never makes its own sessions FULL, and the two together never come to more than the chain takes. */
 	static final int RELAYED_SHARE = 4;
 
 	enum Attachment { NEW, KNOWN, REFUSED }
@@ -276,9 +277,9 @@ final class HostedChain {
 			? Stream.concat(noted.stream(), more.stream()).collect(Collectors.toUnmodifiableSet()) : noted);
 	}
 
-	/* What the chain would make of an entry passed on to this node, counting what the embargo holds for others as if
-	   the chain had it already, and FULL past their share. There is no answer for a writer the chain takes no more of,
-	   as offer gives none. */
+	/* What the chain would make of an entry passed on to this node, counting all the embargo holds as if the chain
+	   had it already, and FULL past the share of what is relayed. There is no answer for a writer the chain takes no
+	   more of, as offer gives none. */
 	Optional<Admission> check(final Entry entry) {
 		synchronized (chain) {
 			if (!canTake(entry.header().writer())) {
@@ -289,7 +290,7 @@ final class HostedChain {
 				return Optional.of(Admission.FULL);
 			}
 
-			return Optional.of(chain.check(entry, embargo.relayedBytes()));
+			return Optional.of(chain.check(entry, embargo.bytes()));
 		}
 	}
 
@@ -307,14 +308,22 @@ final class HostedChain {
 		}
 	}
 
+	/* The share of what is relayed is kept free of this node's own entries within the capacity the chain has left, as
+	   relayed entries of the larger classes could not come in past it anyway, and the reserve beyond the capacity
+	   stays for the openings and answers that fill the smallest class */
+	private long reservedForRelays() {
+		return Math.min(relayedShare(), Math.max(0, chain.limits().capacityBytes() - chain.bytes()));
+	}
+
 	private long relayedShare() {
 		return Math.max(chain.limits().maxEntryBytes(), chain.limits().capacityBytes() / RELAYED_SHARE);
 	}
 
 	/* Holds an entry of this node's own in the embargo, where it waits to come back by flood, once the chain would
-	   take it in or hold it past a gap, counting what the embargo holds of its own as if it were in the chain. Its
-	   writer takes a place as one with an entry in the chain does, under the same lock and limit, and a writer that
-	   would be one too many is told FULL, as a post is. */
+	   take it in or hold it past a gap, counting what the embargo holds of its own as if it were in the chain and
+	   keeping the share of what is relayed free, however little of it is held. Its writer takes a place as one with an
+	   entry in the chain does, under the same lock and limit, and a writer that would be one too many is told FULL, as
+	   a post is. */
 	Admission holdOwn(final Entry entry, final long now) {
 		final WriterId writer = entry.header().writer();
 
@@ -323,7 +332,7 @@ final class HostedChain {
 				return Admission.FULL;
 			}
 
-			final Admission admission = chain.check(entry, embargo.ownBytes());
+			final Admission admission = chain.check(entry, embargo.ownBytes() + reservedForRelays());
 
 			if (HOLDS_A_FEED.contains(admission)) {
 				writers.add(writer);
