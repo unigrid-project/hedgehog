@@ -221,6 +221,9 @@ public class ChainExitTest {
 
 		/* The other members the callers attached through, which hand the exit their entries after gn-0 does */
 		private final List<String> alsoFrom = new ArrayList<>();
+
+		/* Whether what the exit stems stays with the member it went to, as one that drops it does */
+		private boolean dropStems;
 		private final Set<Entry> handedOut = new HashSet<>();
 		private final EmbeddedChannel stream;
 		private final ChainExit exit;
@@ -303,10 +306,10 @@ public class ChainExitTest {
 				for (Object out = to.readOutbound(); out != null; out = to.readOutbound()) {
 					echoed = true;
 
-					if (out instanceof ChainStem stem) {
+					if (out instanceof ChainStem stem && !dropStems) {
 						leftOut.addAll(stem.getEntries());
 						fleet.host(EXIT).receive(to, ChainEntry.builder().entries(stem.getEntries()).build());
-					} else if (to == stream) {
+					} else if (to == stream && out instanceof ChainEntry) {
 						leftOut.addAll(((ChainEntry) out).getEntries());
 					}
 				}
@@ -2566,5 +2569,33 @@ public class ChainExitTest {
 		assertThat(rig.exit.heldRelays(), is(8));
 		assertThat(writes.stream().filter(write -> write.getValue() instanceof ChainStem).map(Map.Entry::getKey)
 			.distinct().toList(), contains("gn-3"));
+	}
+
+	/* What a session wrote never came back and its writer has no head on the chain, but it is still in the stem and
+	   will come in, so the place of the writer is held for as long as the chain lasts, as for a feed that never got its
+	   Close */
+	@Example
+	public void holdsForGoodThePlaceOfAWriterWhoseEntriesAreStillInTheStem() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+		final ChainId chainId = rig.fleet.chain();
+
+		rig.dropStems = true;
+		caller.session().open();
+		caller.send();
+		assertThat(rig.exit.heldRelays(), is(1));
+
+		rig.exit.expired(chainId);
+		rig.exit.tick();
+		assertThat(rig.exit.drainingRelays(), is(1));
+
+		rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.chainLimits().retentionMillis());
+		rig.exit.tick();
+		assertThat(rig.exit.drainingRelays(), is(0));
+		assertThat(rig.fleet.host(EXIT).chain(chainId).orElseThrow().heads().keySet(), is(Set.of(caller.writer())));
+
+		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
+		rig.exit.tick();
+		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(1L));
 	}
 }

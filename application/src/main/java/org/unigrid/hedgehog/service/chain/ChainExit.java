@@ -524,14 +524,14 @@ public class ChainExit implements ChainDrain {
 	   the feed once its last entry is that old. The writer may have stamped ahead of the clock, which then stepped
 	   back, so that time runs from its latest stamp. A Close that never reached the chain, as the outbox ended or the
 	   relay went with it still waiting, leaves a feed that never ends where the writer has one, which holds its place
-	   for as long as the host holds the chain; a writer whose answer never got there has none. The writer is in the
-	   record before its relay leaves the others. It posts nothing more, so a pause a member put on it is lifted, as
-	   nothing would ever lift it. */
+	   for as long as the host holds the chain, and so does a writer whose entries are still in the stem, as they come
+	   in later; a writer whose answer never got anywhere has none. The writer is in the record before its relay leaves
+	   the others. It posts nothing more, so a pause a member put on it is lifted, as nothing would ever lift it. */
 	private void letGo(final Relayed relayed, final long now) {
 		final WriterId writer = relayed.writer().writer();
 		final boolean placed = relayed.outbox().isDrained() && !relayed.outbox().hasEnded();
-		final boolean lasting = !placed && host.chain(relayed.chain().id())
-			.filter(chain -> chain.heads().containsKey(writer)).isPresent();
+		final boolean lasting = !placed && host.hosted(relayed.chain().id()).filter(hosted -> hosted.getChain()
+			.heads().containsKey(writer) || hosted.getEmbargo().holdsAnyOf(writer)).isPresent();
 		final long latest = Math.max(now, relayed.writer().timestamp());
 
 		ended.put(writer, new Ended(relayed.chain().id(),
