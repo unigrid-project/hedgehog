@@ -171,6 +171,29 @@ public class ChainHostIntakeTest {
 		return taken;
 	}
 
+	/* A writer whose feed has not ended keeps it however long it is quiet, so its next entry links in and goes on to
+	   the clients at once */
+	@Example
+	public void passesOnTheNextEntryOfAWriterQuietPastTheRetentionWindow() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId chainId = chainOf(fleet, 0);
+		final EmbeddedChannel client = attach(fleet, 1, chainId);
+		final FeedWriter exit = new FeedWriter(ChainFleet.key(2), chainId);
+		final List<Entry> before = ChainFleet.write(exit, 1, ChainFleet.NOW);
+
+		receive(fleet, member(fleet), before);
+		assertThat(((ChainEntry) client.readOutbound()).getEntries(), equalTo(before));
+
+		fleet.clock.addAndGet(10 * BEYOND_RETENTION_MILLIS);
+		fleet.host("gn-0").maintain();
+
+		final List<Entry> after = ChainFleet.write(exit, 1, fleet.clock.get());
+
+		receive(fleet, member(fleet), after);
+		assertThat(fleet.host("gn-0").chain(chainId).orElseThrow().heldBytes(), is(0L));
+		assertThat(((ChainEntry) client.readOutbound()).getEntries(), equalTo(after));
+	}
+
 	@Example
 	public void appendsTheEntriesOfAHostedChainFromAMember() {
 		final ChainFleet fleet = ChainFleet.group();
