@@ -689,4 +689,46 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
 	}
+
+	/* A relay is passed two entries of a writer, by a member it did not draw and by its other drawn successor, and
+	   passes both to the same successor, which refuses the first: the other drawn successor sent it the second, so the
+	   relay sends neither there, as an honest relay never passes an entry back to the member it got it from */
+	@Example
+	public void aRelayNeverStemsARefusedEntryBackToTheMemberItCameFrom() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> relayed = entries(fleet, 2, 2);
+		final Set<String> drawn = drawnBy(fleet, RELAY);
+		final String outsider = fleet.activeIds().stream().filter(id -> !id.equals(RELAY) && !drawn.contains(id))
+			.findFirst().orElseThrow();
+
+		stem(fleet, RELAY, outsider, relayed.subList(0, 1));
+
+		final String successor = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final String other = drawn.stream().filter(id -> !id.equals(successor)).findFirst().orElseThrow();
+
+		stem(fleet, RELAY, other, relayed.subList(1, 2));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(successor));
+		fleet.host(RELAY).refused(fleet.stream(RELAY, successor), EntryRefused.of(relayed.get(0), Admission.FULL));
+
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		relayed.forEach(entry -> assertThat(hosted(fleet, RELAY).getEmbargo().holds(entry), is(true)));
+	}
+
+	/* A refusal moves on only what went to the member that refused, and not what the embargo held without passing it
+	   there */
+	@Example
+	public void stemsAgainOnlyWhatWentToTheMemberThatRefused() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 2);
+
+		postStem(fleet, own.get(0));
+
+		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+
+		ChainFleet.unwritable(fleet.stream(EXIT, successor));
+		postStem(fleet, own.get(1));
+		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
+
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getValue(), equalTo(List.of(new ChainStem(own.subList(0, 1)))));
+	}
 }

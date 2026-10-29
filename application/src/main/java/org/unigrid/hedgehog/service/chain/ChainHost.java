@@ -698,7 +698,7 @@ public class ChainHost implements ChainService {
 		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
 
 		for (final Entry entry : entries) {
-			if (hosted.getEmbargo().hold(entry, false, now)) {
+			if (hosted.getEmbargo().hold(entry, false, peer, now)) {
 				router.successor(chainId, entry.header().writer(), Set.of(peer), now)
 					.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
 					.ifPresent(batch -> batch.add(entry));
@@ -1157,30 +1157,28 @@ public class ChainHost implements ChainService {
 	   chain as on a current one since both still take entries, and on a followed chain a member it is followed
 	   through. A refusal does not say whether the writer is one of this node's, so whatever owns a writer looks its
 	   pause up here. A member that refused an entry of a writer stemmed to it gets nothing more of the writer for the
-	   period, and what the embargo holds of the writer from the refused entry on, and did not pass to the other
-	   successor yet, goes there at once: an author and a relay do so alike, as both hold what they passed on. */
+	   period, and what the embargo holds of the writer from the refused entry on, of what went to that member, goes to
+	   the other successor at once, unless that is a member one of those entries came from: an author and a relay do so
+	   alike, as both hold what they passed on, and neither ever passes an entry back to where it came from. */
 	@Override
 	public void refused(final Channel peer, final EntryRefused refusal) {
 		if (refusal != null && refusal.getWriter() != null && refusal.getAdmission() == Admission.FULL
 			&& hosted(refusal.getChainId()).filter(hosted -> hosted.trusts(peer)).isPresent()) {
 
 			pauses.pause(refusal);
-			hosting.find(refusal.getChainId()).ifPresent(hosted -> router.refused(refusal.getChainId(),
-				refusal.getWriter(), peer, clock.getAsLong())
-				.ifPresent(next -> stemAgain(hosted, refusal.getWriter(), refusal.getSeq(), next)));
+			hosting.find(refusal.getChainId()).ifPresent(hosted -> stemAgain(hosted, refusal, peer));
 		}
 	}
 
-	private static void stemAgain(final HostedChain hosted, final WriterId writer, final long seq,
-		final Channel next) {
-
+	private void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser) {
 		final StemEmbargo embargo = hosted.getEmbargo();
-		final List<Entry> again = embargo.from(writer, seq).stream().filter(entry -> !embargo.wasSentTo(entry, next))
-			.toList();
+		final List<Entry> refused = embargo.from(refusal.getWriter(), refusal.getSeq()).stream()
+			.filter(entry -> embargo.wasSentTo(entry, refuser)).toList();
+		final Set<Channel> sources = refused.stream().map(embargo::sourceOf).flatMap(Optional::stream)
+			.collect(Collectors.toSet());
 
-		if (!again.isEmpty()) {
-			stemTo(hosted, next, again);
-		}
+		router.refused(refusal.getChainId(), refusal.getWriter(), refuser, sources, clock.getAsLong())
+			.filter(next -> !refused.isEmpty()).ifPresent(next -> stemTo(hosted, next, refused));
 	}
 
 	public WriterPauses pauses() {

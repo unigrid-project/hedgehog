@@ -94,11 +94,12 @@ final class StemRouter {
 	}
 
 	/* The successor a writer moves to when the one it is routed to refused an entry of it for want of room: the
-	   other drawn successor, if it is there and not avoided, and the one that refused gets nothing more of the writer
-	   for the period. An author and a relay move alike, once for each writer in a period, so a second refusal moves
-	   nothing, and a refusal from a stream the writer is not routed to moves nothing either. */
+	   other drawn successor, if it is there and avoided neither when the writer was routed nor now, and the one that
+	   refused gets nothing more of the writer for the period. An author and a relay move alike, once for each writer
+	   in a period, so a second refusal moves nothing, and a refusal from a stream the writer is not routed to moves
+	   nothing either. */
 	synchronized Optional<Channel> refused(final ChainId chainId, final WriterId writer, final Channel successor,
-		final long now) {
+		final Set<Channel> avoid, final long now) {
 
 		final Period period = periods.get(chainId);
 		final Route routed = period == null || period.number() != numberOf(now) ? null : period.routes().get(writer);
@@ -107,9 +108,12 @@ final class StemRouter {
 			return Optional.empty();
 		}
 
+		final Set<Channel> both = new HashSet<>(routed.avoid());
+
+		both.addAll(avoid);
 		period.barred().put(writer, Set.of(successor));
 		period.routes().remove(writer);
-		return successor(chainId, writer, routed.avoid(), now);
+		return successor(chainId, writer, both, now);
 	}
 
 	/* The successors drawn for the period, for a test */

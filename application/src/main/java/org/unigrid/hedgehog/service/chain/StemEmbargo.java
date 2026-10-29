@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.random.RandomGenerator;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
@@ -41,11 +42,12 @@ final class StemEmbargo {
 
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
-	private record Held(boolean own, long until, Channel sentTo) {
-		/* Whether the entry is of a writer of this member, until when it waits to come back, and the successor it
-		   was last passed to, none before it went anywhere */
+	private record Held(boolean own, long until, Channel source, Channel sentTo) {
+		/* Whether the entry is of a writer of this member, until when it waits to come back, the stream it came in
+		   on, none for one of this member's own, and the successor it was last passed to, none before it went
+		   anywhere */
 		private Held until(final long deadline) {
-			return new Held(own, deadline, sentTo);
+			return new Held(own, deadline, source, sentTo);
 		}
 	}
 
@@ -61,11 +63,16 @@ final class StemEmbargo {
 
 	/* Answers false for an entry that is held already, which is not held again: the stem came round to this member */
 	synchronized boolean hold(final Entry entry, final boolean own, final long now) {
+		return hold(entry, own, null, now);
+	}
+
+	/* The same for an entry that came in on the given stream */
+	synchronized boolean hold(final Entry entry, final boolean own, final Channel source, final long now) {
 		if (held.containsKey(entry)) {
 			return false;
 		}
 
-		held.put(entry, new Held(own, deadline(own, now), null));
+		held.put(entry, new Held(own, deadline(own, now), source, null));
 		writers.merge(entry.header().writer(), 1, Integer::sum);
 		count(own, entry.size());
 		return true;
@@ -90,7 +97,8 @@ final class StemEmbargo {
 
 	/* Notes the successor a held entry was passed to */
 	synchronized void sent(final Entry entry, final Channel successor) {
-		held.computeIfPresent(entry, (key, waiting) -> new Held(waiting.own(), waiting.until(), successor));
+		held.computeIfPresent(entry, (key, waiting) -> new Held(waiting.own(), waiting.until(), waiting.source(),
+			successor));
 	}
 
 	/* Whether a held entry was last passed to the given stream */
@@ -98,6 +106,11 @@ final class StemEmbargo {
 		final Held waiting = held.get(entry);
 
 		return waiting != null && waiting.sentTo() != null && waiting.sentTo() == stream;
+	}
+
+	/* The stream a held entry came in on, none for one of this member's own */
+	synchronized Optional<Channel> sourceOf(final Entry entry) {
+		return Optional.ofNullable(held.get(entry)).map(Held::source);
 	}
 
 	/* Whether the entry is held as one of a writer of this member */

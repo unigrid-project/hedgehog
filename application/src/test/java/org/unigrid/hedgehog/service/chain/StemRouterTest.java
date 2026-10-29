@@ -161,7 +161,7 @@ public class StemRouterTest {
 
 		for (int refusal = 0; refusal < 4; refusal++) {
 			router.successor(CHAIN, writer, Set.of(), NOW).ifPresent(successor -> router.refused(CHAIN, writer,
-				successor, NOW));
+				successor, Set.of(), NOW));
 		}
 
 		router.successor(CHAIN, writer, Set.of(), NOW).ifPresent(successor ->
