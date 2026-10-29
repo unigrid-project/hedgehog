@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,8 +43,10 @@ final class StemRouter {
 	static final long PERIOD_MILLIS = 60_000;
 	static final int SUCCESSORS = 2;
 
-	private record Period(long number, boolean diffuses, List<Channel> successors, Map<WriterId, Channel> routes) {
-		/* The mode and the successors of one chain for one period, and the successor of each writer routed in it */
+	private record Period(long number, boolean diffuses, List<Channel> successors, Map<WriterId, Channel> routes,
+		Map<WriterId, Set<Channel>> barred) {
+		/* The mode and the successors of one chain for one period, the successor of each writer routed in it and the
+		   successors that refused an entry of a writer, which get none of it for the rest of the period */
 	}
 
 	private final RandomGenerator random;
@@ -67,7 +70,7 @@ final class StemRouter {
 		final long now) {
 
 		final Period period = period(chainId, now);
-		final List<Channel> open = open(chainId, period, avoid);
+		final List<Channel> open = open(chainId, period, barring(period, writer, avoid));
 		final Channel routed = period.routes().get(writer);
 
 		if (open.isEmpty()) {
@@ -82,6 +85,19 @@ final class StemRouter {
 
 		period.routes().put(writer, chosen);
 		return Optional.of(chosen);
+	}
+
+	/* A successor that refused an entry of the writer it is routed to for want of room gets nothing more of the
+	   writer for the period, so that it sees the same whoever passed the entry to it: a relay never sends anything
+	   again, and the author sends again only to another successor. A refusal from a stream the writer is not routed
+	   to changes nothing. */
+	synchronized void refused(final ChainId chainId, final WriterId writer, final Channel successor, final long now) {
+		final Period period = periods.get(chainId);
+
+		if (period != null && period.number() == numberOf(now) && period.routes().get(writer) == successor) {
+			period.routes().remove(writer);
+			period.barred().computeIfAbsent(writer, key -> new HashSet<>()).add(successor);
+		}
 	}
 
 	/* Whether any writer would find a successor outside what is avoided */
@@ -124,7 +140,8 @@ final class StemRouter {
 			return held;
 		}
 
-		final Period drawn = new Period(number, random.nextBoolean(), drawn(chainId), new HashMap<>());
+		final Period drawn = new Period(number, random.nextBoolean(), drawn(chainId), new HashMap<>(),
+			new HashMap<>());
 
 		periods.put(chainId, drawn);
 		return drawn;
@@ -136,6 +153,19 @@ final class StemRouter {
 
 		Collections.shuffle(candidates, random);
 		return List.copyOf(candidates.subList(0, Math.min(SUCCESSORS, candidates.size())));
+	}
+
+	private static Set<Channel> barring(final Period period, final WriterId writer, final Set<Channel> avoid) {
+		final Set<Channel> barred = period.barred().getOrDefault(writer, Set.of());
+
+		if (barred.isEmpty()) {
+			return avoid;
+		}
+
+		final Set<Channel> both = new HashSet<>(avoid);
+
+		both.addAll(barred);
+		return both;
 	}
 
 	private static long numberOf(final long now) {

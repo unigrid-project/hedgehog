@@ -383,8 +383,9 @@ public class ChainHostStemTest {
 		assertThat(hosted.getEmbargo().holdsAnyOf(ChainFleet.writer(2)), is(false));
 	}
 
-	/* What a member refused is stemmed again while the stem still holds it, and what came back already is left to
-	   reconcile: an exit that flooded its own entries again would show the member which refused them whose they are */
+	/* What a member refused is stemmed again while the stem still holds it, to a successor other than the member that
+	   refused it, and what came back already is left to reconcile: an exit that sent its entries to that member again,
+	   or flooded them, would show it whose they are, as a relay never sends anything again */
 	@Example
 	public void resendsThroughTheStemWhatItStillHolds() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -403,8 +404,53 @@ public class ChainHostStemTest {
 		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(true));
 		exit.resend(fleet.chain(), ChainFleet.writer(1), Set.of());
 
+		final Map<String, List<Object>> again = writtenBy(fleet, EXIT);
+
 		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(false));
-		assertThat(writtenBy(fleet, EXIT).get(successor.getKey()), equalTo(List.of(new ChainStem(own.subList(1, 3)))));
+		assertThat(again.get(successor.getKey()), is(empty()));
+		assertThat(stemmedTo(again).getValue(), equalTo(List.of(new ChainStem(own.subList(1, 3)))));
+	}
+
+	/* The member that refused an entry of a writer for want of room gets nothing more of that writer for the rest of
+	   the period, whether its predecessor wrote the entry or relayed it */
+	@Example
+	public void theMemberThatRefusedGetsNothingMoreOfTheWriterForThePeriod() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 4);
+		final List<Entry> relayed = entries(fleet, 2, 4);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-1", relayed.subList(0, 1));
+
+		final String refusedExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String refusedRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		fleet.host(EXIT).refused(fleet.stream(EXIT, refusedExit), EntryRefused.of(own.get(0), Admission.FULL));
+		fleet.host(RELAY).refused(fleet.stream(RELAY, refusedRelay), EntryRefused.of(relayed.get(0),
+			Admission.FULL));
+		fleet.host(EXIT).resend(fleet.chain(), ChainFleet.writer(1), Set.of());
+		own.subList(1, 4).forEach(entry -> postStem(fleet, entry));
+		stem(fleet, RELAY, "gn-1", relayed.subList(1, 4));
+
+		assertThat(writtenBy(fleet, EXIT).get(refusedExit), is(empty()));
+		assertThat(writtenBy(fleet, RELAY).get(refusedRelay), is(empty()));
+	}
+
+	/* Without a successor besides the member that refused, the refused entry is left to the embargo */
+	@Example
+	public void leavesARefusedEntryToTheEmbargoWithoutAnotherSuccessor() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		final Set<Channel> avoid = Set.of(fleet.stream(EXIT, RELAY), fleet.stream(EXIT, "gn-2"));
+
+		fleet.host(EXIT).postStem(fleet.chain(), own.get(0), avoid);
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is("gn-3"));
+
+		fleet.host(EXIT).refused(fleet.stream(EXIT, "gn-3"), EntryRefused.of(own.get(0), Admission.FULL));
+		fleet.host(EXIT).resend(fleet.chain(), ChainFleet.writer(1), avoid);
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 
 	private record Reach(long posted, long flooded) {
