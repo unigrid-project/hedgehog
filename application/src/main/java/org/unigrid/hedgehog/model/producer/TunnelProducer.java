@@ -22,8 +22,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.SecureRandom;
@@ -69,10 +67,13 @@ public class TunnelProducer {
 	/* The countries of the gridnodes, from the GeoIP database the node was given. A node that has none, or one it
 	   cannot read, knows no country, and a stream that names one fails. */
 	static CountryLookup countryLookup(final Path database) {
-		try (InputStream in = Files.newInputStream(database)) {
-			return new MmdbCountryLookup(in);
+		try {
+			return MmdbCountryLookup.read(database);
 		} catch (NoSuchFileException ex) {
 			log.info("No GeoIP database at {}, so a SOCKS5 connection that names a country fails", database);
+		} catch (MmdbCountryLookup.TooLargeException ex) {
+			log.warn("The GeoIP database at {} holds {} bytes or more, over the {} bytes allowed, so a SOCKS5 "
+				+ "connection that names a country fails", database, ex.size(), MmdbCountryLookup.MAX_BYTES);
 		} catch (IOException ex) {
 			log.warn("The GeoIP database at {} cannot be read ({}), so a SOCKS5 connection that names a country "
 				+ "fails", database, ex.getClass().getName());

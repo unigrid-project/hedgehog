@@ -22,6 +22,8 @@ import com.maxmind.db.Reader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -31,10 +33,88 @@ import lombok.extern.slf4j.Slf4j;
    registered in. */
 @Slf4j
 public final class MmdbCountryLookup implements CountryLookup {
+	/* Many times the few megabytes a country database takes, and still a bound on what reading one may hold */
+	public static final long MAX_BYTES = 128L * 1024 * 1024;
+
 	private final Reader reader;
 
+	/* A database larger than the bound, or one that runs past it, as a device that never ends would */
+	public static final class TooLargeException extends IOException {
+		private final long size;
+
+		TooLargeException(long size) {
+			super("A country database holds no more than " + MAX_BYTES + " bytes");
+			this.size = size;
+		}
+
+		/* The size of the file, or what was read of a stream when it ran past the bound */
+		public long size() {
+			return size;
+		}
+	}
+
+	/* Counts what it hands on and fails as soon as that runs past the bound, having asked its source for one byte
+	   past it at the most */
+	private static final class Bounded extends InputStream {
+		private final InputStream source;
+		private final long maxBytes;
+		private long read;
+
+		private Bounded(InputStream source, long maxBytes) {
+			this.source = source;
+			this.maxBytes = maxBytes;
+		}
+
+		@Override
+		public int read() throws IOException {
+			final int next = source.read();
+
+			if (next >= 0) {
+				counted(1);
+			}
+
+			return next;
+		}
+
+		@Override
+		public int read(byte[] bytes, int offset, int length) throws IOException {
+			final int count = source.read(bytes, offset, (int) Math.min(length, maxBytes - read + 1));
+
+			if (count > 0) {
+				counted(count);
+			}
+
+			return count;
+		}
+
+		private void counted(int count) throws TooLargeException {
+			read += count;
+
+			if (read > maxBytes) {
+				throw new TooLargeException(read);
+			}
+		}
+	}
+
 	public MmdbCountryLookup(InputStream database) throws IOException {
-		reader = new Reader(database);
+		this(database, MAX_BYTES);
+	}
+
+	MmdbCountryLookup(InputStream database, long maxBytes) throws IOException {
+		reader = new Reader(new Bounded(database, maxBytes));
+	}
+
+	/* A file larger than the bound is refused by its size, before any of it is read */
+	public static MmdbCountryLookup read(Path database) throws IOException {
+		final long size = Files.size(database);
+
+		if (size > MAX_BYTES) {
+			throw new TooLargeException(size);
+		}
+
+		try (InputStream in = Files.newInputStream(database)) {
+			return new MmdbCountryLookup(in);
+		}
 	}
 
 	/* A record the database cannot decode is no country, nor is an IPv6 address in a database of IPv4 alone. Only the

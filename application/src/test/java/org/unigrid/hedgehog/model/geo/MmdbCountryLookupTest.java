@@ -88,6 +88,23 @@ public class MmdbCountryLookupTest {
 		assertThat(CountryLookup.NONE.countryOfHost("89.160.20.112:52883"), equalTo(Optional.empty()));
 	}
 
+	/* A stream that never ends, as a device can be, is refused once it runs past the bound */
+	@Example
+	public void refusesADatabaseThatRunsPastTheBound() {
+		final InputStream endless = new InputStream() {
+			@Override
+			public int read() {
+				return 0;
+			}
+		};
+
+		final MmdbCountryLookup.TooLargeException refused = assertThrows(MmdbCountryLookup.TooLargeException.class,
+			() -> new MmdbCountryLookup(endless, 1024));
+
+		assertThat(refused.size(), equalTo(1025L));
+		assertThat(MmdbCountryLookup.MAX_BYTES, equalTo(128L * 1024 * 1024));
+	}
+
 	@Example
 	public void refusesWhatIsNoDatabase() {
 		assertThrows(IOException.class, () -> new MmdbCountryLookup(new ByteArrayInputStream(new byte[64])));

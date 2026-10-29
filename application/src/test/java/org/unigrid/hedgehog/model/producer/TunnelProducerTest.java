@@ -27,9 +27,12 @@ import com.google.common.jimfs.Jimfs;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -42,6 +45,7 @@ import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -49,6 +53,7 @@ import static org.hamcrest.Matchers.sameInstance;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.geo.CountryLookup;
+import org.unigrid.hedgehog.model.geo.MmdbCountryLookup;
 import org.unigrid.hedgehog.model.geo.MmdbCountryLookupTest;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
@@ -219,6 +224,31 @@ public class TunnelProducerTest {
 				fs.getPath(GEOIP)), sameInstance(CountryLookup.NONE)));
 
 			assertThat(levels(logged), equalTo(List.of(Level.INFO)));
+		}
+	}
+
+	/* Refused by its size, before it is read, with the path and the size in the one line said about it */
+	@Example
+	@SneakyThrows
+	public void knowsNoCountryFromAGeoipDatabaseOverTheBound() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path database = fs.getPath(GEOIP);
+
+			Files.createDirectories(database.getParent());
+
+			try (FileChannel channel = FileChannel.open(database, StandardOpenOption.CREATE_NEW,
+				StandardOpenOption.WRITE)) {
+
+				channel.write(ByteBuffer.wrap(new byte[1]), MmdbCountryLookup.MAX_BYTES);
+			}
+
+			final List<ILoggingEvent> logged = loggedWhile(() -> assertThat(TunnelProducer.countryLookup(database),
+				sameInstance(CountryLookup.NONE)));
+
+			assertThat(levels(logged), equalTo(List.of(Level.WARN)));
+			assertThat(logged.get(0).getFormattedMessage(), containsString(GEOIP));
+			assertThat(logged.get(0).getFormattedMessage(), containsString(Long.toString(MmdbCountryLookup.MAX_BYTES
+				+ 1)));
 		}
 	}
 
