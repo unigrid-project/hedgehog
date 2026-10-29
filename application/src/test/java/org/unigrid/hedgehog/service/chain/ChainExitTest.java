@@ -1046,6 +1046,34 @@ public class ChainExitTest {
 		assertThat(rig.exit.writersOn(rig.fleet.chain(), rig.fleet.clock.get()), is(1L));
 	}
 
+	/* A writer may have stamped ahead before the clock stepped back, so the writer of an ended session holds its
+	   place until its latest entry aged out of the chain, and not just for a retention from when its relay went */
+	@Example
+	public void holdsThePlaceOfAnEndedWriterUntilItsLatestEntryAgedOut() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+		final ChainId chainId = rig.fleet.chain();
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+		rig.fleet.clock.addAndGet(20_000);
+		rig.connector.requests.get(0).listener().received(new byte[] { 1 });
+		rig.drive();
+		rig.fleet.clock.addAndGet(-15_000);
+		rig.connector.requests.get(0).listener().closed();
+		rig.exit.tick();
+		assertThat(rig.exit.heldRelays() + rig.exit.drainingRelays(), is(0));
+
+		rig.fleet.clock.set(ChainFleet.NOW + 40_000);
+		rig.exit.tick();
+		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(1L));
+
+		rig.fleet.clock.set(ChainFleet.NOW + 51_000);
+		rig.exit.tick();
+		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(0L));
+	}
+
 	/* The writer of a session that ended posts nothing more, so the pause a member put on it goes with its relay and
 	   the pauses of writers that are gone do not crowd those of the live ones */
 	@Example
