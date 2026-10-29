@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -40,8 +41,12 @@ final class StemEmbargo {
 
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
-	private record Held(boolean own, long until) {
-		/* Whether the entry is of a writer of this member, and until when it waits to come back */
+	private record Held(boolean own, long until, Channel sentTo) {
+		/* Whether the entry is of a writer of this member, until when it waits to come back, and the successor it
+		   was last passed to, none before it went anywhere */
+		private Held until(final long deadline) {
+			return new Held(own, deadline, sentTo);
+		}
 	}
 
 	private final RandomGenerator random;
@@ -59,7 +64,7 @@ final class StemEmbargo {
 			return false;
 		}
 
-		held.put(entry, new Held(own, deadline(own, now)));
+		held.put(entry, new Held(own, deadline(own, now), null));
 		writers.merge(entry.header().writer(), 1, Integer::sum);
 		bytes += entry.size();
 		return true;
@@ -78,6 +83,18 @@ final class StemEmbargo {
 
 	synchronized boolean holds(final Entry entry) {
 		return held.containsKey(entry);
+	}
+
+	/* Notes the successor a held entry was passed to */
+	synchronized void sent(final Entry entry, final Channel successor) {
+		held.computeIfPresent(entry, (key, waiting) -> new Held(waiting.own(), waiting.until(), successor));
+	}
+
+	/* Whether a held entry was last passed to the given stream */
+	synchronized boolean wasSentTo(final Entry entry, final Channel stream) {
+		final Held waiting = held.get(entry);
+
+		return waiting != null && waiting.sentTo() != null && waiting.sentTo() == stream;
 	}
 
 	/* Whether the entry is held as one of a writer of this member */
@@ -110,7 +127,7 @@ final class StemEmbargo {
 				due.add(waiting.getKey());
 
 				if (entry.own()) {
-					held.put(waiting.getKey(), new Held(true, deadline(true, now)));
+					held.put(waiting.getKey(), entry.until(deadline(true, now)));
 				} else {
 					release(waiting.getKey());
 				}

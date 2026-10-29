@@ -609,8 +609,9 @@ public class ChainHost implements ChainService {
 	   hold for a gap before it, goes on: in a period this member diffuses, it is flooded, and in one it relays, it
 	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
 	   the embargo holds already has come round the stem, and is flooded at once, which ends the round and tells
-	   nothing of the exit, as a member that relayed it is never its author; its author alone leaves it to the shorter
-	   timers of the relays that hold it. What the chain had no room for is answered as for a flood. */
+	   nothing of the exit, as a member that relayed it is never its author; its author leaves it to the shorter timers
+	   of the relays that hold it, and so does a relay it came straight back to. What the chain had no room for is
+	   answered as for a flood. */
 	@Override
 	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
 		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
@@ -646,8 +647,10 @@ public class ChainHost implements ChainService {
 		final List<Entry> cameRound = new ArrayList<>();
 
 		for (final Entry entry : entries) {
-			if (hosted.getEmbargo().holds(entry)) {
-				cameRound.addAll(hosted.getEmbargo().holdsOwn(entry) ? List.of() : List.of(entry));
+			final StemEmbargo embargo = hosted.getEmbargo();
+
+			if (embargo.holds(entry)) {
+				cameRound.addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry) : List.of());
 			} else {
 				sortOut(hosted, entry, full, taken);
 			}
@@ -662,6 +665,13 @@ public class ChainHost implements ChainService {
 		}
 
 		return full;
+	}
+
+	/* An entry that came round is flooded at once by a member that relayed it, but its author leaves it to the shorter
+	   timers of the relays, and so does a relay it came straight back to from the member it passed it to: an honest
+	   member never passes an entry back to the one it came from, so such a bounce gets the answer of the author */
+	private static boolean floodsWhatCameRound(final StemEmbargo embargo, final Entry entry, final Channel peer) {
+		return !embargo.holdsOwn(entry) && !embargo.wasSentTo(entry, peer);
 	}
 
 	private static void sortOut(final HostedChain hosted, final Entry entry, final List<Entry> full,
@@ -695,22 +705,31 @@ public class ChainHost implements ChainService {
 			}
 		}
 
-		relayed.forEach(ChainHost::stemTo);
+		relayed.forEach((next, batch) -> stemTo(hosted, next, batch));
+	}
+
+	/* Notes for each entry that went out the successor it went to */
+	private static void stemTo(final HostedChain hosted, final Channel successor, final List<Entry> entries) {
+		if (stemTo(successor, entries)) {
+			entries.forEach(entry -> hosted.getEmbargo().sent(entry, successor));
+		}
 	}
 
 	/* A successor whose stream takes no writes is passed over, as a flood passes such a stream over, since writes it
 	   does not take pile up in memory. One that fails must not stop the others, and only the class of its failure is
 	   logged, as a message may name an address. What a successor did not take waits in the embargo. */
-	private static void stemTo(final Channel successor, final List<Entry> entries) {
+	private static boolean stemTo(final Channel successor, final List<Entry> entries) {
 		if (!successor.isWritable()) {
-			return;
+			return false;
 		}
 
 		try {
 			ChainCodecs.batches(entries, ChainStem::new).forEach(successor::write);
 			successor.flush();
+			return true;
 		} catch (RuntimeException ex) {
 			log.warn("The stem to a member stream failed with {}", ex.getClass().getName());
+			return false;
 		}
 	}
 
@@ -858,7 +877,8 @@ public class ChainHost implements ChainService {
 	private void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
 		final Set<Channel> avoid, final long now) {
 
-		router.successor(hosted.getChain().id(), writer, avoid, now).ifPresent(next -> stemTo(next, entries));
+		router.successor(hosted.getChain().id(), writer, avoid, now)
+			.ifPresent(next -> stemTo(hosted, next, entries));
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */

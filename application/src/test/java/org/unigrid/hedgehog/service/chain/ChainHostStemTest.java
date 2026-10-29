@@ -144,16 +144,20 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, "gn-1").getChain().entries(), equalTo(entries));
 	}
 
-	/* A relay that is passed an entry it passed on before floods it at once, which ends the round: a relay is never
-	   the author, so its flood tells nothing of the exit */
+	/* A relay that is passed an entry it passed on before, by a third member, floods it at once, which ends the round:
+	   a relay is never the author, so its flood tells nothing of the exit */
 	@Example
-	public void floodsAStemThatCameRoundAtOnce() {
+	public void floodsAStemThatCameRoundThroughAThirdMemberAtOnce() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> entries = entries(fleet, 1, 1);
 
 		stem(fleet, RELAY, "gn-1", entries);
-		writtenBy(fleet, RELAY);
-		stem(fleet, RELAY, "gn-2", entries);
+
+		final String successor = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final String third = OTHERS.stream().filter(member -> !member.equals("gn-1") && !member.equals(successor))
+			.findFirst().orElseThrow();
+
+		stem(fleet, RELAY, third, entries);
 
 		final Map<String, List<Object>> written = writtenBy(fleet, RELAY);
 
@@ -497,6 +501,30 @@ public class ChainHostStemTest {
 
 		others(EXIT).forEach(member -> assertThat(fleet.stream(EXIT, member).outboundMessages(), is(empty())));
 		OTHERS.forEach(member -> assertThat(fleet.stream(RELAY, member).outboundMessages(), is(empty())));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
+	}
+
+	/* An honest member never passes an entry back to the one it came from, so an entry that comes straight back from
+	   the member it was passed to gets the answer of the embargo, at the author and at a relay alike, and nothing
+	   tells the one from the other */
+	@Example
+	public void aDirectBounceGetsTheSameAnswerFromAnAuthorAndARelay() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		final List<Entry> relayed = entries(fleet, 2, 1);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-1", relayed);
+
+		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		assertThat(stem(fleet, EXIT, fromExit, own), is(empty()));
+		assertThat(stem(fleet, RELAY, fromRelay, relayed), is(empty()));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
 	}
