@@ -31,7 +31,7 @@ import org.unigrid.hedgehog.model.network.Packet;
 public class ChainHeadsEncoder extends AbstractMessageToByteEncoder<ChainHeads>
 	implements PacketEncoder<ChainHeads> {
 
-	/* [chain id 32 bytes][count u16]([writer 32 bytes][seq u64][hash u64]) * count */
+	/* [chain id 32 bytes][count u16]([writer 32 bytes][seq u64][hash u64][timestamp u64][mark u8]) * count */
 	@Override
 	public Optional<ByteBuf> encode(final ChannelHandlerContext ctx, final ChainHeads packet) throws Exception {
 		final ByteBuf out = Unpooled.buffer();

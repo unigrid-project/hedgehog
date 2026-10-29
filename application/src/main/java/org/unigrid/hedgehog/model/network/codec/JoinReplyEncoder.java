@@ -35,7 +35,7 @@ public class JoinReplyEncoder extends AbstractMessageToByteEncoder<JoinReply>
 
 	/*
 	 * [request id u64][status u8], and only when joined:
-	 * [chain id 32 bytes][count u16]([writer 32 bytes][seq u64][hash u64]) * count
+	 * [chain id 32 bytes][count u16]([writer 32 bytes][seq u64][hash u64][timestamp u64][mark u8]) * count
 	 */
 	@Override
 	public Optional<ByteBuf> encode(final ChannelHandlerContext ctx, final JoinReply packet) throws Exception {
