@@ -108,10 +108,9 @@ final class StemEmbargo {
 		return writers.containsKey(writer);
 	}
 
-	/* The entries of a writer of this member that are held from the given sequence number on, in order */
-	synchronized List<Entry> ownFrom(final WriterId writer, final long seq) {
-		return held.entrySet().stream().filter(waiting -> waiting.getValue().own())
-			.map(Map.Entry::getKey).filter(entry -> entry.header().writer().equals(writer)
+	/* The entries of a writer that are held from the given sequence number on, in order */
+	synchronized List<Entry> from(final WriterId writer, final long seq) {
+		return held.keySet().stream().filter(entry -> entry.header().writer().equals(writer)
 			&& entry.header().seq() >= seq).sorted(BY_SEQ).toList();
 	}
 

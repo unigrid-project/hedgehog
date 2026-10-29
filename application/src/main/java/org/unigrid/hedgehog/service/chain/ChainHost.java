@@ -1157,14 +1157,29 @@ public class ChainHost implements ChainService {
 	   chain as on a current one since both still take entries, and on a followed chain a member it is followed
 	   through. A refusal does not say whether the writer is one of this node's, so whatever owns a writer looks its
 	   pause up here. A member that refused an entry of a writer stemmed to it gets nothing more of the writer for the
-	   period, whoever wrote it. */
+	   period, and what the embargo holds of the writer from the refused entry on, and did not pass to the other
+	   successor yet, goes there at once: an author and a relay do so alike, as both hold what they passed on. */
 	@Override
 	public void refused(final Channel peer, final EntryRefused refusal) {
 		if (refusal != null && refusal.getWriter() != null && refusal.getAdmission() == Admission.FULL
 			&& hosted(refusal.getChainId()).filter(hosted -> hosted.trusts(peer)).isPresent()) {
 
 			pauses.pause(refusal);
-			router.refused(refusal.getChainId(), refusal.getWriter(), peer, clock.getAsLong());
+			hosting.find(refusal.getChainId()).ifPresent(hosted -> router.refused(refusal.getChainId(),
+				refusal.getWriter(), peer, clock.getAsLong())
+				.ifPresent(next -> stemAgain(hosted, refusal.getWriter(), refusal.getSeq(), next)));
+		}
+	}
+
+	private static void stemAgain(final HostedChain hosted, final WriterId writer, final long seq,
+		final Channel next) {
+
+		final StemEmbargo embargo = hosted.getEmbargo();
+		final List<Entry> again = embargo.from(writer, seq).stream().filter(entry -> !embargo.wasSentTo(entry, next))
+			.toList();
+
+		if (!again.isEmpty()) {
+			stemTo(hosted, next, again);
 		}
 	}
 
@@ -1183,29 +1198,16 @@ public class ChainHost implements ChainService {
 		});
 	}
 
-	/* The same for a writer whose entries go out through the stem, avoiding the given streams as its posts do: what the
-	   embargo still holds of it from the lowest sequence number refused is stemmed again, to a successor other than
-	   the member that refused it and without what that successor got already. Without another successor it is left
-	   to the embargo. What came back already is left to reconcile, as flooding it again would show the member that
-	   refused it whose it is. */
-	public void resend(final ChainId chainId, final WriterId writer, final Set<Channel> avoid) {
-		pauses.refusedFrom(chainId, writer).ifPresent(seq -> {
-			pauses.resume(chainId, writer);
-			hosting.find(chainId).ifPresent(hosted -> stemAgain(hosted, writer, seq, avoid));
-		});
+	/* Lets a writer whose entries go out through the stem go on after a refusal: what was refused went on to the
+	   other successor when the refusal came, as at a relay, and what came back already is left to reconcile, as
+	   flooding it again would show the member that refused it whose it is */
+	public void resume(final ChainId chainId, final WriterId writer) {
+		pauses.resume(chainId, writer);
 	}
 
-	private void stemAgain(final HostedChain hosted, final WriterId writer, final long seq, final Set<Channel> avoid) {
-		final StemEmbargo embargo = hosted.getEmbargo();
-
-		router.successor(hosted.getChain().id(), writer, avoid, clock.getAsLong()).ifPresent(next -> {
-			final List<Entry> again = embargo.ownFrom(writer, seq).stream()
-				.filter(entry -> !embargo.wasSentTo(entry, next)).toList();
-
-			if (!again.isEmpty()) {
-				stemTo(hosted, next, again);
-			}
-		});
+	/* The successors this node drew for a chain in the period, for a test */
+	List<Channel> stemSuccessors(final ChainId chainId) {
+		return router.drawn(chainId, clock.getAsLong());
 	}
 
 	/* The chain holds the entries already, so they are queued without an offer, and go out like a post: in the order

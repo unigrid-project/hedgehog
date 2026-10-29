@@ -123,7 +123,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	   as lifting the pause of what waited would lift that refusal with it, and what is placed now goes out once. */
 	public void tick() {
 		if (mode == Mode.STEM) {
-			host.resend(chainId, writer, avoid.get());
+			host.resume(chainId, writer);
 		} else {
 			host.resend(chainId, writer);
 		}

@@ -86,7 +86,7 @@ public class StemEmbargoTest {
 		assertThat(embargo.bytes(), is(3L * entries.get(0).size()));
 		assertThat(embargo.due(NOW + StemEmbargo.OWN_MILLIS - 1), is(empty()));
 		assertThat(embargo.due(LONG_AFTER), is(entries));
-		assertThat(embargo.ownFrom(writer, 1), is(entries.subList(1, 3)));
+		assertThat(embargo.from(writer, 1), is(entries.subList(1, 3)));
 		entries.forEach(embargo::release);
 		assertThat(embargo.holdsAnyOf(writer), is(false));
 		assertThat(embargo.bytes(), is(0L));
