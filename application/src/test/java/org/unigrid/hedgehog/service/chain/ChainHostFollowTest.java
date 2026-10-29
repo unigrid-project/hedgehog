@@ -63,6 +63,7 @@ import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
+import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostFollowTest {
 	private static final String CLIENT = "client";
@@ -207,6 +208,35 @@ public class ChainHostFollowTest {
 		fleet.deliver();
 
 		assertThat(fleet.host(CLIENT).chain(fleet.chain()).orElseThrow().entries(), contains(next));
+	}
+
+	/* The heads of a join reply say which feeds ended and when, so a client that joins a chain of feeds that ended
+	   starts them ended and forgets them once their last entries aged out. A client at its limit of writers then takes
+	   the new writers of exits again. */
+	@Example
+	public void forgetsTheEndedFeedsItJoinedWithAndTakesNewWritersAgain() {
+		final ChainFleet fleet = ChainFleet.group();
+		final ChainId chainId = fleet.chain();
+		final ChainHost client = fleet.host(CLIENT);
+		final Channel member = fleet.stream(CLIENT, "gn-0");
+		final byte[] payload = ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
+
+		fleet.host("gn-0").receive(fleet.stream("gn-0", "gn-3"), packet(IntStream.range(0, HostedChain.MAX_WRITERS - 1)
+			.mapToObj(number -> new FeedWriter(ChainFleet.key(10_000 + number), chainId).writeLast(ChainFleet.NOW,
+			ChainFleet.TAG, payload)).toList()));
+		assertThat(follow(fleet, "gn-0", 7), is(true));
+		assertThat(client.chain(chainId).orElseThrow().heads().size(), is(HostedChain.MAX_WRITERS - 1));
+
+		client.receive(member, packet(ChainFleet.entries(ChainFleet.key(1), chainId, 1, ChainFleet.NOW)));
+		client.receive(member, packet(ChainFleet.entries(ChainFleet.key(2), chainId, 1, ChainFleet.NOW)));
+		assertThat(client.chain(chainId).orElseThrow().heads().containsKey(ChainFleet.writer(2)), is(false));
+
+		fleet.clock.addAndGet(31 * SECOND);
+		client.maintain();
+		client.receive(member, packet(ChainFleet.entries(ChainFleet.key(3), chainId, 1, fleet.clock.get())));
+
+		assertThat(client.chain(chainId).orElseThrow().heads().keySet(), equalTo(Set.of(ChainFleet.writer(1),
+			ChainFleet.writer(3))));
 	}
 
 	@Example
