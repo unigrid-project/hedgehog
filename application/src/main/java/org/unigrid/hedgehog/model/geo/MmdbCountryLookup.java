@@ -33,8 +33,10 @@ import lombok.extern.slf4j.Slf4j;
    registered in. */
 @Slf4j
 public final class MmdbCountryLookup implements CountryLookup {
-	/* Many times the few megabytes a country database takes, and still a bound on what reading one may hold */
-	public static final long MAX_BYTES = 128L * 1024 * 1024;
+	/* Many times the few megabytes a country database takes. Reading one holds two to three times its size at the
+	   peak: the buffer it grows in, which doubles as it fills, and the copy that buffer ends as. At the bound that
+	   is between 128 and 192 MiB. */
+	public static final long MAX_BYTES = 64L * 1024 * 1024;
 
 	private final Reader reader;
 

@@ -102,7 +102,7 @@ public class MmdbCountryLookupTest {
 			() -> new MmdbCountryLookup(endless, 1024));
 
 		assertThat(refused.size(), equalTo(1025L));
-		assertThat(MmdbCountryLookup.MAX_BYTES, equalTo(128L * 1024 * 1024));
+		assertThat(MmdbCountryLookup.MAX_BYTES, equalTo(64L * 1024 * 1024));
 	}
 
 	@Example
