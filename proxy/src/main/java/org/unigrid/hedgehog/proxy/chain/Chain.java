@@ -99,6 +99,33 @@ public final class Chain {
 		return isFullFor(entry) ? Offer.of(Admission.FULL) : Offer.accepted(append(feed, entry));
 	}
 
+	/* What offer would answer if pendingBytes more were in the chain, the signature checked as there, while the entry
+	   is neither taken in nor held: for an entry that is passed on before the chain appends it, and for the entries a
+	   caller holds back that will come in later */
+	public synchronized Admission check(Entry entry, long pendingBytes) {
+		trim();
+		return refusal(entry).orElseGet(() -> checkLinked(entry, pendingBytes));
+	}
+
+	private Admission checkLinked(Entry entry, long pendingBytes) {
+		final WriterId writer = entry.header().writer();
+		final Link link = feeds.getOrDefault(writer, new Feed(writer)).check(entry);
+
+		if (REFUSALS.containsKey(link)) {
+			return REFUSALS.get(link);
+		}
+
+		if (!entry.isAuthentic()) {
+			return Admission.NOT_AUTHENTIC;
+		}
+
+		if (link == Link.AHEAD) {
+			return isFullToHold(entry, pendingBytes) ? Admission.FULL : Admission.AHEAD;
+		}
+
+		return isFullFor(entry, pendingBytes) ? Admission.FULL : Admission.ACCEPTED;
+	}
+
 	/* Drops the entries older than the retention window, while every feed keeps its head */
 	public synchronized void trim() {
 		final long cutoff = clock.getAsLong() - limits.retentionMillis();
@@ -201,7 +228,16 @@ public final class Chain {
 	/* An entry of the smallest class, which openings and answers fill, may also take the reserve past the capacity,
 	   so that a chain full of larger entries still lets sessions open, answer and close */
 	private boolean isFullFor(Entry entry) {
-		return bytes + entry.size() > limits.capacityBytes() + (isLarger(entry) ? 0 : limits.reserveBytes());
+		return isFullFor(entry, 0);
+	}
+
+	private boolean isFullFor(Entry entry, long pendingBytes) {
+		return bytes + pendingBytes + entry.size()
+			> limits.capacityBytes() + (isLarger(entry) ? 0 : limits.reserveBytes());
+	}
+
+	private boolean isFullToHold(Entry entry, long pendingBytes) {
+		return heldBytes + entry.size() > limits.bufferBytes() || isFullFor(entry, pendingBytes);
 	}
 
 	private boolean isLarger(Entry entry) {
@@ -209,7 +245,7 @@ public final class Chain {
 	}
 
 	private Offer hold(Entry entry) {
-		if (heldBytes + entry.size() > limits.bufferBytes() || isFullFor(entry)) {
+		if (isFullToHold(entry, 0)) {
 			return Offer.of(Admission.FULL);
 		}
 
