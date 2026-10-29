@@ -59,6 +59,7 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
 public class ChainHostMaintenanceTest {
 	private static final long RETENTION_MILLIS = 30_000;
@@ -79,6 +80,12 @@ public class ChainHostMaintenanceTest {
 	/* The entries of a feed that wait for the first one, which never arrives */
 	private static List<Entry> behindAGap(final int writer, final ChainId chainId) {
 		return ChainFleet.entries(ChainFleet.key(writer), chainId, 4, ChainFleet.NOW).subList(1, 4);
+	}
+
+	/* A feed of one entry, which ends it */
+	private static Entry ended(final int writer, final ChainId chainId, final long timestamp) {
+		return new FeedWriter(ChainFleet.key(writer), chainId).writeLast(timestamp, ChainFleet.TAG,
+			ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()));
 	}
 
 	private static Gap gapOf(final int writer) {
@@ -134,6 +141,21 @@ public class ChainHostMaintenanceTest {
 		host.maintain();
 
 		host.hostedChains().forEach(chainId -> assertThat(host.chain(chainId).orElseThrow().entries(), is(empty())));
+	}
+
+	/* A feed whose last entry is past the retention window is forgotten, head and all, and one that ended within it
+	   is not */
+	@Example
+	public void forgetsTheFeedsThatEndedPastTheRetentionWindow() {
+		final ChainFleet fleet = ChainFleet.group();
+		final Chain chain = fleet.host("gn-0").chain(fleet.chain()).orElseThrow();
+
+		receive(fleet, "gn-0", List.of(ended(1, chain.id(), ChainFleet.NOW), ended(2, chain.id(), ChainFleet.NOW
+			+ 1000)));
+		fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
+		fleet.host("gn-0").maintain();
+
+		assertThat(chain.heads().keySet(), equalTo(Set.of(ChainFleet.writer(2))));
 	}
 
 	@Example

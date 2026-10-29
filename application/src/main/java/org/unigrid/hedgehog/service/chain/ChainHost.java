@@ -703,10 +703,11 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* Run once a second: keeps the entries of every held chain within its retention and tells the listeners of the
-	   gaps that have grown too old to fill. A gap that nobody fills leaves a feed stuck, which the listeners break
-	   by dropping the sessions it belongs to. Every held chain is maintained, retired ones included, since a lagging
-	   member still reads them, and followed ones, whose gaps stall the sessions of a client all the same. */
+	/* Run once a second: keeps the entries of every held chain within its retention, tells the listeners of the
+	   gaps that have grown too old to fill and forgets the feeds that ended before the retention window. A gap that
+	   nobody fills leaves a feed stuck, which the listeners break by dropping the sessions it belongs to. Every held
+	   chain is maintained, retired ones included, since a lagging member still reads them, and followed ones, whose
+	   gaps stall the sessions of a client all the same and whose writers come and go as much. */
 	public void maintain() {
 		Stream.concat(hosting.all(), followed.all()).forEach(this::upkeep);
 	}
@@ -714,9 +715,11 @@ public class ChainHost implements ChainService {
 	/* One chain that fails is logged by the class of the failure and does not keep the others from being kept up */
 	private void upkeep(final HostedChain hosted) {
 		try {
-			hosted.getChain().trim();
-			hosted.getChain().expireGaps().forEach(gap -> gapListeners.tell(listener ->
-				listener.gapped(hosted.getChain().id(), gap)));
+			final Chain chain = hosted.getChain();
+
+			chain.trim();
+			chain.expireGaps().forEach(gap -> gapListeners.tell(listener -> listener.gapped(chain.id(), gap)));
+			hosted.forgetEnded(clock.getAsLong() - chain.limits().retentionMillis());
 		} catch (RuntimeException ex) {
 			log.warn("The upkeep of a chain failed with {}", ex.getClass().getName());
 		}
