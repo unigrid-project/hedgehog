@@ -465,8 +465,6 @@ public class ChainProxyEndToEndTest {
 		}
 	}
 
-	/* The exit's member alone ticks at the end of the grace. It closes its relay while the members the client is
-	   attached through still hold the chain, so they pass the Close on to the client. */
 	/* The exit stays quiet for longer than the chains keep entries while the client goes on sending. The members the
 	   client is attached through keep the exit's feed, which has not ended, so the next reply of the exit reaches the
 	   client. */
@@ -496,6 +494,8 @@ public class ChainProxyEndToEndTest {
 		}
 	}
 
+	/* The exit's member alone ticks at the end of the grace. It closes its relay while the members the client is
+	   attached through still hold the chain, so they pass the Close on to the client. */
 	@Example
 	public void endsASessionOnAChainOfAPastEpochOnceTheGraceIsOverAtTheExit() throws Exception {
 		drains((network, exit) -> exit.tick());
