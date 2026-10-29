@@ -18,8 +18,11 @@
 
 package org.unigrid.hedgehog.server;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.nio.file.Path;
 import java.util.Optional;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
@@ -51,12 +54,17 @@ public class TestServer {
 		CDIUtil.instantiate(server.getRest());
 	}
 
-	/* Only for tests that mock SocksOptions, as BaseServerTest does: an unmocked option would be stale static state */
+	/* Only for tests that mock SocksOptions, as BaseServerTest does: an unmocked option would be stale static state.
+	   The GeoIP database is a file that is not there, on a file system in memory, as the mocked path would hand the
+	   reader a mocked stream that never ends. */
 	public static void mockSocksProperties(TestServer server) {
+		final Path geoip = Jimfs.newFileSystem(Configuration.unix()).getPath("/data/geoip/country.mmdb");
+
 		new Expectations() {{
 			SocksOptions.getHost(); result = "localhost";
 			SocksOptions.getPort(); result = FreePortFinder.findFreeLocalPort();
 			SocksOptions.getCountry(); result = Optional.empty(); minTimes = 0;
+			SocksOptions.getGeoip(); result = geoip; minTimes = 0;
 		}};
 
 		CDIUtil.instantiate(server.getSocks());
