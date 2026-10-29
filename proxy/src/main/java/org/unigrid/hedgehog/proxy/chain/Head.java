@@ -19,9 +19,10 @@
 package org.unigrid.hedgehog.proxy.chain;
 
 /* The latest entry of a feed: its sequence number and hash, which name the entry, and its stamp and whether it ended
-   the feed, which a feed started after it takes over. The hash covers the stamp and the mark, so two heads with the
-   same sequence number and hash name the same entry and are equal whatever else they say. A head that only names
-   its entry has no stamp and ends nothing. */
+   the feed, which a feed started after it takes over. Heads are equal when they name the same entry. The hash of an
+   entry covers its stamp and mark, so the heads a chain takes from its own feeds agree on them; for a head a peer
+   sends, the stamp and the mark are that peer's word, as the head itself is. A head that only names its entry has
+   no stamp and ends nothing. */
 public record Head(long seq, long hash, long timestamp, boolean last) {
 	public Head {
 		if (seq < 0) {
