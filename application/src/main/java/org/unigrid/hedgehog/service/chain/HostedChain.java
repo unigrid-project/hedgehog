@@ -57,6 +57,14 @@ final class HostedChain {
 	/* A client attaches through two members of a group, so that many of the first flooders of a writer are kept */
 	static final int FIRST_FLOODERS = 2;
 
+	/* What a relay holds for others may take this share of the capacity, and at least one entry of the largest size.
+	   An entry it passes on comes back within a hop or two, and only one that was lost or went round waits for its
+	   timer, of two seconds and an exponential two on average, so what honest members pass through a relay in that
+	   time is a small part of what the chain takes in its retention window, of thirty seconds by default: a quarter
+	   leaves room many times over, while a member that stems all it may makes the relay hold no more. The entries of
+	   this node's own are counted apart, so that what it relays never makes its own sessions FULL. */
+	static final int RELAYED_SHARE = 4;
+
 	enum Attachment { NEW, KNOWN, REFUSED }
 
 	@Getter private final Chain chain;
@@ -254,19 +262,31 @@ final class HostedChain {
 			? Stream.concat(noted.stream(), more.stream()).collect(Collectors.toUnmodifiableSet()) : noted);
 	}
 
-	/* What the chain would make of an entry, counting what the embargo holds as if the chain had it already. There is
-	   no answer for a writer the chain takes no more of, as offer gives none. */
+	/* What the chain would make of an entry passed on to this node, counting what the embargo holds for others as if
+	   the chain had it already, and FULL past their share. There is no answer for a writer the chain takes no more of,
+	   as offer gives none. */
 	Optional<Admission> check(final Entry entry) {
 		synchronized (chain) {
-			return canTake(entry.header().writer()) ? Optional.of(chain.check(entry, embargo.bytes()))
-				: Optional.empty();
+			if (!canTake(entry.header().writer())) {
+				return Optional.empty();
+			}
+
+			if (embargo.relayedBytes() + entry.size() > relayedShare()) {
+				return Optional.of(Admission.FULL);
+			}
+
+			return Optional.of(chain.check(entry, embargo.relayedBytes()));
 		}
 	}
 
+	private long relayedShare() {
+		return Math.max(chain.limits().maxEntryBytes(), chain.limits().capacityBytes() / RELAYED_SHARE);
+	}
+
 	/* Holds an entry of this node's own in the embargo, where it waits to come back by flood, once the chain would
-	   take it in or hold it past a gap, counting what the embargo holds already as if it were in the chain. Its writer
-	   takes a place as one with an entry in the chain does, under the same lock and limit, and a writer that would be
-	   one too many is told FULL, as a post is. */
+	   take it in or hold it past a gap, counting what the embargo holds of its own as if it were in the chain. Its
+	   writer takes a place as one with an entry in the chain does, under the same lock and limit, and a writer that
+	   would be one too many is told FULL, as a post is. */
 	Admission holdOwn(final Entry entry, final long now) {
 		final WriterId writer = entry.header().writer();
 
@@ -275,7 +295,7 @@ final class HostedChain {
 				return Admission.FULL;
 			}
 
-			final Admission admission = chain.check(entry, embargo.bytes());
+			final Admission admission = chain.check(entry, embargo.ownBytes());
 
 			if (HOLDS_A_FEED.contains(admission)) {
 				writers.add(writer);

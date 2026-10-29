@@ -52,7 +52,8 @@ final class StemEmbargo {
 	private final RandomGenerator random;
 	private final Map<Entry, Held> held = new LinkedHashMap<>();
 	private final Map<WriterId, Integer> writers = new HashMap<>();
-	private long bytes;
+	private long ownBytes;
+	private long relayedBytes;
 
 	StemEmbargo(final RandomGenerator random) {
 		this.random = random;
@@ -66,18 +67,20 @@ final class StemEmbargo {
 
 		held.put(entry, new Held(own, deadline(own, now), null));
 		writers.merge(entry.header().writer(), 1, Integer::sum);
-		bytes += entry.size();
+		count(own, entry.size());
 		return true;
 	}
 
 	/* The entry came back, so it waits no more */
 	synchronized boolean release(final Entry entry) {
-		if (held.remove(entry) == null) {
+		final Held released = held.remove(entry);
+
+		if (released == null) {
 			return false;
 		}
 
 		writers.computeIfPresent(entry.header().writer(), (writer, count) -> count > 1 ? count - 1 : null);
-		bytes -= entry.size();
+		count(released.own(), -entry.size());
 		return true;
 	}
 
@@ -138,7 +141,25 @@ final class StemEmbargo {
 
 	/* The bytes of everything held, which the replica would take in once it comes back */
 	synchronized long bytes() {
-		return bytes;
+		return ownBytes + relayedBytes;
+	}
+
+	/* The bytes held of the writers of this member */
+	synchronized long ownBytes() {
+		return ownBytes;
+	}
+
+	/* The bytes held of the entries this member relays */
+	synchronized long relayedBytes() {
+		return relayedBytes;
+	}
+
+	private void count(final boolean own, final long bytes) {
+		if (own) {
+			ownBytes += bytes;
+		} else {
+			relayedBytes += bytes;
+		}
 	}
 
 	private long deadline(final boolean own, final long now) {

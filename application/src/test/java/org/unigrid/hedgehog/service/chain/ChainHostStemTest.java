@@ -220,17 +220,34 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(entries));
 	}
 
-	/* A chain of room for two entries holds none yet, but the relay holds two in its embargo that it will take in once
-	   they come back, so it has no room for a third */
+	/* A chain of room for nine entries holds eight, and the relay holds one in its embargo that it will take in once
+	   it comes back, so it has no room for another */
 	@Example
-	public void refusesAStemTheChainHasNoRoomForCountingItsEmbargo() {
-		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(false));
-		final List<Entry> entries = entries(fleet, 1, 3);
+	public void refusesAStemTheChainHasNoRoomForCountingWhatItRelays() {
+		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
+		final List<Entry> entries = entries(fleet, 1, 2);
 
-		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(0, 2)), is(empty()));
-		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(2, 3)),
-			equalTo(List.of(EntryRefused.of(entries.get(2), Admission.FULL))));
-		assertThat(hosted(fleet, RELAY).getEmbargo().holds(entries.get(2)), is(false));
+		fleet.host(RELAY).receive(fleet.stream(RELAY, "gn-2"), new ChainEntry(entries(fleet, 3, 8)));
+		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(0, 1)), is(empty()));
+		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(1, 2)),
+			equalTo(List.of(EntryRefused.of(entries.get(1), Admission.FULL))));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(entries.get(1)), is(false));
+	}
+
+	/* What a relay holds for others has a share of its own, a quarter of the capacity, past which it refuses more,
+	   so a member that fills it makes no entry of a session of the exit on that node FULL */
+	@Example
+	public void relayedEntriesUpToTheirShareLeaveTheOwnEntriesTheirRoom() {
+		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
+		final List<Entry> relayed = entries(fleet, 2, 3);
+		final List<Entry> own = entries(fleet, 1, 9);
+
+		assertThat(stem(fleet, EXIT, RELAY, relayed.subList(0, 2)), is(empty()));
+		assertThat(stem(fleet, EXIT, RELAY, relayed.subList(2, 3)),
+			equalTo(List.of(EntryRefused.of(relayed.get(2), Admission.FULL))));
+		own.forEach(entry -> assertThat(postStem(fleet, entry), is(in(PASSED_ON.values()))));
+		assertThat(hosted(fleet, EXIT).getEmbargo().relayedBytes(), is(2L * own.get(0).size()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().ownBytes(), is(9L * own.get(0).size()));
 	}
 
 	/* An entry that comes back by flood is in the chain, and the embargo has nothing left to flood */
