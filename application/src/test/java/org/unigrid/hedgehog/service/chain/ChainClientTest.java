@@ -1499,6 +1499,21 @@ public class ChainClientTest {
 		assertThat(cause.getMessage(), is(reason));
 	}
 
+	/* Without a GeoIP database no gridnode is anywhere, and with one none of them may be in the country */
+	@Example
+	public void saysWhenNoGroupHasAGridnodeInTheCountry() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient located = clientOf(fleet, fleet.located(countries));
+
+		fleet.activeIds().forEach(member -> countries.put(member, "SE"));
+
+		assertFailsWith(located.attachment(Optional.of("DK")), "No shard group has a gridnode in the country");
+		assertFailsWith(clientOf(fleet).attachment(Optional.of("SE")), "No shard group has a gridnode in the country");
+		assertThat(delivered(fleet, JoinChain.class), is(0L));
+		assertThat(attached(fleet, located, Optional.of("SE")).streams().size(), is(2));
+	}
+
 	@Example
 	public void saysWhyAJoinFailed() {
 		final Scripted refused = new Scripted(2, 1, new PendingRequests());

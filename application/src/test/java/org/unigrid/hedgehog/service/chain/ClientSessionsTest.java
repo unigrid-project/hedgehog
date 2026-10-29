@@ -77,6 +77,7 @@ import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SealingCipher;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
+import org.unigrid.hedgehog.proxy.socks.TunnelFailure;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class ClientSessionsTest {
@@ -325,6 +326,26 @@ public class ClientSessionsTest {
 		assertThat(rig.opens(), hasSize(24));
 		assertThat(rig.opens().stream().map(Rig::exitOf).collect(Collectors.toSet()), equalTo(attachment.members()
 			.stream().filter(member -> !attachMembers.contains(member)).collect(Collectors.toSet())));
+	}
+
+	/* No gridnode is in Denmark, and without a GeoIP database none is anywhere: the SOCKS reply is network
+	   unreachable, and no member is asked to take the node */
+	@Example
+	public void unknownCountryFailsWithNetworkUnreachable() {
+		final Rig located = new Rig(ChainFleet.group());
+		final Rig unlocated = new Rig(ChainFleet.group());
+		final Listener danish = new Listener();
+		final Listener swedish = new Listener();
+
+		located.fleet.activeIds().forEach(member -> located.countries.put(member, "SE"));
+		located.sessions.open(CONNECT, Optional.of("DK"), danish);
+		unlocated.sessions.open(CONNECT, Optional.of("SE"), swedish);
+		Stream.of(located, unlocated).forEach(rig -> rig.fleet.deliver());
+
+		assertThat(danish.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
+		assertThat(swedish.messages, equalTo(List.of(new Close(CloseReason.UNREACHABLE))));
+		assertThat(TunnelFailure.of(CloseReason.UNREACHABLE), is(TunnelFailure.NETWORK_UNREACHABLE));
+		assertThat(List.of(located.sent(JoinChain.class), unlocated.sent(JoinChain.class)), equalTo(List.of(0L, 0L)));
 	}
 
 	/* Of the members the client may use, one is in Sweden and none in Denmark */

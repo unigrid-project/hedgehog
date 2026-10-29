@@ -227,7 +227,8 @@ public final class ChainClient {
 
 	/* A gridnode in a group hosts the chains of that group, so it never joins it as a client. Its group is taken
 	   from the view the candidates come from, as the hosting may be a refresh behind at the turn of an epoch. A
-	   group with no member in the country leaves nothing to join. */
+	   country that no gridnode of another group is in, as every country is without a GeoIP database, fails at once:
+	   no member is asked to take the node for a session that no exit could carry. */
 	private Join chosen(final Optional<String> country) {
 		final ProxySettings proxy = settings.current()
 			.orElseThrow(() -> new IllegalStateException("The proxy is off"));
@@ -237,8 +238,8 @@ public final class ChainClient {
 		final Draw draw = new Draw(view, country, countriesOf(active), directory.self().stream()
 			.flatMapToInt(own -> view.groups().groupOf(own).stream()).boxed()
 			.collect(Collectors.toCollection(HashSet::new)));
-		final int group = draw.next(random)
-			.orElseThrow(() -> new IllegalStateException("No shard group took this node"));
+		final int group = draw.next(random).orElseThrow(() -> new IllegalStateException(country.isPresent()
+			? "No shard group has a gridnode in the country" : "No shard group took this node"));
 
 		return joined.stream().filter(join -> join.epoch().equals(view.epoch()) && join.joinedGroup() == group)
 			.findFirst().orElseGet(() -> joined.size() < ChainHost.MAX_FOLLOWED ? started(draw, group)
