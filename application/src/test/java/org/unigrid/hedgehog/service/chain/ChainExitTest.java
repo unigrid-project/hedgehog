@@ -1046,6 +1046,27 @@ public class ChainExitTest {
 		assertThat(rig.exit.writersOn(rig.fleet.chain(), rig.fleet.clock.get()), is(1L));
 	}
 
+	/* The writer of a session that ended posts nothing more, so the pause a member put on it goes with its relay and
+	   the pauses of writers that are gone do not crowd those of the live ones */
+	@Example
+	public void liftsThePauseOfTheWriterOfARelayThatWent() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		refuseEverythingAt(rig);
+		caller.open();
+
+		final WriterId writer = rig.answers(rig.fleet.chain()).get(0).header().writer();
+
+		assertThat(rig.fleet.host(EXIT).pauses().isPaused(rig.fleet.chain(), writer), is(true));
+		caller.session().close(CloseReason.DONE);
+		rig.drive();
+		rig.exit.tick();
+
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.fleet.host(EXIT).pauses().isPaused(rig.fleet.chain(), writer), is(false));
+	}
+
 	/* A member that refuses every entry of the exit keeps the writers of its sessions paused for good, which says
 	   nothing about what their outboxes hold: a relay that ended with nothing waiting goes at the tick, so its place
 	   is free for the next opening */
