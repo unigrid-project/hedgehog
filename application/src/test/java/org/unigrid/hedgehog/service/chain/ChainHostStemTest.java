@@ -480,4 +480,24 @@ public class ChainHostStemTest {
 		assertThat(fleet.deliveries.stream().filter(delivery -> delivery.from().equals(EXIT)
 			&& delivery.packet() instanceof ChainStem).count(), is(greaterThanOrEqualTo(40L)));
 	}
+
+	/* A successor whose stream takes no writes is passed over by the author and the relay alike, as a flood passes it
+	   over, so stems do not pile up behind a member that stopped reading: the embargo floods what it did not take */
+	@Example
+	public void stemsNothingToASuccessorThatTakesNoWrites() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		final List<Entry> relayed = entries(fleet, 2, 1);
+
+		others(EXIT).forEach(member -> ChainFleet.unwritable(fleet.stream(EXIT, member)));
+		OTHERS.forEach(member -> ChainFleet.unwritable(fleet.stream(RELAY, member)));
+
+		assertThat(postStem(fleet, own.get(0)), is(Admission.ACCEPTED));
+		assertThat(stem(fleet, RELAY, "gn-1", relayed), is(empty()));
+
+		others(EXIT).forEach(member -> assertThat(fleet.stream(EXIT, member).outboundMessages(), is(empty())));
+		OTHERS.forEach(member -> assertThat(fleet.stream(RELAY, member).outboundMessages(), is(empty())));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
+	}
 }

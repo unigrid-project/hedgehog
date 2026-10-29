@@ -698,9 +698,14 @@ public class ChainHost implements ChainService {
 		relayed.forEach(ChainHost::stemTo);
 	}
 
-	/* One successor that fails must not stop the others, and only the class of its failure is logged, as a message
-	   may name an address. What it did not take waits in the embargo. */
+	/* A successor whose stream takes no writes is passed over, as a flood passes such a stream over, since writes it
+	   does not take pile up in memory. One that fails must not stop the others, and only the class of its failure is
+	   logged, as a message may name an address. What a successor did not take waits in the embargo. */
 	private static void stemTo(final Channel successor, final List<Entry> entries) {
+		if (!successor.isWritable()) {
+			return;
+		}
+
 		try {
 			ChainCodecs.batches(entries, ChainStem::new).forEach(successor::write);
 			successor.flush();
