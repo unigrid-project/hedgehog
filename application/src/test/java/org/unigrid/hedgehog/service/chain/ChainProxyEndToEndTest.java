@@ -82,6 +82,7 @@ public class ChainProxyEndToEndTest {
 	private static final int WAIT_SECONDS = 10;
 	private static final int SEVERAL_ENTRIES_OF_BYTES = 100_000;
 	private static final long EPOCH_MILLIS = 3_600_000;
+	private static final long RETENTION_MILLIS = 30_000;
 	private static final byte[] NOTHING = new byte[0];
 
 	/* A client node, exits on the members it is told, a SOCKS listener in front of the client and a pump that hands
@@ -466,6 +467,35 @@ public class ChainProxyEndToEndTest {
 
 	/* The exit's member alone ticks at the end of the grace. It closes its relay while the members the client is
 	   attached through still hold the chain, so they pass the Close on to the client. */
+	/* The exit stays quiet for longer than the chains keep entries while the client goes on sending. The members the
+	   client is attached through keep the exit's feed, which has not ended, so the next reply of the exit reaches the
+	   client. */
+	@Example
+	public void carriesTheNextReplyOfAnExitThatStayedQuietPastTheRetentionWhileTheClientSent() throws Exception {
+		final ChainFleet fleet = ChainFleet.group();
+
+		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
+			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
+
+			bound(client);
+			client.write(bytes("one"));
+			assertReceived(client, bytes("one"));
+			echo.hold();
+
+			for (final String part : List.of("two", "three")) {
+				final long before = echo.received.get();
+
+				client.write(bytes(part));
+				waiting().until(echo.received::get, is(before + part.length()));
+				fleet.clock.addAndGet(RETENTION_MILLIS + 1000);
+				everyNodeTicks(fleet, network);
+			}
+
+			echo.release();
+			assertReceived(client, bytes("onetwothree"));
+		}
+	}
+
 	@Example
 	public void endsASessionOnAChainOfAPastEpochOnceTheGraceIsOverAtTheExit() throws Exception {
 		drains((network, exit) -> exit.tick());
