@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.random.RandomGenerator;
@@ -102,8 +103,16 @@ public final class ChainClient {
 	private final Map<Optional<String>, Join> given = new HashMap<>();
 
 	/* A join of this node, made or under way: the epoch, and the group it was asked of with the members of that
-	   group, which its attachment tells instead once it is made, as another group may have taken the node */
-	private record Join(Epoch epoch, int group, List<String> members, CompletableFuture<ChainAttachment> attachment) {
+	   group, which its attachment tells instead once it is made, as another group may have taken the node. It is
+	   handed out once a caller was given its attachment. */
+	private record Join(Epoch epoch, int group, List<String> members, CompletableFuture<ChainAttachment> attachment,
+		AtomicBoolean handedOut) {
+
+		ChainAttachment handOut(final ChainAttachment held) {
+			handedOut.set(true);
+			return held;
+		}
+
 		int joinedGroup() {
 			return held().map(ChainAttachment::group).orElse(group);
 		}
@@ -155,7 +164,7 @@ public final class ChainClient {
 	   none can complete or cancel the join of the others. What a caller chains on it runs on a thread of the join
 	   executor, never on the event loop that completed the last reply, so it may do real work. */
 	public CompletableFuture<ChainAttachment> attachment(final Optional<String> country) {
-		return country.isPresent() ? withExitIn(country, new HashSet<>()) : joinFor(country, Set.of());
+		return withExitIn(country, new HashSet<>());
 	}
 
 	/* A join made for this country never asks a pair that holds all of the country, but an attachment made for
@@ -166,9 +175,21 @@ public final class ChainClient {
 	private CompletableFuture<ChainAttachment> withExitIn(final Optional<String> country,
 		final Set<Integer> passedOver) {
 
-		return joinFor(country, passedOver).thenComposeAsync(attachment -> {
+		final Join join;
+
+		try {
+			join = joinFor(country, passedOver);
+		} catch (RuntimeException ex) {
+			return CompletableFuture.failedFuture(ex);
+		}
+
+		if (country.isEmpty()) {
+			return join.attachment().copy().thenApply(join::handOut);
+		}
+
+		return join.attachment().copy().thenComposeAsync(attachment -> {
 			if (attachment.exit(country, Set.of()).isPresent()) {
-				return CompletableFuture.completedFuture(attachment);
+				return CompletableFuture.completedFuture(join.handOut(attachment));
 			}
 
 			return passedOver.add(attachment.group()) ? withExitIn(country, passedOver)
@@ -176,17 +197,10 @@ public final class ChainClient {
 		}, joins);
 	}
 
-	private synchronized CompletableFuture<ChainAttachment> joinFor(final Optional<String> country,
-		final Set<Integer> passedOver) {
-
+	private synchronized Join joinFor(final Optional<String> country, final Set<Integer> passedOver) {
 		dropUnused();
-
-		try {
-			return given.compute(country, (key, join) -> join != null && !passedOver.contains(join.joinedGroup())
-				? join : chosen(key, passedOver)).attachment().copy();
-		} catch (RuntimeException ex) {
-			return CompletableFuture.failedFuture(ex);
-		}
+		return given.compute(country, (key, join) -> join != null && !passedOver.contains(join.joinedGroup()) ? join
+			: chosen(key, passedOver));
 	}
 
 	/* An attachment that is not in use is let go of by the next call for an attachment, not here: until then it is in
@@ -209,13 +223,18 @@ public final class ChainClient {
 		}
 	}
 
-	/* Lets go of the joins that failed and of the attachments no longer in use, and of the countries given them */
+	/* Lets go of the joins that failed and of the attachments no longer in use, and of the countries given them. An
+	   attachment that was never handed out is released here, as no session runs on it to drain and nobody else
+	   would: it would keep its chain followed and its writer on the members' streams. */
 	private void dropUnused() {
 		final Optional<Epoch> epoch = currentEpoch();
+		final List<Join> unused = joined.stream().filter(join -> join.attachment().isDone()
+			&& join.held().filter(attachment -> inUse(attachment, epoch)).isEmpty()).toList();
 
-		joined.removeIf(join -> join.attachment().isDone() && join.held().filter(attachment ->
-			inUse(attachment, epoch)).isEmpty());
+		joined.removeAll(unused);
 		given.values().removeIf(join -> !joined.contains(join));
+		unused.stream().filter(join -> !join.handedOut().get()).flatMap(join -> join.held().stream())
+			.forEach(this::release);
 	}
 
 	/* The members drop their writers when the proxy turns off, so the replicas are dropped then too; isCurrent notices
@@ -279,7 +298,7 @@ public final class ChainClient {
 	private Join started(final Draw draw, final int group) {
 		final Join join = new Join(draw.view().epoch(), group, draw.view().groups().members(group),
 			CompletableFuture.supplyAsync(() -> nextGroup(draw, OptionalInt.of(group)), joins)
-			.thenCompose(Function.identity()).thenApplyAsync(Function.identity(), joins));
+			.thenCompose(Function.identity()).thenApplyAsync(Function.identity(), joins), new AtomicBoolean());
 
 		joined.add(join);
 		return join;

@@ -691,6 +691,51 @@ public class ChainClientTest {
 		assertThat(delivered(fleet, JoinChain.class), is(0L));
 	}
 
+	/* Every member of the last group is in Sweden when the node asks it, and none of them is by the time it took
+	   the node, nor is any other gridnode: the attachment reaches no caller. It leaves its chain at the turn of the
+	   epoch, as a join no session was ever handed has nobody else to release it. */
+	@Example
+	public void releasesAJoinItHandedToNoCallerOnceItIsNoLongerInUse() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final List<String> moved = fleet.view().groups().members(1);
+		final List<ChainId> chains = fleet.view().chains(1);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		moved.forEach(member -> countries.put(member, "SE"));
+
+		final CompletableFuture<ChainAttachment> swedish = client.attachment(Optional.of("SE"));
+
+		moved.forEach(member -> countries.put(member, "NO"));
+		fleet.deliver();
+
+		final WriterId writer = writerJoining(fleet, moved);
+
+		assertFailsWith(swedish, "No shard group has a gridnode in the country");
+		assertThat(chains.stream().filter(chainId -> fleet.host(CLIENT).chain(chainId).isPresent()).count(), is(1L));
+
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		fleet.refreshAll();
+		attached(fleet, client);
+
+		final List<LeaveChain> left = fleet.deliveries.stream().filter(delivery -> delivery.from().equals(CLIENT))
+			.map(ChainFleet.Delivery::packet).filter(LeaveChain.class::isInstance).map(LeaveChain.class::cast)
+			.filter(leave -> leave.getWriter().equals(writer)).toList();
+
+		assertThat(left, hasSize(2));
+		assertThat(left.stream().map(LeaveChain::getChainId).distinct().toList(), hasSize(1));
+		assertThat(chains, hasItem(left.get(0).getChainId()));
+		assertThat(fleet.host(CLIENT).chain(left.get(0).getChainId()).isPresent(), is(false));
+	}
+
+	/* The writer of the join the node asked the given members for */
+	private static WriterId writerJoining(final ChainFleet fleet, final List<String> members) {
+		return fleet.deliveries.stream().filter(delivery -> members.contains(delivery.to()))
+			.map(ChainFleet.Delivery::packet).filter(JoinChain.class::isInstance).map(JoinChain.class::cast)
+			.map(JoinChain::getWriter).findFirst().orElseThrow();
+	}
+
 	/* No group is left once the only one with a member in the country has it at an attach member alone */
 	@Example
 	public void failsWhenTheCountryIsLeftOnlyAtAttachMembers() {
