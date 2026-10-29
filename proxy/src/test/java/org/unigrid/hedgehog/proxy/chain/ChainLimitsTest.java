@@ -32,7 +32,7 @@ public class ChainLimitsTest {
 		final ChainLimits limits = new ChainLimits(32 * 1024 * 1024, 30, 16 * 1024);
 
 		assertThat(limits.retentionMillis(), is(30_000L));
-		assertThat(limits.maxPayloadBytes(), is(16204));
+		assertThat(limits.maxPayloadBytes(), is(16203));
 	}
 
 	@Example
@@ -68,7 +68,7 @@ public class ChainLimitsTest {
 		final IllegalArgumentException thrown = Expect.assertThrows(IllegalArgumentException.class,
 			() -> new ChainLimits(1024, 30, limit));
 
-		assertThat(thrown.getMessage(), is("An entry needs at least 180 bytes, the limit is " + limit));
+		assertThat(thrown.getMessage(), is("An entry needs at least 181 bytes, the limit is " + limit));
 	}
 
 	@Example

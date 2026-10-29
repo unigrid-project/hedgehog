@@ -50,7 +50,7 @@ final class ChainFixtures {
 	static Arbitrary<EntryHeader> headers() {
 		return Combinators.combine(bytes(ChainId.SIZE).map(ChainId::new), bytes(WriterId.SIZE).map(WriterId::new),
 			Arbitraries.longs().greaterOrEqual(0), Arbitraries.longs(), Arbitraries.longs(),
-			bytes(Tag.SIZE).map(Tag::new)).as(EntryHeader::new);
+			bytes(Tag.SIZE).map(Tag::new), Arbitraries.of(false, true)).as(EntryHeader::new);
 	}
 
 	static Arbitrary<Entry> entries() {
@@ -65,7 +65,7 @@ final class ChainFixtures {
 	static Arbitrary<Entry> signedEntries() {
 		return Combinators.combine(writerKeys(), headers(), payloads()).as((key, header, payload) -> key.sign(
 			new EntryHeader(header.chainId(), key.id(), header.seq(), header.prev(), header.timestamp(),
-				header.tag()), payload));
+				header.tag(), header.last()), payload));
 	}
 
 	/* The bytes of the entries of a chain above its smallest class, which never take more than the capacity */

@@ -66,6 +66,15 @@ public class EntrySignatureTest {
 		assertThat(entry.header().writer().verify(signed, entry.signature()), is(true));
 	}
 
+	/* Only the writer ends its feed */
+	@Property(tries = 50)
+	public void shouldNotTrustAChangedLastMark(@ForAll("signedEntries") Entry entry) {
+		final byte[] bytes = EntryCodec.encode(entry);
+
+		bytes[104] ^= 1;
+		assertThat(decode(bytes).orElseThrow().isAuthentic(), is(false));
+	}
+
 	@Property(tries = 300)
 	public void shouldNotTrustAChangedByte(@ForAll("signedEntries") Entry entry, @ForAll int position,
 		@ForAll byte delta) {

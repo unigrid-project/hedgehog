@@ -29,6 +29,7 @@ public final class FeedWriter {
 	private long nextSeq;
 	private long prev;
 	private long timestamp = Long.MIN_VALUE;
+	private boolean ended;
 
 	public FeedWriter(WriterKey key, ChainId chainId) {
 		this.key = Objects.requireNonNull(key, "key");
@@ -60,16 +61,31 @@ public final class FeedWriter {
 	   caller can synchronize on the writer to write and post as one step. The state moves only once the entry is
 	   signed, so a refused write leaves the writer as it was */
 	public synchronized Entry write(long nowMillis, Tag tag, byte[] payload) {
+		return write(nowMillis, tag, payload, false);
+	}
+
+	/* The last entry of the feed, which says so: a chain takes nothing the writer signs after it, so the writer signs
+	   nothing more */
+	public synchronized Entry writeLast(long nowMillis, Tag tag, byte[] payload) {
+		return write(nowMillis, tag, payload, true);
+	}
+
+	private Entry write(long nowMillis, Tag tag, byte[] payload, boolean last) {
+		if (ended) {
+			throw new IllegalStateException("The feed of the writer has ended");
+		}
+
 		if (nextSeq == LAST_SEQ) {
 			throw new IllegalStateException("The writer has used every sequence number of its feed");
 		}
 
 		final long held = Math.max(timestamp, nowMillis - Math.floorMod(nowMillis, Entry.STAMP_MILLIS));
-		final Entry entry = key.sign(new EntryHeader(chainId, key.id(), nextSeq, prev, held, tag), payload);
+		final Entry entry = key.sign(new EntryHeader(chainId, key.id(), nextSeq, prev, held, tag, last), payload);
 
 		timestamp = held;
 		nextSeq++;
 		prev = entry.hash();
+		ended = last;
 		return entry;
 	}
 }

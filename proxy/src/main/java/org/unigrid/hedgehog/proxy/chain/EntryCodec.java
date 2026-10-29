@@ -21,6 +21,10 @@ package org.unigrid.hedgehog.proxy.chain;
 import java.nio.ByteBuffer;
 
 public final class EntryCodec {
+	/* The marks of the header, in one byte so that a later one needs no new field. A bit that no writer sets is no
+	   entry anybody wrote. */
+	private static final byte LAST = 0x01;
+
 	private EntryCodec() {
 		/* Static helpers only */
 	}
@@ -61,7 +65,7 @@ public final class EntryCodec {
 		return ByteBuffer.allocate(Entry.HEADER_SIZE + payload.length)
 			.put(header.chainId().bytes()).put(header.writer().bytes())
 			.putLong(header.seq()).putLong(header.prev()).putLong(header.timestamp()).put(header.tag().bytes())
-			.putInt(payload.length).put(payload).array();
+			.put(header.last() ? LAST : 0).putInt(payload.length).put(payload).array();
 	}
 
 	/* FNVJ64 is not collision resistant, so the signature covers the body itself and not only its hash */
@@ -75,8 +79,17 @@ public final class EntryCodec {
 		final long seq = seq(in);
 		final long prev = in.getLong();
 		final long timestamp = in.getLong();
+		final Tag tag = new Tag(take(in, Tag.SIZE));
 
-		return new EntryHeader(chainId, writer, seq, prev, timestamp, new Tag(take(in, Tag.SIZE)));
+		return new EntryHeader(chainId, writer, seq, prev, timestamp, tag, isLast(in.get()));
+	}
+
+	private static boolean isLast(byte marks) throws InvalidEntryException {
+		if ((marks & ~LAST) != 0) {
+			throw new InvalidEntryException("Unknown marks " + Integer.toHexString(marks & 0xFF));
+		}
+
+		return marks == LAST;
 	}
 
 	private static long seq(ByteBuffer in) throws InvalidEntryException {

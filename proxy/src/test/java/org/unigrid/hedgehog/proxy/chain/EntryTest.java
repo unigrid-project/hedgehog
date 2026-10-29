@@ -44,9 +44,9 @@ public class EntryTest {
 
 	@Example
 	public void shouldFollowTheWireLayoutSizes() {
-		assertThat(Entry.HEADER_SIZE, is(108));
+		assertThat(Entry.HEADER_SIZE, is(109));
 		assertThat(Entry.TRAILER_SIZE, is(72));
-		assertThat(Entry.OVERHEAD, is(180));
+		assertThat(Entry.OVERHEAD, is(181));
 	}
 
 	@Property(tries = 100)

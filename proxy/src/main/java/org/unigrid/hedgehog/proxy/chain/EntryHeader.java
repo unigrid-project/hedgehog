@@ -20,9 +20,12 @@ package org.unigrid.hedgehog.proxy.chain;
 
 import java.util.Objects;
 
-/* What every member sees of an entry: whose feed it is on which chain, where it links in, when it was written and
-   the tag only the ends of its session can place. Nothing says what kind of message it carries. */
-public record EntryHeader(ChainId chainId, WriterId writer, long seq, long prev, long timestamp, Tag tag) {
+/* What every member sees of an entry: whose feed it is on which chain, where it links in, when it was written, the
+   tag only the ends of its session can place and whether it is the last entry of its feed, after which the chain
+   takes nothing more of the writer. Nothing says what kind of message it carries. */
+public record EntryHeader(ChainId chainId, WriterId writer, long seq, long prev, long timestamp, Tag tag,
+	boolean last) {
+
 	public EntryHeader {
 		Objects.requireNonNull(chainId, "chainId");
 		Objects.requireNonNull(writer, "writer");
@@ -31,5 +34,10 @@ public record EntryHeader(ChainId chainId, WriterId writer, long seq, long prev,
 		if (seq < 0) {
 			throw new IllegalArgumentException("A sequence number is never negative, found " + seq);
 		}
+	}
+
+	/* An entry that more of its feed may follow */
+	public EntryHeader(ChainId chainId, WriterId writer, long seq, long prev, long timestamp, Tag tag) {
+		this(chainId, writer, seq, prev, timestamp, tag, false);
 	}
 }

@@ -58,8 +58,9 @@ public class EntryCodecTest {
 		assertThat(bytes.getLong(72), is(header.prev()));
 		assertThat(bytes.getLong(80), is(header.timestamp()));
 		assertThat(Arrays.copyOfRange(bytes.array(), 88, 104), equalTo(header.tag().bytes()));
-		assertThat(bytes.getInt(104), is(entry.payload().length));
-		assertThat(Arrays.copyOfRange(bytes.array(), 108, payloadEnd), equalTo(entry.payload()));
+		assertThat(bytes.get(104), is((byte) (header.last() ? 1 : 0)));
+		assertThat(bytes.getInt(105), is(entry.payload().length));
+		assertThat(Arrays.copyOfRange(bytes.array(), 109, payloadEnd), equalTo(entry.payload()));
 		assertThat(bytes.getLong(payloadEnd), is(entry.hash()));
 		assertThat(Arrays.copyOfRange(bytes.array(), payloadEnd + 8, entry.size()), equalTo(entry.signature()));
 	}
@@ -86,11 +87,26 @@ public class EntryCodecTest {
 	}
 
 	/* Nothing in the clear tells an opening, an answer or a message apart: no kind, and a tag that only the ends of
-	   the session know */
+	   the session know. The one mark in the clear says whether the entry is the last of its feed. */
 	@Example
 	public void shouldCarryNoKindAndNoFingerprint() {
-		assertThat(Entry.HEADER_SIZE, is(ChainId.SIZE + WriterId.SIZE + 3 * Long.BYTES + Tag.SIZE + Integer.BYTES));
-		assertThat(Entry.OVERHEAD, is(180));
+		assertThat(Entry.HEADER_SIZE, is(ChainId.SIZE + WriterId.SIZE + 3 * Long.BYTES + Tag.SIZE + Byte.BYTES
+			+ Integer.BYTES));
+		assertThat(Entry.OVERHEAD, is(181));
+	}
+
+	/* A mark that no writer sets is no entry anybody wrote */
+	@Property(tries = 50)
+	public void shouldRefuseAMarkItDoesNotKnow(@ForAll("entries") Entry entry, @ForAll byte flags) {
+		final byte[] bytes = EntryCodec.encode(entry);
+		final byte unknown = (byte) (flags & ~1) == 0 ? 2 : flags;
+
+		bytes[104] = unknown;
+
+		final InvalidEntryException thrown = Expect.assertThrows(InvalidEntryException.class,
+			() -> EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));
+
+		assertThat(thrown.getMessage(), is("Unknown marks " + Integer.toHexString(unknown & 0xFF)));
 	}
 
 	@Example
@@ -109,7 +125,7 @@ public class EntryCodecTest {
 		final InvalidEntryException thrown = Expect.assertThrows(InvalidEntryException.class,
 			() -> EntryCodec.decode(EntryCodec.encode(overLimit), SMALL_LIMIT));
 
-		assertThat(thrown.getMessage(), is("An entry of 191 bytes exceeds the limit of 190 bytes"));
+		assertThat(thrown.getMessage(), is("An entry of 192 bytes exceeds the limit of 191 bytes"));
 	}
 
 	@Property(tries = 20)
@@ -117,7 +133,7 @@ public class EntryCodecTest {
 		for (int length : new int[] { Integer.MAX_VALUE, -1, Integer.MIN_VALUE }) {
 			final byte[] bytes = EntryCodec.encode(entry);
 
-			ByteBuffer.wrap(bytes).putInt(104, length);
+			ByteBuffer.wrap(bytes).putInt(105, length);
 			Expect.assertThrows(InvalidEntryException.class,
 				() -> EntryCodec.decode(bytes, ChainFixtures.MAX_ENTRY_BYTES));
 		}

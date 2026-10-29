@@ -205,6 +205,22 @@ public class FeedWriterTest {
 			new byte[0]));
 	}
 
+	/* The last entry of a feed says so, and the writer signs nothing after it */
+	@Example
+	public void shouldWriteNothingAfterTheLastEntryOfItsFeed() {
+		final FeedWriter writer = new FeedWriter(ChainFixtures.key(1), CHAIN);
+		final Entry first = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
+		final Entry last = writer.writeLast(NOW, ChainFixtures.TAG, new byte[0]);
+
+		assertThat(first.header().last(), is(false));
+		assertThat(last.header().last(), is(true));
+		assertThat(last.header().seq(), is(1L));
+		assertThat(last.header().prev(), is(first.hash()));
+		Expect.assertThrows(IllegalStateException.class, () -> writer.write(NOW, ChainFixtures.TAG, new byte[0]));
+		Expect.assertThrows(IllegalStateException.class, () -> writer.writeLast(NOW, ChainFixtures.TAG,
+			new byte[0]));
+	}
+
 	@Example
 	public void shouldNotStartAfterTheLastSequenceNumber() {
 		Expect.assertThrows(IllegalArgumentException.class, () -> new FeedWriter(ChainFixtures.key(1), CHAIN,
