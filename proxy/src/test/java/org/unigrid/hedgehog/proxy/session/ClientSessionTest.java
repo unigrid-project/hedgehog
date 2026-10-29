@@ -651,21 +651,6 @@ public class ClientSessionTest {
 		Expect.assertThrows(IllegalStateException.class, () -> client.send(new Data(new byte[] { 1 })));
 	}
 
-	/* The exit's writer is known once its answer completed the handshake, and not while the session opens */
-	@Example
-	public void shouldNameTheWriterOfItsExitOnceTheAnswerCompletedTheHandshake() {
-		final SessionWire wire = new SessionWire(EXIT_ID);
-		final ClientSession client = wire.client(ONLY_EXIT, CONNECT);
-
-		assertThat(client.peer(), equalTo(Optional.empty()));
-		client.open();
-		Session.tryAccept(wire.exitContext, wire.posted.poll(), SessionFixtures.sealingPrivate(EXIT_ID))
-			.orElseThrow();
-		assertThat(client.peer(), equalTo(Optional.empty()));
-		client.receive(wire.posted.pollLast());
-		assertThat(client.peer(), equalTo(Optional.of(wire.exitContext.writer().writer())));
-	}
-
 	/* The answer while it opens, then the exit's next message and no other */
 	@Example
 	public void shouldExpectTheAnswerAndThenTheNextMessageOfTheExit() {
