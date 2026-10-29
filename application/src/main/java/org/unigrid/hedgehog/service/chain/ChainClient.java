@@ -158,9 +158,9 @@ public final class ChainClient {
 		return country.isPresent() ? withExitIn(country, new HashSet<>()) : joinFor(country, Set.of());
 	}
 
-	/* An attachment whose group has members in the country, but none that may be the exit, as they are all members
-	   the node attached through, is passed over for the country, which is drawn again among the other groups. The
-	   attach members stay drawn uniformly: drawn by the country, they would learn it. Each draw passes over one group
+	/* A join made for this country never asks a pair that holds all of the country, but an attachment made for
+	   another country or for none may, and the exits of any may have gone while it was joined. Such an attachment is
+	   passed over for the country, which is drawn again among the other groups. Each draw passes over one group
 	   more, so the draws end once no group with a member in the country is left. The join passed over stays in use
 	   for the other countries and for the sessions that name none. */
 	private CompletableFuture<ChainAttachment> withExitIn(final Optional<String> country,
@@ -304,15 +304,18 @@ public final class ChainClient {
 	}
 
 	/* A group that refuses is passed over for another drawn the same way, until one takes the node: one without an
-	   open stream to any member at once, the others once they answered. The next group is looked for on the
-	   executor, as an answer arrives on an event loop or on the timer of the timeouts. */
+	   open stream to any member, or with no exit in the country beside the pair it would attach through, at once,
+	   the others once they answered. The next group is looked for on the executor, as an answer arrives on an event
+	   loop or on the timer of the timeouts. */
 	private CompletableFuture<ChainAttachment> nextGroup(final Draw draw, final OptionalInt first) {
 		for (OptionalInt group = first; group.isPresent(); group = draw.next(random)) {
-			final Map<Channel, String> connected = connected(draw.view().groups().members(group.getAsInt()));
+			final List<String> members = draw.view().groups().members(group.getAsInt());
+			final Map<Channel, String> connected = connected(members);
 
 			draw.passedOver().add(group.getAsInt());
 
-			if (!connected.isEmpty()) {
+			if (!connected.isEmpty() && hasExitBeside(members, connected.values().stream().limit(2).toList(),
+				draw.country())) {
 				return attach(draw.view(), group.getAsInt(), connected)
 					.exceptionallyComposeAsync(refusal -> nextGroup(draw, draw.next(random)), joins);
 			}
@@ -362,17 +365,35 @@ public final class ChainClient {
 					exitsAmong(members, asked))));
 	}
 
+	/* The pair is drawn uniformly among the members the node holds open streams to, whatever the country. When it
+	   holds every member in the country that could be the exit, the group is passed over before either is asked:
+	   asked and then left without a session, the two would learn that the country is theirs. No country needs no
+	   such check, as any member may be the exit then. */
+	private boolean hasExitBeside(final List<String> members, final List<String> pair, final Optional<String> country) {
+		if (country.isEmpty()) {
+			return true;
+		}
+
+		final Map<String, Gridnode> candidates = exitCandidates(members, pair);
+
+		return GroupChoice.weight(List.copyOf(candidates.keySet()), country,
+			member -> countries.countryOfHost(candidates.get(member).getHostName())) > 0;
+	}
+
 	/* A member of the group is a candidate exit while it is active and announces a sealing key, unless the node
 	   asked it to attach: that member sees the node's address and learned its writer, whether it took the node or
-	   not, and as the exit it would see both ends of a session. Each session draws its exit at random among the
-	   candidates in the country it names that it did not pass over. */
+	   not, and as the exit it would see both ends of a session */
+	private Map<String, Gridnode> exitCandidates(final List<String> members, final List<String> askedMembers) {
+		return directory.active().stream().filter(gridnode -> members.contains(gridnode.getId()))
+			.filter(gridnode -> !askedMembers.contains(gridnode.getId())).filter(ChainClient::hasSealingKey)
+			.collect(Collectors.toMap(Gridnode::getId, Function.identity(), (first, second) -> first));
+	}
+
+	/* Each session draws its exit at random among the candidates in the country it names that it did not pass
+	   over */
 	private ChainAttachment.Exits exitsAmong(final List<String> members, final List<String> askedMembers) {
 		return (country, excluded) -> {
-			final Map<String, Gridnode> candidates = directory.active().stream()
-				.filter(gridnode -> members.contains(gridnode.getId()))
-				.filter(gridnode -> !askedMembers.contains(gridnode.getId()))
-				.filter(ChainClient::hasSealingKey)
-				.collect(Collectors.toMap(Gridnode::getId, Function.identity(), (first, second) -> first));
+			final Map<String, Gridnode> candidates = exitCandidates(members, askedMembers);
 
 			return GroupChoice.exit(members.stream().filter(candidates::containsKey).toList(), country,
 				member -> countries.countryOfHost(candidates.get(member).getHostName()), excluded, random)

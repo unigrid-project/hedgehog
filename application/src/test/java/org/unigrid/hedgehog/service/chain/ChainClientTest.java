@@ -653,6 +653,44 @@ public class ChainClientTest {
 		assertThat(List.of(client.isCurrent(any), client.isCurrent(swedish)), equalTo(List.of(true, true)));
 	}
 
+	/* The node holds streams to two members of the last group alone, the only members it has in Sweden, so they
+	   would be its attach pair and no exit could be left there: the group is passed over before either is asked,
+	   and the first group, with three members in Sweden, takes the node */
+	@Example
+	public void asksNoMemberOfAGroupWhereTheAttachPairHoldsAllOfTheCountry() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final List<String> paired = fleet.view().groups().members(1);
+		final List<String> swedes = fleet.view().groups().members(0).subList(0, 3);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		paired.subList(2, 4).forEach(fleet::offline);
+		paired.subList(0, 2).forEach(member -> countries.put(member, "SE"));
+		swedes.forEach(member -> countries.put(member, "SE"));
+
+		final ChainAttachment swedish = attached(fleet, client, Optional.of("SE"));
+
+		assertThat(swedish.group(), is(0));
+		assertThat(joinsTo(fleet, paired), is(0L));
+		assertThat(drawnExits(swedish, Optional.of("SE"), Set.of()), everyItem(is(in(swedes))));
+	}
+
+	@Example
+	public void failsWithoutAskingAGroupWhereTheAttachPairHoldsAllOfTheCountry() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final List<String> paired = fleet.view().groups().members(1);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		paired.subList(2, 4).forEach(fleet::offline);
+		paired.subList(0, 2).forEach(member -> countries.put(member, "SE"));
+
+		assertFailsWith(client.attachment(Optional.of("SE")), "No shard group took this node");
+		assertThat(delivered(fleet, JoinChain.class), is(0L));
+	}
+
 	/* No group is left once the only one with a member in the country has it at an attach member alone */
 	@Example
 	public void failsWhenTheCountryIsLeftOnlyAtAttachMembers() {
