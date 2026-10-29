@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.server;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.Optional;
 import lombok.Getter;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
@@ -55,6 +56,7 @@ public class TestServer {
 		new Expectations() {{
 			SocksOptions.getHost(); result = "localhost";
 			SocksOptions.getPort(); result = FreePortFinder.findFreeLocalPort();
+			SocksOptions.getCountry(); result = Optional.empty(); minTimes = 0;
 		}};
 
 		CDIUtil.instantiate(server.getSocks());

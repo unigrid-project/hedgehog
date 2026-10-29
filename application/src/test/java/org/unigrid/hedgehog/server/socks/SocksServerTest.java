@@ -50,7 +50,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import me.alexpanov.net.FreePortFinder;
 import mockit.Expectations;
@@ -60,6 +62,7 @@ import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
@@ -78,6 +81,10 @@ public class SocksServerTest extends BaseServerTest {
 
 	/* Not started yet, so a test sees what init does with these options */
 	private static SocksServer serverFor(String host, int port) throws ReflectiveOperationException {
+		return serverFor(host, port, Tunnel.refusing(TunnelFailure.NOT_ALLOWED));
+	}
+
+	private static SocksServer serverFor(String host, int port, Tunnel through) throws ReflectiveOperationException {
 		final SocksServer server = new SocksServer();
 		final Field tunnel = SocksServer.class.getDeclaredField("tunnel");
 
@@ -87,7 +94,7 @@ public class SocksServerTest extends BaseServerTest {
 		}};
 
 		tunnel.setAccessible(true);
-		tunnel.set(server, Tunnel.refusing(TunnelFailure.NOT_ALLOWED));
+		tunnel.set(server, through);
 		return server;
 	}
 
@@ -181,6 +188,32 @@ public class SocksServerTest extends BaseServerTest {
 			}
 		} finally {
 			group.shutdownGracefully();
+		}
+	}
+
+	/* A client that names no country gets the one of --socks-country */
+	@Example
+	public void shouldAskForTheDefaultCountryOnBehalfOfAClientThatNamesNone() throws Exception {
+		final List<Optional<String>> asked = new CopyOnWriteArrayList<>();
+		final Tunnel asking = (destination, country, listener) -> {
+			asked.add(country);
+			return Tunnel.refusing(TunnelFailure.NOT_ALLOWED).open(destination, country, listener);
+		};
+		final int port = FreePortFinder.findFreeLocalPort();
+		final SocksServer server = serverFor(LOOPBACK, port, asking);
+		final EventLoopGroup group = new NioEventLoopGroup(1);
+
+		new Expectations() {{
+			SocksOptions.getCountry(); result = Optional.of("FI"); minTimes = 0;
+		}};
+
+		try {
+			server.init();
+			assertThat(connect(group, port), is(Socks5CommandStatus.FORBIDDEN));
+			assertThat(asked, equalTo(List.of(Optional.of("FI"))));
+		} finally {
+			group.shutdownGracefully();
+			server.destroy();
 		}
 	}
 

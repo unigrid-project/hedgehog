@@ -18,9 +18,14 @@
 
 package org.unigrid.hedgehog.command.option;
 
+import java.util.Locale;
+import java.util.Optional;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.jqwik.Expect;
@@ -35,6 +40,11 @@ import static org.hamcrest.Matchers.is;
 public class SocksOptionsTest {
 	private static CommandLine hedgehog() {
 		return new CommandLine(Hedgehog.class);
+	}
+
+	@Provide
+	public Arbitrary<String> countries() {
+		return Arbitraries.of(Locale.getISOCountries());
 	}
 
 	@Example
@@ -71,10 +81,48 @@ public class SocksOptionsTest {
 	}
 
 	@Example
+	public void shouldNameNoCountryByDefault() {
+		hedgehog().parseArgs("daemon");
+		assertThat(SocksOptions.getCountry(), is(Optional.empty()));
+	}
+
+	@Property(tries = 20)
+	public void shouldTakeTheDefaultCountryInUpperCase(@ForAll("countries") String code, @ForAll boolean lower) {
+		hedgehog().parseArgs("daemon", "--socks-country", lower ? code.toLowerCase(Locale.ROOT) : code);
+		assertThat(SocksOptions.getCountry(), is(Optional.of(code)));
+	}
+
+	@Example
+	public void shouldTakeAnEmptyCountryForNone() {
+		hedgehog().parseArgs("daemon", "--socks-country", "SE");
+		hedgehog().parseArgs("daemon", "--socks-country", "");
+		assertThat(SocksOptions.getCountry(), is(Optional.empty()));
+	}
+
+	@Example
+	public void shouldNotKeepTheCountryOfAnEarlierParse() {
+		hedgehog().parseArgs("daemon", "--socks-country", "SE");
+		hedgehog().parseArgs("daemon");
+		assertThat(SocksOptions.getCountry(), is(Optional.empty()));
+	}
+
+	@Example
+	public void refusesAnUnknownDefaultCountry() {
+		for (String code : new String[] { "XX", "SWE", "S", "S1", "\u00e5s" }) {
+			final String message = Expect.assertThrows(ParameterException.class, () -> hedgehog().parseArgs("daemon",
+				"--socks-country", code)).getMessage();
+
+			assertThat(message, containsString("--socks-country"));
+			assertThat(message, containsString("ISO 3166-1 alpha-2"));
+		}
+	}
+
+	@Example
 	public void shouldOfferLongNamesOnly() {
 		final CommandSpec daemon = hedgehog().getSubcommands().get("daemon").getCommandSpec();
 
 		assertThat(daemon.findOption("--socks-host").names(), arrayContaining("--socks-host"));
 		assertThat(daemon.findOption("--socks-port").names(), arrayContaining("--socks-port"));
+		assertThat(daemon.findOption("--socks-country").names(), arrayContaining("--socks-country"));
 	}
 }

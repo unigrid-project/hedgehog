@@ -18,7 +18,9 @@
 
 package org.unigrid.hedgehog.command.option;
 
+import java.util.Optional;
 import lombok.Getter;
+import org.unigrid.hedgehog.proxy.socks.Country;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
@@ -41,6 +43,18 @@ public class SocksOptions {
 	)
 	private static int port;
 
+	@Option(names = "--socks-country", scope = CommandLine.ScopeType.INHERIT, converter = CountryConverter.class,
+		description = "ISO 3166-1 alpha-2 code of the country to choose the exit in for a SOCKS5 connection that "
+		+ "names none as its username (defaults to any country).",
+		defaultValue = ""
+	)
+	private static String country;
+
+	/* None unless the option names a country, which the converter has made upper case */
+	public static Optional<String> getCountry() {
+		return Optional.ofNullable(country).filter(code -> !code.isEmpty());
+	}
+
 	/* Refused while parsing, so a port no socket can have never reaches the bind of a running daemon */
 	private static final class PortConverter implements CommandLine.ITypeConverter<Integer> {
 		@Override
@@ -52,6 +66,18 @@ public class SocksOptions {
 			}
 
 			return port;
+		}
+	}
+
+	/* An unknown code is refused while parsing, so that a typo never silently means any country */
+	private static final class CountryConverter implements CommandLine.ITypeConverter<String> {
+		@Override
+		public String convert(String value) {
+			try {
+				return Country.of(value).orElse("");
+			} catch (IllegalArgumentException ex) {
+				throw new CommandLine.TypeConversionException(ex.getMessage());
+			}
 		}
 	}
 }

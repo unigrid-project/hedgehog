@@ -33,7 +33,8 @@ import java.util.Optional;
    the client wants its exit in, and an empty one names none. The password is not read for anything, so a client
    may send any. A username that is no country is refused and the client is disconnected. */
 final class SocksPasswordHandler extends ChannelInboundHandlerAdapter {
-	/* The country the client named, upper case; not set for a client that named none */
+	/* The country the client named, upper case; for a client that named none, the one the listener serves by
+	   default, and not set when there is none */
 	static final AttributeKey<String> COUNTRY = AttributeKey.valueOf(SocksPasswordHandler.class, "country");
 
 	@Override

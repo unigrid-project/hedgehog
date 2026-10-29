@@ -102,9 +102,11 @@ public class SocksServer extends AbstractServer {
 	}
 
 	ServerBootstrap bootstrap(EventLoopGroup workers) {
+		final SocksInitializer initializer = new SocksInitializer(tunnel, SocksOptions.getCountry());
+
 		return new ServerBootstrap().group(workers).channel(NioServerSocketChannel.class)
 			.childOption(ChannelOption.SO_KEEPALIVE, true)
-			.childHandler(new ConnectionLimit(MAX_CONNECTIONS, new SocksInitializer(tunnel)));
+			.childHandler(new ConnectionLimit(MAX_CONNECTIONS, initializer));
 	}
 
 	public boolean isListening() {

@@ -221,6 +221,49 @@ public class SocksInitializerTest {
 	}
 
 	@Example
+	public void shouldAskForTheDefaultCountryOfAClientThatSendsNoCredentials() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel, Optional.of("FI")));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(NO_AUTH_GREETING, CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.of("FI")));
+	}
+
+	@Example
+	public void shouldAskForTheDefaultCountryOfAClientWithAnEmptyUsername() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel, Optional.of("FI")));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }, EMPTY_CREDENTIALS,
+			CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.of("FI")));
+	}
+
+	@Example
+	public void shouldPreferTheCountryOfTheUsernameToTheDefault() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel, Optional.of("FI")));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }, new byte[] { 1, 2, 's', 'e', 0 },
+			CONNECT_EXAMPLE_ORG));
+		assertThat(tunnel.stream().country, equalTo(Optional.of("SE")));
+	}
+
+	@Example
+	public void shouldServeEveryConnectionTheDefaultCountry() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final SocksInitializer initializer = new SocksInitializer(tunnel, Optional.of("FI"));
+
+		for (int connection = 0; connection < 2; connection++) {
+			new EmbeddedChannel(initializer).writeInbound(Unpooled.wrappedBuffer(NO_AUTH_GREETING,
+				CONNECT_EXAMPLE_ORG));
+		}
+
+		assertThat(tunnel.streams.stream().map(stream -> stream.country).toList(), equalTo(List.of(Optional.of("FI"),
+			Optional.of("FI"))));
+	}
+
+	@Example
 	public void shouldAskForNoCountryOfAClientWithAnEmptyUsername() {
 		final EchoTunnel tunnel = new EchoTunnel();
 		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
@@ -420,5 +463,6 @@ public class SocksInitializerTest {
 	@Example
 	public void shouldRefuseToServeWithoutATunnel() {
 		Expect.assertThrows(NullPointerException.class, () -> new SocksInitializer(null));
+		Expect.assertThrows(NullPointerException.class, () -> new SocksInitializer(new EchoTunnel(), null));
 	}
 }

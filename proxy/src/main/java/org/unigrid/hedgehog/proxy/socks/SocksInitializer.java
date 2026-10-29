@@ -25,6 +25,7 @@ import io.netty.handler.codec.socksx.v5.Socks5InitialRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5ServerEncoder;
 import java.util.Objects;
+import java.util.Optional;
 
 /* The pipeline of one SOCKS5 client connection: the greeting, the credentials of a client that sends any, then one
    command, then the relay. Each handler takes itself or its decoder out of the way once its part is over, and for
@@ -34,13 +35,21 @@ public final class SocksInitializer extends ChannelInitializer<Channel> {
 	static final long HANDSHAKE_TIMEOUT_MILLIS = 10_000;
 
 	private final Tunnel tunnel;
+	private final Optional<String> country;
 
 	public SocksInitializer(Tunnel tunnel) {
+		this(tunnel, Optional.empty());
+	}
+
+	/* A client that names no country gets the one given, upper case, if any */
+	public SocksInitializer(Tunnel tunnel, Optional<String> country) {
 		this.tunnel = Objects.requireNonNull(tunnel, "tunnel");
+		this.country = Objects.requireNonNull(country, "country");
 	}
 
 	@Override
 	protected void initChannel(Channel channel) {
+		country.ifPresent(code -> channel.attr(SocksPasswordHandler.COUNTRY).set(code));
 		channel.pipeline().addLast(Socks5ServerEncoder.DEFAULT, new Socks5InitialRequestDecoder(),
 			new SocksGreetingHandler(), new Socks5PasswordAuthRequestDecoder(), new SocksPasswordHandler(),
 			new Socks5CommandRequestDecoder(), new HandshakeTimeout(HANDSHAKE_TIMEOUT_MILLIS),
