@@ -293,6 +293,20 @@ final class HostedChain {
 		}
 	}
 
+	/* Holds an entry passed on to this node for others once the chain would take it in or hold it past a gap and it
+	   fits the share of what is relayed, weighed and held in one step under the chain's own lock, so that the entries
+	   of one packet or of streams that pass entries on at once never take more than the share. There is no answer for
+	   a writer the chain takes no more of, as offer gives none, and none for an entry held already. */
+	Optional<Admission> holdRelayed(final Entry entry, final Channel source, final long now) {
+		synchronized (chain) {
+			final Optional<Admission> admission = check(entry);
+
+			final boolean taken = admission.filter(HOLDS_A_FEED::contains).isPresent();
+
+			return taken && !embargo.hold(entry, false, source, now) ? Optional.empty() : admission;
+		}
+	}
+
 	private long relayedShare() {
 		return Math.max(chain.limits().maxEntryBytes(), chain.limits().capacityBytes() / RELAYED_SHARE);
 	}

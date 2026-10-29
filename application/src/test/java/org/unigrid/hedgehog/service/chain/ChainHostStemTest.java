@@ -28,6 +28,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Future;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
@@ -43,6 +48,7 @@ import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;
@@ -752,5 +758,46 @@ public class ChainHostStemTest {
 
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
+	}
+
+	/* What a relay holds for others never passes its share, whether the entries come in one packet or in packets of
+	   several members at once: each is weighed and held in one step */
+	@Example
+	public void entriesOfOnePacketOrOfConcurrentStemsNeverPassTheRelayedShare() throws Exception {
+		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
+		final long share = 2L * ChainFleet.smallChains(9).chainLimits().maxEntryBytes();
+		final List<Entry> packet = entries(fleet, 1, 3);
+
+		assertThat(stem(fleet, RELAY, "gn-1", packet), equalTo(List.of(EntryRefused.of(packet.get(2),
+			Admission.FULL))));
+		assertThat(hosted(fleet, RELAY).getEmbargo().relayedBytes(), is(share));
+
+		final ChainFleet other = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
+		final ExecutorService threads = Executors.newFixedThreadPool(OTHERS.size());
+		final CountDownLatch start = new CountDownLatch(1);
+		final List<Future<?>> stems = new ArrayList<>();
+
+		try {
+			for (int member = 0; member < OTHERS.size(); member++) {
+				final String from = OTHERS.get(member);
+				final List<Entry> own = entries(other, 10 + member, 4);
+
+				stems.add(threads.submit(() -> {
+					start.await();
+					own.forEach(entry -> stem(other, RELAY, from, List.of(entry)));
+					return null;
+				}));
+			}
+
+			start.countDown();
+
+			for (final Future<?> done : stems) {
+				done.get(30, TimeUnit.SECONDS);
+			}
+		} finally {
+			threads.shutdownNow();
+		}
+
+		assertThat(hosted(other, RELAY).getEmbargo().relayedBytes(), is(lessThanOrEqualTo(share)));
 	}
 }

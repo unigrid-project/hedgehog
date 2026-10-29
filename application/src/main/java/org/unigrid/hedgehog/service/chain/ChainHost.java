@@ -643,6 +643,7 @@ public class ChainHost implements ChainService {
 	   in between would otherwise split. */
 	private List<Entry> passOn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final long now = clock.getAsLong();
+		final boolean diffuses = router.diffuses(hosted.getChain().id(), now);
 		final List<Entry> full = new ArrayList<>();
 		final List<Entry> taken = new ArrayList<>();
 		final List<Entry> cameRound = new ArrayList<>();
@@ -653,13 +654,16 @@ public class ChainHost implements ChainService {
 			if (embargo.holds(entry)) {
 				cameRound.addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry) : List.of());
 			} else {
-				sortOut(hosted, entry, full, taken);
+				final Optional<Admission> admission = diffuses ? hosted.check(entry)
+					: hosted.holdRelayed(entry, peer, now);
+
+				sortOut(admission, entry, full, taken);
 			}
 		}
 
 		diffuse(hosted, cameRound);
 
-		if (router.diffuses(hosted.getChain().id(), now)) {
+		if (diffuses) {
 			diffuse(hosted, taken);
 		} else {
 			relay(hosted, peer, taken, now);
@@ -675,10 +679,8 @@ public class ChainHost implements ChainService {
 		return !embargo.holdsOwn(entry) && !embargo.wasSentTo(entry, peer);
 	}
 
-	private static void sortOut(final HostedChain hosted, final Entry entry, final List<Entry> full,
+	private static void sortOut(final Optional<Admission> admission, final Entry entry, final List<Entry> full,
 		final List<Entry> taken) {
-
-		final Optional<Admission> admission = hosted.check(entry);
 
 		if (admission.filter(Admission.FULL::equals).isPresent()) {
 			full.add(entry);
@@ -693,17 +695,15 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* An entry without a successor waits in the embargo all the same, which floods it in time */
+	/* The entries are held in the embargo already, and one without a successor waits there, which floods it in time */
 	private void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries, final long now) {
 		final ChainId chainId = hosted.getChain().id();
 		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
 
 		for (final Entry entry : entries) {
-			if (hosted.getEmbargo().hold(entry, false, peer, now)) {
-				router.successor(chainId, entry.header().writer(), Set.of(peer), now)
-					.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
-					.ifPresent(batch -> batch.add(entry));
-			}
+			router.successor(chainId, entry.header().writer(), Set.of(peer), now)
+				.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
+				.ifPresent(batch -> batch.add(entry));
 		}
 
 		relayed.forEach((next, batch) -> stemTo(hosted, next, batch));
