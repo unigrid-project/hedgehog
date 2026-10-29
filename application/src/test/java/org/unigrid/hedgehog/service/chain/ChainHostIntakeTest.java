@@ -33,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
@@ -737,6 +738,29 @@ public class ChainHostIntakeTest {
 		assertThat(admission(hosted.offer(first(CHAIN, 3))), is(Optional.empty()));
 		assertThat(admission(hosted.offer(feed.get(0))), is(Optional.of(Admission.ACCEPTED)));
 		assertThat(hosted.getChain().heads().get(ChainFleet.writer(1)).seq(), is(1L));
+	}
+
+	/* A writer whose feed ended before the cutoff gives its place to the next one, while a writer whose feed goes on
+	   keeps its own however quiet it is */
+	@Example
+	public void givesThePlaceOfAWriterWhoseFeedEndedToTheNextOne() {
+		final AtomicLong clock = new AtomicLong(ChainFleet.NOW);
+		final HostedChain hosted = hostedChain(2, ProxySettings.DEFAULTS.chainLimits(), clock::get);
+		final FeedWriter ended = new FeedWriter(ChainFleet.key(1), CHAIN);
+		final FeedWriter live = new FeedWriter(ChainFleet.key(2), CHAIN);
+		final byte[] payload = ChainFleet.padded(new byte[1], MAX_ENTRY_BYTES);
+
+		hosted.offer(ended.writeLast(ChainFleet.NOW, ChainFleet.TAG, payload));
+		hosted.offer(live.write(ChainFleet.NOW, ChainFleet.TAG, payload));
+		assertThat(hosted.offer(first(CHAIN, 3)), is(Optional.empty()));
+		clock.addAndGet(BEYOND_RETENTION_MILLIS);
+
+		assertThat(hosted.forgetEnded(clock.get() - ProxySettings.DEFAULTS.chainLimits().retentionMillis()), is(1));
+		assertThat(hosted.getChain().heads().keySet(), equalTo(Set.of(ChainFleet.writer(2))));
+		assertThat(admission(hosted.offer(ChainFleet.entries(ChainFleet.key(3), CHAIN, 1, clock.get()).get(0))),
+			is(Optional.of(Admission.ACCEPTED)));
+		assertThat(admission(hosted.offer(live.write(clock.get(), ChainFleet.TAG, payload))),
+			is(Optional.of(Admission.ACCEPTED)));
 	}
 
 	@Example

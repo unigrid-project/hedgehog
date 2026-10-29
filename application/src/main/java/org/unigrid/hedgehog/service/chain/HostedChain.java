@@ -42,8 +42,8 @@ import org.unigrid.hedgehog.proxy.group.Epoch;
 /* One chain this node hosts or follows, with what the host knows about it beyond the entries */
 @RequiredArgsConstructor
 final class HostedChain {
-	/* A chain never forgets a feed head, so the writers it takes are bounded. The bound is what one packet of
-	   heads carries, which keeps every reconcile and join reply in one packet. */
+	/* A chain keeps the head of every feed that has not ended, so the writers it takes are bounded. The bound is what
+	   one packet of heads carries, which keeps every reconcile and join reply in one packet. */
 	static final int MAX_WRITERS = ChainCodecs.MAX_HEADS_PER_PACKET;
 
 	/* The deliveries that may wait for the thread that drains a chain, so that a listener that is slow or stuck
@@ -178,6 +178,17 @@ final class HostedChain {
 	/* Members relay the entries of any writer, a client only posts its own */
 	boolean accepts(final Channel stream, final WriterId writer) {
 		return stream != null && (memberStreams.contains(stream) || clients.get(writer) == stream);
+	}
+
+	/* Forgets the writers whose feeds ended before the cutoff, so that their places come free, under the chain's own
+	   lock like the offers that count the writers. Answers how many were forgotten. */
+	int forgetEnded(final long cutoffMillis) {
+		synchronized (chain) {
+			final Set<WriterId> forgotten = chain.forgetEnded(cutoffMillis);
+
+			writers.removeAll(forgotten);
+			return forgotten.size();
+		}
 	}
 
 	/* Offering and counting happen under the chain's own lock, so streams that offer at once cannot take the
