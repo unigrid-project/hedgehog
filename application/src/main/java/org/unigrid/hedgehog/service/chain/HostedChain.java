@@ -35,6 +35,7 @@ import lombok.Setter;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
+import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
 import org.unigrid.hedgehog.proxy.chain.Offer;
@@ -282,7 +283,9 @@ final class HostedChain {
 	}
 
 	/* What the chain would make of an entry passed on to this node, counting all the embargo holds as if the chain
-	   had it already, and FULL past the share of what is relayed. There is no answer for a writer the chain takes no
+	   had it already, and FULL past the share of what is relayed. Of the reserve beyond the capacity, which only the
+	   smallest class takes, a relayed entry may take half, so that an answer of an exit is still passed on while a
+	   chain is full, and the other half stays for this node's own. There is no answer for a writer the chain takes no
 	   more of, as offer gives none. */
 	Optional<Admission> check(final Entry entry) {
 		synchronized (chain) {
@@ -294,7 +297,9 @@ final class HostedChain {
 				return Optional.of(Admission.FULL);
 			}
 
-			return Optional.of(chain.check(entry, embargo.bytes()));
+			final boolean smallest = entry.size() == chain.limits().smallestClassBytes();
+
+			return Optional.of(chain.check(entry, embargo.bytes() + (smallest ? keptOfTheReserve() : 0)));
 		}
 	}
 
@@ -321,11 +326,22 @@ final class HostedChain {
 		}
 	}
 
-	/* The share of what is relayed is kept free of this node's own entries within the capacity the chain has left, as
-	   relayed entries of the larger classes could not come in past it anyway, and the reserve beyond the capacity
-	   stays for the openings and answers that fill the smallest class */
+	/* The share of what is relayed is kept free of this node's own entries as far as relayed entries could still
+	   come in: up to the capacity and half the reserve beyond it, whatever is relayed now and whatever this node
+	   stems of its own. So the two together never come to more than the chain takes, whichever came first, and what
+	   is relayed never makes the entries of this node's own FULL. */
 	private long reservedForRelays() {
-		return Math.min(relayedShare(), Math.max(0, chain.limits().capacityBytes() - chain.bytes()));
+		final ChainLimits limits = chain.limits();
+		final long relayable = limits.capacityBytes() + limits.reserveBytes() - keptOfTheReserve();
+
+		return Math.min(relayedShare(), Math.max(0, relayable - chain.bytes()));
+	}
+
+	/* The part of the reserve that relayed entries leave to this node's own */
+	private long keptOfTheReserve() {
+		final long reserve = chain.limits().reserveBytes();
+
+		return reserve - reserve / 2;
 	}
 
 	private long relayedShare() {

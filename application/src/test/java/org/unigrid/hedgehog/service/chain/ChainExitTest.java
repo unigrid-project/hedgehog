@@ -535,8 +535,9 @@ public class ChainExitTest {
 	}
 
 	/* The opening, the answer, the Connect, the Connected, a Data the exit sends 20 s later and an entry of a stranger
-	   fill a chain of six entries. The clock steps back 15 s, the destination closes and the Close waits for room, which
-	   entries of the stranger take as soon as the first four age out, until the relay's 30 s are up. */
+	   fill a chain of seven entries, but for the room the exit leaves for what it relays. The clock steps back 15 s,
+	   the destination closes and the Close waits for room, which entries of the stranger take as soon as the first four
+	   age out, until the relay's 30 s are up. */
 	private static void drainPastTheRetention(final Rig rig, final Caller caller) {
 		final ChainId chainId = rig.fleet.chain();
 		final FeedWriter stranger = rig.stranger(1, chainId);
@@ -1028,8 +1029,9 @@ public class ChainExitTest {
 	   among the relays meanwhile. */
 	@Example
 	public void placesTheCloseOfASessionThatEndedWhileItsChainHadNoRoom() {
-		/* The opening, the answer, the Connect and the Connected fill the chain */
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
+		/* The opening, the answer, the Connect and the Connected fill the chain, but for the room the exit leaves
+		   for what it relays */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(5)));
 		final Caller caller = rig.caller(1);
 
 		caller.open();
@@ -1092,7 +1094,7 @@ public class ChainExitTest {
 	   for it: the relay goes all the same, and its Close with it. */
 	@Example
 	public void letsGoOfADrainingRelayOnceTheRetentionOfItsChainIsUp() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(6)));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(7)));
 		final Caller caller = rig.caller(1);
 
 		drainPastTheRetention(rig, caller);
@@ -1105,7 +1107,7 @@ public class ChainExitTest {
 	   it is dropped, so its writer goes on counting against the share of the exit once the retention window is past */
 	@Example
 	public void countsTheWriterOfARelayWhoseCloseNeverReachedTheChainForAsLongAsTheChainIsHeld() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(6)));
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(7)));
 
 		drainPastTheRetention(rig, rig.caller(1));
 		rig.fleet.clock.set(ChainFleet.NOW + 80_000);
@@ -1661,8 +1663,9 @@ public class ChainExitTest {
 
 	@Example
 	public void pausesTheDestinationWhileTheChainHasNoRoomForWhatItSends() {
-		/* The opening, the answer, the Connect and the Connected fill the chain */
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
+		/* The opening, the answer, the Connect and the Connected fill the chain, but for the room the exit leaves
+		   for what it relays */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(5)));
 		final Caller caller = rig.caller(1);
 
 		caller.open();
@@ -1756,8 +1759,9 @@ public class ChainExitTest {
 	   feed of its own */
 	@Example
 	public void endsTheSessionsOfAFeedWhoseEntryWaitedTooLongAndStartsAFeedOfItsOwn() {
-		/* The opening, the answer, the Connect and the Connected fill the chain */
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
+		/* The opening, the answer, the Connect and the Connected fill the chain, but for the room the exit leaves
+		   for what it relays */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(5)));
 
 		rig.caller(1).open();
 

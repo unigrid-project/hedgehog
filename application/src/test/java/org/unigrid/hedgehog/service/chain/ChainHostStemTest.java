@@ -229,14 +229,14 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(entries));
 	}
 
-	/* A chain of room for nine entries holds eight, and the relay holds one in its embargo that it will take in once
-	   it comes back, so it has no room for another */
+	/* A chain of room for nine entries holds seven, and the relay holds one in its embargo that it will take in once
+	   it comes back; half the reserve stays for the entries of its own, so it has no room for another */
 	@Example
 	public void refusesAStemTheChainHasNoRoomForCountingWhatItRelays() {
 		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
 		final List<Entry> entries = entries(fleet, 1, 2);
 
-		fleet.host(RELAY).receive(fleet.stream(RELAY, "gn-2"), new ChainEntry(entries(fleet, 3, 8)));
+		fleet.host(RELAY).receive(fleet.stream(RELAY, "gn-2"), new ChainEntry(entries(fleet, 3, 7)));
 		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(0, 1)), is(empty()));
 		assertThat(stem(fleet, RELAY, "gn-1", entries.subList(1, 2)),
 			equalTo(List.of(EntryRefused.of(entries.get(1), Admission.FULL))));
@@ -260,8 +260,9 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, EXIT).getEmbargo().ownBytes(), is(7L * own.get(0).size()));
 	}
 
-	/* A chain of room for nine entries keeps two of them for what it relays, so it stems seven of its own and holds
-	   two for others, and what waits in the stem never comes to more than the chain takes */
+	/* A chain of room for nine entries keeps two of them for what it relays, so it stems seven of its own; of the
+	   reserve beyond its capacity, relayed entries take half at most, so it holds one for others, and what waits in the
+	   stem never comes to more than the chain takes */
 	@Example
 	public void ownEntriesAndTheRelayedShareNeverExceedTheRoom() {
 		final ChainFleet fleet = group(ChainFleet.smallChains(9), ChainFleet.everyMember(false));
@@ -271,9 +272,9 @@ public class ChainHostStemTest {
 
 		own.subList(0, 7).forEach(entry -> assertThat(postStem(fleet, entry), is(in(PASSED_ON.values()))));
 		assertThat(postStem(fleet, own.get(7)), is(Admission.FULL));
-		assertThat(stem(fleet, EXIT, RELAY, relayed), equalTo(List.of(EntryRefused.of(relayed.get(2),
-			Admission.FULL))));
-		assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(limits.capacityBytes() + limits.reserveBytes()));
+		assertThat(stem(fleet, EXIT, RELAY, relayed), equalTo(List.of(EntryRefused.of(relayed.get(1),
+			Admission.FULL), EntryRefused.of(relayed.get(2), Admission.FULL))));
+		assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(limits.capacityBytes()));
 	}
 
 	/* An entry that comes back by flood is in the chain, and the embargo has nothing left to flood */
@@ -896,5 +897,37 @@ public class ChainHostStemTest {
 
 		exit.refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(1), Admission.FULL));
 		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(other));
+	}
+
+	/* A chain of room for nine entries, in eight of capacity and one of reserve, holds seven, so two are left: what
+	   the exit relays and what it stems of its own never come to more, whichever comes first. Relayed entries take at
+	   most half the reserve, which the entries of its own keep free for them as long as relayed ones could take it. */
+	@Example
+	public void ownAndRelayedEntriesNeverExceedTheRoomInTheReserveWhicheverComesFirst() {
+		final ProxySettings settings = ChainFleet.smallChains(9);
+		final ChainLimits limits = settings.chainLimits();
+
+		for (final boolean relayedFirst : List.of(true, false)) {
+			final ChainFleet fleet = group(settings, ChainFleet.everyMember(false));
+			final List<Entry> relayed = entries(fleet, 2, 2);
+			final Entry own = entries(fleet, 1, 1).get(0);
+
+			fleet.host(EXIT).receive(fleet.stream(EXIT, "gn-2"), new ChainEntry(entries(fleet, 3, 7)));
+
+			final long room = limits.capacityBytes() + limits.reserveBytes()
+				- hosted(fleet, EXIT).getChain().bytes();
+
+			if (relayedFirst) {
+				stem(fleet, EXIT, RELAY, relayed);
+				postStem(fleet, own);
+			} else {
+				postStem(fleet, own);
+				stem(fleet, EXIT, RELAY, relayed);
+			}
+
+			assertThat(room, is(2L * own.size()));
+			assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(lessThanOrEqualTo(room)));
+			assertThat(hosted(fleet, EXIT).getEmbargo().relayedBytes(), is((long) own.size()));
+		}
 	}
 }
