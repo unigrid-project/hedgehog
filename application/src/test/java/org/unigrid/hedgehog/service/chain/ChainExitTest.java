@@ -1046,6 +1046,29 @@ public class ChainExitTest {
 		assertThat(rig.exit.writersOn(rig.fleet.chain(), rig.fleet.clock.get()), is(1L));
 	}
 
+	/* A chain that takes no more writers would refuse the answer of a new writer of the exit, so the exit stays silent,
+	   as at any of its limits, until places come free */
+	@Example
+	public void answersNoOpeningOnAChainThatTakesNoMoreWriters() {
+		final Rig rig = new Rig();
+		final ChainId chainId = rig.fleet.chain();
+		final Caller caller = rig.caller(1);
+
+		IntStream.range(0, HostedChain.MAX_WRITERS - 1).forEach(number -> rig.offer(new FeedWriter(
+			ChainFleet.key(10_000 + number), chainId).writeLast(ChainFleet.NOW, ChainFleet.TAG,
+			padded(new byte[1]))));
+		caller.open();
+
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(0L));
+
+		rig.fleet.clock.addAndGet(31_000);
+		rig.fleet.host(EXIT).maintain();
+		caller.another();
+
+		assertThat(rig.exit.openRelays(), is(1));
+	}
+
 	/* A writer may have stamped ahead before the clock stepped back, so the writer of an ended session holds its
 	   place until its latest entry aged out of the chain, and not just for a retention from when its relay went */
 	@Example

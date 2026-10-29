@@ -128,6 +128,11 @@ final class HostedChain {
 		return clients.values().stream().filter(stream::equals).count();
 	}
 
+	/* Whether a writer the chain does not know yet would be taken */
+	boolean takesNewWriters() {
+		return writers.size() < maxWriters;
+	}
+
 	/* A chain that has taken as many writers as it may only takes more entries from those it knows */
 	boolean canTake(final WriterId writer) {
 		return writers.contains(writer) || writers.size() < maxWriters;

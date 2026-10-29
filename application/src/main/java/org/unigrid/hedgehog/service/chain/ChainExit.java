@@ -408,13 +408,15 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The node, the chain and the writer of the opening each have a share of the relays, and the writers of the
-	   sessions a share of the places on the chain. An exit at a limit stays silent, as it would for an opening that
-	   is not for it, and the client moves on after its timeout. */
+	   sessions a share of the places on the chain, of which the chain must have one left for the new writer of the
+	   session. An exit at a limit stays silent, as it would for an opening that is not for it, and the client moves on
+	   after its timeout. */
 	private boolean hasRoom(final ChainId chainId, final WriterId writer, final long now) {
 		return relays.size() < MAX_RELAYS
 			&& held(relayed -> relayed.chain().id().equals(chainId)) < RELAYS_PER_CHAIN
 			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER
-			&& writersOn(chainId, now) < MAX_WRITERS_PER_CHAIN;
+			&& writersOn(chainId, now) < MAX_WRITERS_PER_CHAIN
+			&& host.hosted(chainId).filter(HostedChain::takesNewWriters).isPresent();
 	}
 
 	/* The writers of this exit that hold a place on the chain */
