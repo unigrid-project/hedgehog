@@ -307,11 +307,14 @@ public final class ChainClient {
 	}
 
 	/* The earliest of the joins not passed over whose groups have the most members in the country, the largest group
-	   for none */
+	   for none. A join with no member there is none to fall back on, as no exit of it could carry the session. */
 	private Join closest(final Draw draw) {
+		final Function<Join, Long> weight = join -> GroupChoice.weight(join.joinedMembers(), draw.country(),
+			draw.countryOf());
+
 		return joined.stream().filter(join -> !draw.passedOver().contains(join.joinedGroup()))
-			.max(Comparator.comparingLong(join -> GroupChoice.weight(join.joinedMembers(), draw.country(),
-			draw.countryOf()))).orElseThrow(() -> new IllegalStateException(NO_GROUP_IN_THE_COUNTRY));
+			.filter(join -> weight.apply(join) > 0).max(Comparator.comparing(weight))
+			.orElseThrow(() -> new IllegalStateException(NO_GROUP_IN_THE_COUNTRY));
 	}
 
 	/* Where each active gridnode is by the address it announces, and nowhere for a member the directory lacks */

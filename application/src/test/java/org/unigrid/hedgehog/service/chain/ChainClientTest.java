@@ -819,6 +819,24 @@ public class ChainClientTest {
 		assertThat(client.isCurrent(any), is(true));
 	}
 
+	/* Iceland is only in the fifth group, which the node cannot join with four attachments held, and none of those
+	   has a member there to fall back on: the country fails with the one draw that found the fifth group */
+	@Example
+	public void failsAtOnceWhenNoAttachmentHeldHasAMemberInTheCountry() {
+		final ChainFleet fleet = fiveGroups();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT),
+			drawing(0, 0, 0, 0, 0));
+		final List<String> named = List.of("SE", "NO", "DK", "FI", "IS");
+
+		IntStream.range(0, 5).forEach(group -> fleet.view().groups().members(group)
+			.forEach(member -> countries.put(member, named.get(group))));
+		named.subList(0, 4).forEach(country -> attached(fleet, client, Optional.of(country)));
+
+		assertFailsWith(client.attachment(Optional.of("IS")), "No shard group has a gridnode in the country");
+		assertThat(joinsTo(fleet, fleet.view().groups().members(4)), is(0L));
+	}
+
 	@Example
 	public void givesUpWhenEveryGroupRefuses() {
 		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
