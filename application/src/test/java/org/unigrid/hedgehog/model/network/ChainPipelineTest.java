@@ -52,6 +52,7 @@ import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.initializer.ChainPipeline;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
@@ -70,6 +71,7 @@ public class ChainPipelineTest extends BaseServerTest {
 	private static final int WAIT_SECONDS = 5;
 	private final BlockingQueue<EntryRefused> refusals = new LinkedBlockingQueue<>();
 	private final BlockingQueue<ChainEntry> received = new LinkedBlockingQueue<>();
+	private final BlockingQueue<ChainStem> stemmed = new LinkedBlockingQueue<>();
 	private final BlockingQueue<ChainHeads> reconciled = new LinkedBlockingQueue<>();
 	private final BlockingQueue<FetchEntries> fetches = new LinkedBlockingQueue<>();
 	private final BlockingQueue<LeaveChain> leaves = new LinkedBlockingQueue<>();
@@ -115,6 +117,7 @@ public class ChainPipelineTest extends BaseServerTest {
 	private void forgetEarlierTraffic() {
 		refusals.clear();
 		received.clear();
+		stemmed.clear();
 		reconciled.clear();
 		fetches.clear();
 		leaves.clear();
@@ -133,6 +136,12 @@ public class ChainPipelineTest extends BaseServerTest {
 			@Mock public List<EntryRefused> receive(Channel peer, ChainEntry entries) {
 				received.add(entries);
 				return entries.getEntries().stream().map(entry -> EntryRefused.of(entry, Admission.FULL))
+					.collect(Collectors.toList());
+			}
+
+			@Mock public List<EntryRefused> stem(Channel peer, ChainStem stem) {
+				stemmed.add(stem);
+				return stem.getEntries().stream().map(entry -> EntryRefused.of(entry, Admission.FULL))
 					.collect(Collectors.toList());
 			}
 
@@ -195,6 +204,19 @@ public class ChainPipelineTest extends BaseServerTest {
 	}
 
 	@SneakyThrows
+	private void assertStemIsTakenAndRefused(final P2PClient client, final List<Entry> entries) {
+		final ChainStem stem = ChainStem.builder().entries(entries).build();
+
+		client.getChainChannel().orElseThrow().writeAndFlush(stem);
+
+		assertThat(awaited("the stem", stemmed), equalTo(stem));
+
+		for (Entry entry : entries) {
+			assertThat(awaited("a refusal", refusals), equalTo(EntryRefused.of(entry, Admission.FULL)));
+		}
+	}
+
+	@SneakyThrows
 	private void assertHeadsAreAnsweredWithAFetch(final P2PClient client, final ChainHeads heads,
 		final FetchEntries wanted) {
 
@@ -241,13 +263,15 @@ public class ChainPipelineTest extends BaseServerTest {
 			try {
 				assertJoinIsRefused(client, writer);
 				assertEntriesAreRefused(client, entries);
+				assertStemIsTakenAndRefused(client, entries);
 			} finally {
 				client.closeDirty();
 			}
 		}
 	}
 
-	/* The first property reaches JOIN_CHAIN, JOIN_REPLY, CHAIN_ENTRY and ENTRY_REFUSED; these reach the rest */
+	/* The first property reaches JOIN_CHAIN, JOIN_REPLY, CHAIN_ENTRY, CHAIN_STEM and ENTRY_REFUSED; these reach the
+	   rest */
 	@SneakyThrows
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
 	public void carriesHeadsFetchesAndLeaves(@ForAll("provideTestServers") List<TestServer> servers,

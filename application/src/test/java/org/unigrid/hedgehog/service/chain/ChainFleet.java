@@ -38,13 +38,16 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -56,6 +59,7 @@ import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
@@ -102,6 +106,10 @@ final class ChainFleet {
 	final List<Gridnode> gridnodes = new CopyOnWriteArrayList<>();
 	final Random random = new Random(1);
 	final List<Delivery> deliveries = new CopyOnWriteArrayList<>();
+
+	/* What each host draws the modes, successors and deadlines of the stem from, which a test may replace before the
+	   hosts are made. By default each host has a generator of its own, seeded from its id. */
+	volatile Function<String, RandomGenerator> stems = ChainFleet::seeded;
 	private final Map<String, ChainHost> hosts = new LinkedHashMap<>();
 	private final Map<String, ManualScheduler> schedulers = new LinkedHashMap<>();
 	private final Map<String, PendingRequests> pendings = new ConcurrentHashMap<>();
@@ -168,12 +176,51 @@ final class ChainFleet {
 
 	/* Four gridnodes in one group, so each of them hosts the same chains */
 	static ChainFleet group(final ProxySettings settings) {
-		final ChainFleet fleet = new ChainFleet(MEMBERS);
+		return group(MEMBERS, settings, ChainFleet::seeded);
+	}
+
+	/* The given number of gridnodes in one group, each drawing the stem from the generator given for its id */
+	static ChainFleet group(final int members, final ProxySettings settings,
+		final Function<String, RandomGenerator> stems) {
+
+		final ChainFleet fleet = new ChainFleet(members);
 
 		fleet.settings.set(Optional.of(settings));
-		IntStream.range(0, MEMBERS).forEach(member -> fleet.host("gn-" + member));
+		fleet.stems = stems;
+		IntStream.range(0, members).forEach(member -> fleet.host("gn-" + member));
 		fleet.refreshAll();
 		return fleet;
+	}
+
+	/* A generator of its own for each id, whose seed is spread so that the hosts of a fleet draw unlike each other */
+	static RandomGenerator seeded(final String id) {
+		return new Random(new SplittableRandom(Objects.hashCode(id)).nextLong());
+	}
+
+	/* A generator that puts every member in the same mode, a relay or a diffuser, in every period */
+	static Function<String, RandomGenerator> everyMember(final boolean diffuses) {
+		return id -> new FixedMode(seeded(id), diffuses);
+	}
+
+	/* Draws as the generator it wraps does, but answers every coin toss alike */
+	private static final class FixedMode implements RandomGenerator {
+		private final RandomGenerator draws;
+		private final boolean toss;
+
+		private FixedMode(final RandomGenerator draws, final boolean toss) {
+			this.draws = draws;
+			this.toss = toss;
+		}
+
+		@Override
+		public long nextLong() {
+			return draws.nextLong();
+		}
+
+		@Override
+		public boolean nextBoolean() {
+			return toss;
+		}
 	}
 
 	static ChainFleet group() {
@@ -234,8 +281,9 @@ final class ChainFleet {
 
 	/* The same, for a test that decides which member the host picks */
 	ChainHost hostOver(final String id, final ChainTransport transport, final RandomGenerator picks) {
-		return new ChainHost(settings::get, directory(id), transport, clock::get, picks,
-			schedulers.computeIfAbsent(id, scheduler -> new ManualScheduler()));
+		return new ChainHost(settings::get, directory(id), transport, clock::get,
+			new ChainHost.Draws(picks, stems.apply(id)), schedulers.computeIfAbsent(id, scheduler -> new ManualScheduler()),
+			Runnable::run);
 	}
 
 	ManualScheduler scheduler(final String id) {
@@ -392,6 +440,8 @@ final class ChainFleet {
 	private static void answer(final ChainHost host, final Channel stream, final Object packet) {
 		if (packet instanceof ChainEntry entries) {
 			host.receive(stream, entries).forEach(stream::writeAndFlush);
+		} else if (packet instanceof ChainStem stem) {
+			host.stem(stream, stem).forEach(stream::writeAndFlush);
 		} else if (packet instanceof ChainHeads heads) {
 			host.reconcile(stream, heads).ifPresent(stream::writeAndFlush);
 		} else if (packet instanceof FetchEntries request) {

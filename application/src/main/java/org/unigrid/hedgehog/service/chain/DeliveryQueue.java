@@ -33,8 +33,9 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
    a thread that drains goes on, as it takes what other threads add meanwhile: the backlog the queue keeps is all that
    caps it, and a receiving stream that happens to drain may be kept at it for as long as the others keep producing. */
 final class DeliveryQueue {
-	/* The entries one packet or post appended to the chain, the stream they came in on (none for this node's own)
-	   and whether the listeners are told of them (not for this node's own) */
+	/* The entries one packet or post appended to the chain, the stream they came in on, which they are not flooded
+	   back to (none for this node's own posts, for what it diffuses from the stem and for what its embargo floods), and
+	   whether the listeners are told of them (not for this node's own posts) */
 	record Delivery(List<Entry> entries, Channel origin, boolean tell) {
 		/* One step of the chain's feed on its way out */
 	}

@@ -31,8 +31,8 @@ import lombok.RequiredArgsConstructor;
    answered FULL and the rest are dropped, so a stream that floods uses up its own budget only, and a member that
    really bursts catches up through the reconcile rounds. */
 final class StreamBudgets {
-	/* The units are what the request costs the host: joins for a join, entries to verify for a CHAIN_ENTRY,
-	   one per CHAIN_HEADS, ranges served for a fetch and the bytes of what it answers, since an answer is up
+	/* The units are what the request costs the host: joins for a join, entries to verify for a CHAIN_ENTRY or a
+	   CHAIN_STEM, one per CHAIN_HEADS, ranges served for a fetch and the bytes of what it answers, since an answer is up
 	   to a frame of entries and the ranges alone would let a stream have eight of them in a second. The
 	   signature checks are the dear part, so the entries keep one stream to a fraction of a core while every
 	   honest flow stays far below it. */

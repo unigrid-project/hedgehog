@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -67,13 +68,18 @@ public final class ChainCodecs {
 
 	/* In order, at most MAX_ENTRIES_PER_PACKET to a packet and never more bytes than a frame may take */
 	public static List<ChainEntry> batches(final List<Entry> entries) {
-		final List<ChainEntry> batches = new ArrayList<>();
+		return batches(entries, ChainEntry::new);
+	}
+
+	/* The same for any packet laid out as a CHAIN_ENTRY is, such as a CHAIN_STEM */
+	public static <P> List<P> batches(final List<Entry> entries, final Function<List<Entry>, P> packet) {
+		final List<P> batches = new ArrayList<>();
 		List<Entry> batch = new ArrayList<>();
 		long bytes = ENTRIES_FRAME_OVERHEAD;
 
 		for (final Entry entry : entries) {
 			if (!batch.isEmpty() && !fits(batch.size(), bytes, entry)) {
-				batches.add(new ChainEntry(List.copyOf(batch)));
+				batches.add(packet.apply(List.copyOf(batch)));
 				batch = new ArrayList<>();
 				bytes = ENTRIES_FRAME_OVERHEAD;
 			}
@@ -83,7 +89,7 @@ public final class ChainCodecs {
 		}
 
 		if (!batch.isEmpty()) {
-			batches.add(new ChainEntry(List.copyOf(batch)));
+			batches.add(packet.apply(List.copyOf(batch)));
 		}
 
 		return batches;

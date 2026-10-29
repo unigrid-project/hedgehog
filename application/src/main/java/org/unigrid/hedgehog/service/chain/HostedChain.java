@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,7 +29,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.proxy.chain.Admission;
@@ -40,7 +40,6 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 
 /* One chain this node hosts or follows, with what the host knows about it beyond the entries */
-@RequiredArgsConstructor
 final class HostedChain {
 	/* A chain keeps the head of every feed that has not ended, so the writers it takes are bounded. The bound is what
 	   one packet of heads carries, which keeps every reconcile and join reply in one packet. */
@@ -72,6 +71,9 @@ final class HostedChain {
 
 	/* A parameter only so that a test reaches the limit without taking thousands of writers */
 	private final int maxWriters;
+
+	/* The entries of the stem this node holds until they come back to it by flood */
+	@Getter private final StemEmbargo embargo;
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
 	private final Set<WriterId> writers = ConcurrentHashMap.newKeySet();
 
@@ -95,6 +97,17 @@ final class HostedChain {
 
 	HostedChain(final Chain chain, final Epoch epoch) {
 		this(chain, epoch, MAX_WRITERS);
+	}
+
+	HostedChain(final Chain chain, final Epoch epoch, final int maxWriters) {
+		this(chain, epoch, maxWriters, new StemEmbargo(new SecureRandom()));
+	}
+
+	HostedChain(final Chain chain, final Epoch epoch, final int maxWriters, final StemEmbargo embargo) {
+		this.chain = chain;
+		this.epoch = epoch;
+		this.maxWriters = maxWriters;
+		this.embargo = embargo;
 	}
 
 	synchronized void addMemberStream(final Channel stream) {
@@ -202,10 +215,22 @@ final class HostedChain {
 		}
 	}
 
-	/* Notes an entry the chain appended and the stream it came in on, none for this node's own */
+	/* Notes an entry the chain appended and the stream it came in on, none for this node's own. An entry of the stem
+	   that the chain appended has come back, whichever way. */
 	void appended(final Entry entry, final Channel origin) {
+		embargo.release(entry);
+
 		if (origin != null && memberStreams.contains(origin)) {
 			firstFrom.putIfAbsent(entry.header().writer(), origin);
+		}
+	}
+
+	/* What the chain would make of an entry, counting what the embargo holds as if the chain had it already. There is
+	   no answer for a writer the chain takes no more of, as offer gives none. */
+	Optional<Admission> check(final Entry entry) {
+		synchronized (chain) {
+			return canTake(entry.header().writer()) ? Optional.of(chain.check(entry, embargo.bytes()))
+				: Optional.empty();
 		}
 	}
 

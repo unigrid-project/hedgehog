@@ -24,6 +24,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -57,6 +58,7 @@ import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
@@ -122,6 +124,9 @@ public class ChainHost implements ChainService {
 		.comparingLong((Entry entry) -> entry.header().timestamp()).thenComparing(entry -> entry.header().writer())
 		.thenComparingLong(entry -> entry.header().seq());
 
+	/* What a stem entry must be to the chain to be passed on: one it would take, or hold for a gap before it */
+	private static final Set<Admission> PASSES_ON = Set.of(Admission.ACCEPTED, Admission.AHEAD);
+
 	/* Set on a stream once its close is awaited, so that however often it joins and leaves it is awaited once */
 	private static final AttributeKey<Boolean> CLOSE_AWAITED = AttributeKey.valueOf("chainHostCloseAwaited");
 
@@ -132,6 +137,9 @@ public class ChainHost implements ChainService {
 	private final RandomGenerator random;
 	private final ScheduledExecutorService scheduler;
 	private final Executor deliveryExecutor;
+
+	private final RandomGenerator stemRandom;
+	private final StemRouter router;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final Listeners<ChainDrain> drains = new Listeners<>();
@@ -144,11 +152,18 @@ public class ChainHost implements ChainService {
 	   while the refresh thread works on the next one */
 	private volatile Hosting hosting = Hosting.OFF;
 
+	/* What a host draws from: picks for the member a reconcile round tells and the ranges it asks for, and stem for
+	   the modes, the successors and the deadlines of the stem, which tell an observer whose entries they are when
+	   they can be foreseen, so a host of its own draws them from a strong source */
+	record Draws(RandomGenerator picks, RandomGenerator stem) {
+		/* Two generators, so that a test which decides the member a host picks does not decide the stem with it */
+	}
+
 	@Inject
 	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory,
 		final ChainTransport transport) {
 
-		this(settings, directory, transport, System::currentTimeMillis, new Random(),
+		this(settings, directory, transport, System::currentTimeMillis, new Draws(new Random(), new SecureRandom()),
 			Executors.newSingleThreadScheduledExecutor(body -> daemonThread(body, "chain-host")),
 			Executors.newSingleThreadExecutor(body -> daemonThread(body, "chain-delivery")));
 	}
@@ -166,14 +181,24 @@ public class ChainHost implements ChainService {
 		final LongSupplier clock, final RandomGenerator random, final ScheduledExecutorService scheduler,
 		final Executor deliveryExecutor) {
 
+		this(settings, directory, transport, clock, new Draws(random, new Random(0)), scheduler, deliveryExecutor);
+	}
+
+	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
+		final LongSupplier clock, final Draws draws, final ScheduledExecutorService scheduler,
+		final Executor deliveryExecutor) {
+
 		this.settings = settings;
 		this.directory = directory;
 		this.transport = transport;
 		this.clock = clock;
-		this.random = random;
+		this.random = draws.picks();
 		this.scheduler = scheduler;
 		this.deliveryExecutor = deliveryExecutor;
 		this.budgets = new StreamBudgets(clock);
+		this.stemRandom = draws.stem();
+		this.router = new StemRouter(stemRandom, id -> hosting.find(id).map(HostedChain::getMemberStreams)
+			.orElse(List.of()));
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
@@ -281,8 +306,7 @@ public class ChainHost implements ChainService {
 
 	/* Stamped with the epoch it is made in like a hosted chain, though only a hosting retires a chain */
 	private HostedChain replicaOf(final ChainId id, final ProxySettings current, final long now) {
-		final HostedChain replica = new HostedChain(new Chain(id, current.chainLimits(), clock),
-			current.epochAt(now));
+		final HostedChain replica = hostedChain(id, current.chainLimits(), current.epochAt(now));
 
 		replica.setRelaying(false);
 		return replica;
@@ -334,6 +358,11 @@ public class ChainHost implements ChainService {
 		return previous.isBuiltFrom(basis) ? previous : rebuilt(basis, now, previous);
 	}
 
+	private HostedChain hostedChain(final ChainId id, final ChainLimits limits, final Epoch epoch) {
+		return new HostedChain(new Chain(id, limits, clock), epoch, HostedChain.MAX_WRITERS,
+			new StemEmbargo(stemRandom));
+	}
+
 	private Hosting rebuilt(final Hosting.Basis basis, final long now, final Hosting previous) {
 		final GroupView view = viewOf(basis.settings(), now, basis.activeIds());
 		final ChainLimits limits = basis.settings().chainLimits();
@@ -342,7 +371,7 @@ public class ChainHost implements ChainService {
 
 		for (final ChainId id : basis.own().map(view::chainsOf).orElse(List.of())) {
 			chains.put(id, previous.reusable(id, limits)
-				.orElseGet(() -> new HostedChain(new Chain(id, limits, clock), basis.epoch())));
+				.orElseGet(() -> hostedChain(id, limits, basis.epoch())));
 		}
 
 		/* Only the chains that retire now: one that stays retired over later rebuilds keeps the time it retired */
@@ -574,6 +603,99 @@ public class ChainHost implements ChainService {
 		}
 	}
 
+	/* Entries a member passes on before any member floods them. Only a member of the group of a chain this node hosts
+	   is heard, as a client passes nothing on, and only for as many entries as its stream has left of its second,
+	   counted as those of a flood are. Each entry is checked as a flood would be, and only one the chain would take, or
+	   hold for a gap before it, goes on: in a period this member diffuses, it is flooded, and in one it relays, it
+	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
+	   the embargo holds already has come round the stem, here as at its author, and goes no further, as the embargo
+	   floods it in time. What the chain had no room for is answered as for a flood. */
+	@Override
+	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
+		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
+		final Map<HostedChain, List<Entry>> permitted = new LinkedHashMap<>();
+		final Set<Entry> full = Collections.newSetFromMap(new IdentityHashMap<>());
+		final List<Runnable> steps = new ArrayList<>();
+
+		for (final Entry entry : packet) {
+			Optional.ofNullable(entry.header().chainId()).flatMap(hosting::find)
+				.filter(chain -> chain.trusts(peer))
+				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
+		}
+
+		final int toVerify = permitted.values().stream().mapToInt(List::size).sum();
+
+		if (!budgets.take(peer, StreamBudgets.Kind.ENTRIES, toVerify)) {
+			return List.of();
+		}
+
+		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(passOn(hosted, peer, ofChain))));
+		permitted.keySet().forEach(hosted -> steps.add(() -> drain(hosted)));
+		allOf(steps);
+
+		return packet.stream().filter(full::contains).map(entry -> EntryRefused.of(entry, Admission.FULL)).toList();
+	}
+
+	/* Answers the entries the chain had no room for. The mode is read once for the packet, which a period turning
+	   in between would otherwise split. */
+	private List<Entry> passOn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
+		final long now = clock.getAsLong();
+		final List<Entry> full = new ArrayList<>();
+		final List<Entry> taken = new ArrayList<>();
+
+		for (final Entry entry : entries) {
+			final Optional<Admission> admission = hosted.getEmbargo().holds(entry) ? Optional.empty()
+				: hosted.check(entry);
+
+			if (admission.filter(Admission.FULL::equals).isPresent()) {
+				full.add(entry);
+			} else if (admission.filter(PASSES_ON::contains).isPresent()) {
+				taken.add(entry);
+			}
+		}
+
+		if (router.diffuses(hosted.getChain().id(), now)) {
+			diffuse(hosted, taken);
+		} else {
+			relay(hosted, peer, taken, now);
+		}
+
+		return full;
+	}
+
+	private void diffuse(final HostedChain hosted, final List<Entry> entries) {
+		if (!entries.isEmpty()) {
+			offerAndQueue(hosted, entries, null, true);
+		}
+	}
+
+	/* An entry without a successor waits in the embargo all the same, which floods it in time */
+	private void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries, final long now) {
+		final ChainId chainId = hosted.getChain().id();
+		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
+
+		for (final Entry entry : entries) {
+			if (hosted.getEmbargo().hold(entry, false, now)) {
+				router.successor(chainId, entry.header().writer(), Set.of(peer), now)
+					.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
+					.ifPresent(batch -> batch.add(entry));
+			}
+		}
+
+		relayed.forEach(ChainHost::stemTo);
+	}
+
+	/* One successor that fails must not stop the others, and only the class of its failure is logged, as a message
+	   may name an address. What it did not take waits in the embargo. */
+	private static void stemTo(final Channel successor, final List<Entry> entries) {
+		try {
+			ChainCodecs.batches(entries, ChainStem::new).forEach(successor::write);
+			successor.flush();
+		} catch (RuntimeException ex) {
+			log.warn("The stem to a member stream failed with {}", ex.getClass().getName());
+		}
+	}
+
 	/* Answers the entries the chain had no room for */
 	private List<Entry> takeIn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final List<Optional<Offer>> offers = offerAndQueue(hosted, entries, peer, true);
@@ -715,6 +837,7 @@ public class ChainHost implements ChainService {
 	   gaps stall the sessions of a client all the same and whose writers come and go as much. */
 	public void maintain() {
 		Stream.concat(hosting.all(), followed.all()).forEach(this::upkeep);
+		router.forgetBefore(clock.getAsLong());
 	}
 
 	/* One chain that fails is logged by the class of the failure and does not keep the others from being kept up */
@@ -725,8 +848,25 @@ public class ChainHost implements ChainService {
 			chain.trim();
 			chain.expireGaps().forEach(gap -> gapListeners.tell(listener -> listener.gapped(chain.id(), gap)));
 			hosted.forgetEnded(clock.getAsLong() - chain.limits().retentionMillis());
+			floodDue(hosted);
 		} catch (RuntimeException ex) {
 			log.warn("The upkeep of a chain failed with {}", ex.getClass().getName());
+		}
+	}
+
+	/* What the embargo held past its deadline is flooded as if it came in now, and told to the listeners like any
+	   entry the chain appends: those of this node's own writers they know as such. An entry of this node's own that
+	   the chain has no room for stays in the embargo and is flooded again at its next deadline; one the chain will
+	   never take goes. */
+	private void floodDue(final HostedChain hosted) {
+		final List<Entry> due = hosted.getEmbargo().due(clock.getAsLong());
+
+		if (!due.isEmpty()) {
+			final List<Optional<Offer>> offers = offerAndQueue(hosted, due, null, true);
+
+			IntStream.range(0, due.size()).filter(place -> !isFull(offers.get(place)))
+				.forEach(place -> hosted.getEmbargo().release(due.get(place)));
+			handOver(hosted);
 		}
 	}
 

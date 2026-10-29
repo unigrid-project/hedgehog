@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
@@ -38,6 +39,9 @@ public interface ChainService {
 
 	/* Refusals tell the writer to pause; entries that are simply dropped need none */
 	List<EntryRefused> receive(Channel peer, ChainEntry entries);
+
+	/* Entries passed on before any member floods them, answered like a flood: only refusals for want of room */
+	List<EntryRefused> stem(Channel peer, ChainStem stem);
 
 	/* Asks the peer for the entries its heads show this node lacks; its encoder refuses more than
 	   ChainCodecs.MAX_HEADS_PER_PACKET ranges, and the heads come from a stranger */

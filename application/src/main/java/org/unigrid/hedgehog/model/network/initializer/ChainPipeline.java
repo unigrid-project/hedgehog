@@ -42,6 +42,7 @@ import org.unigrid.hedgehog.model.network.codec.PingDecoder;
 import org.unigrid.hedgehog.model.network.codec.PingEncoder;
 import org.unigrid.hedgehog.model.network.handler.ChainEntryChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.ChainHeadsChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.ChainStemChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.EntryRefusedChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.FetchEntriesChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.JoinChainChannelHandler;
@@ -68,7 +69,7 @@ public final class ChainPipeline {
 			new EntryRefusedEncoder(), new EntryRefusedDecoder(),
 			new LeaveChainEncoder(), new LeaveChainDecoder(),
 			new JoinChainChannelHandler(), new LeaveChainChannelHandler(),
-			new ChainEntryChannelHandler(), new ChainHeadsChannelHandler(),
+			new ChainEntryChannelHandler(), new ChainStemChannelHandler(), new ChainHeadsChannelHandler(),
 			new FetchEntriesChannelHandler(), new EntryRefusedChannelHandler(),
 			new StorageResponseChannelHandler<>(JoinReply.class));
 	}
