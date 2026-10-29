@@ -38,6 +38,8 @@ public final class Feed {
 		this.writer = Objects.requireNonNull(writer, "writer");
 	}
 
+	/* A feed started after a head has ended when the head ended its feed, and only then takes the stamp of the head,
+	   as nothing follows whose time it could check */
 	public Feed(WriterId writer, Head head) {
 		this(writer);
 
@@ -48,19 +50,20 @@ public final class Feed {
 		this.head = head;
 		nextSeq = head.seq() + 1;
 		prev = head.hash();
+
+		if (head.last()) {
+			ended = true;
+			timestamp = head.timestamp();
+		}
 	}
 
-	/* A feed that starts after an entry it never saw linked, as when a gap skips to it. Its time and whether it ended
-	   are taken from the entry only when it is the last one, as nothing follows it whose time it could check. */
+	/* A feed that starts after an entry it never saw linked, as when a gap skips to it */
 	public static Feed after(Entry entry) {
-		final Feed feed = new Feed(entry.header().writer(), new Head(entry.header().seq(), entry.hash()));
+		return new Feed(entry.header().writer(), headOf(entry));
+	}
 
-		if (entry.header().last()) {
-			feed.ended = true;
-			feed.timestamp = entry.header().timestamp();
-		}
-
-		return feed;
+	private static Head headOf(Entry entry) {
+		return new Head(entry.header().seq(), entry.hash(), entry.header().timestamp(), entry.header().last());
 	}
 
 	public static boolean canStartAfter(Head head) {
@@ -111,7 +114,7 @@ public final class Feed {
 		final Link link = check(entry);
 
 		if (link == Link.NEXT) {
-			head = new Head(entry.header().seq(), entry.hash());
+			head = headOf(entry);
 			nextSeq = head.seq() + 1;
 			prev = head.hash();
 			timestamp = entry.header().timestamp();

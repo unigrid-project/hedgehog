@@ -28,6 +28,7 @@ import org.unigrid.hedgehog.proxy.Expect;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 public class FeedTest {
 	private static final long NOW = 1_750_000_000_000L;
@@ -71,6 +72,47 @@ public class FeedTest {
 		assertThat(feed.check(ChainFixtures.signed(WRITER, CHAIN, 3, 0, NOW)), is(Link.BROKEN));
 		assertThat(feed.check(last), is(Link.DUPLICATE));
 		assertThat(feed.check(first), is(Link.REPLAYED));
+	}
+
+	/* The head names the latest entry and carries its stamp and whether it ended the feed, which is what a member
+	   tells a client that starts its feed after that head */
+	@Example
+	public void shouldCarryTheStampAndTheEndOfItsLatestEntryInItsHead() {
+		final FeedWriter writer = new FeedWriter(WRITER, CHAIN);
+		final Entry first = writer.write(NOW, ChainFixtures.TAG, new byte[0]);
+		final Entry last = writer.writeLast(NOW + 1000, ChainFixtures.TAG, new byte[0]);
+		final Feed feed = new Feed(WRITER.id());
+
+		feed.append(first);
+		assertThat(feed.head().orElseThrow().timestamp(), is(NOW));
+		assertThat(feed.head().orElseThrow().last(), is(false));
+		feed.append(last);
+		assertThat(feed.head().orElseThrow().timestamp(), is(NOW + 1000));
+		assertThat(feed.head().orElseThrow().last(), is(true));
+	}
+
+	/* A feed started after the head of one that ended has ended too, at the stamp of that head, and takes nothing */
+	@Example
+	public void shouldStartEndedAfterTheHeadOfAFeedThatEnded() {
+		final Feed ended = new Feed(WRITER.id(), new Head(1, 7, NOW, true));
+		final Feed live = new Feed(WRITER.id(), new Head(1, 7, NOW, false));
+
+		assertThat(ended.hasEnded(), is(true));
+		assertThat(ended.timestamp(), is(NOW));
+		assertThat(ended.check(ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW)), is(Link.BROKEN));
+		assertThat(live.hasEnded(), is(false));
+		assertThat(live.check(ChainFixtures.signed(WRITER, CHAIN, 2, 7, NOW)), is(Link.NEXT));
+	}
+
+	/* Two heads name the same entry when their sequence number and hash agree, as the hash covers the stamp and the
+	   mark */
+	@Example
+	public void shouldTellHeadsApartByTheEntryTheyName() {
+		assertThat(new Head(1, 7, NOW, true), equalTo(new Head(1, 7)));
+		assertThat(new Head(1, 7, NOW, true).hashCode(), is(new Head(1, 7).hashCode()));
+		assertThat(new Head(1, 7, NOW, true), not(equalTo(new Head(1, 8, NOW, true))));
+		assertThat(new Head(1, 7).last(), is(false));
+		assertThat(new Head(1, 7).timestamp(), is(Long.MIN_VALUE));
 	}
 
 	@Example

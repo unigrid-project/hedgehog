@@ -252,6 +252,23 @@ public class ChainTrimTest {
 		assertThat(chain.heads().keySet(), equalTo(Set.of(WRITER.id(), anchored.id(), skipped.id())));
 	}
 
+	/* A member names the heads of the feeds that ended with their stamp and their end, so a feed started after such a
+	   head has ended too and is forgotten once that head aged out, like the feed it was started from */
+	@Example
+	public void forgetsAFeedStartedAfterTheHeadOfAFeedThatEndedOnceThatHeadAgedOut() {
+		final AtomicLong clock = new AtomicLong(NOW);
+		final Chain chain = new Chain(CHAIN, LIMITS, clock::get);
+
+		assertThat(chain.anchor(WRITER.id(), new Head(3, 1, NOW, true)), is(true));
+		assertThat(chain.offer(ChainFixtures.signed(WRITER, CHAIN, 4, 1, NOW)).admission(), is(Admission.BROKEN));
+		clock.set(NOW + LIMITS.retentionMillis());
+		assertThat(chain.forgetEnded(clock.get()), is(empty()));
+
+		clock.addAndGet(1000);
+		assertThat(chain.forgetEnded(clock.get()), equalTo(Set.of(WRITER.id())));
+		assertThat(chain.heads(), equalTo(Map.of()));
+	}
+
 	/* A writer may stamp its last entry ahead of the clock, as far as the retention window allows. Its feed is forgotten
 	   by the stamp of that entry and not by the clock, so that entry is too old for the chain once it is forgotten, and
 	   neither it nor anything before it starts a feed again. */

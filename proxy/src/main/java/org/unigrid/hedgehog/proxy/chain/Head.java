@@ -18,10 +18,28 @@
 
 package org.unigrid.hedgehog.proxy.chain;
 
-public record Head(long seq, long hash) {
+/* The latest entry of a feed: its sequence number and hash, which name the entry, and its stamp and whether it ended
+   the feed, which a feed started after it takes over. The hash covers the stamp and the mark, so two heads with the
+   same sequence number and hash name the same entry and are equal whatever else they say. A head that only names
+   its entry has no stamp and ends nothing. */
+public record Head(long seq, long hash, long timestamp, boolean last) {
 	public Head {
 		if (seq < 0) {
 			throw new IllegalArgumentException("A sequence number is never negative, found " + seq);
 		}
+	}
+
+	public Head(long seq, long hash) {
+		this(seq, hash, Long.MIN_VALUE, false);
+	}
+
+	@Override
+	public boolean equals(Object other) {
+		return other instanceof Head head && seq == head.seq && hash == head.hash;
+	}
+
+	@Override
+	public int hashCode() {
+		return 31 * Long.hashCode(seq) + Long.hashCode(hash);
 	}
 }
