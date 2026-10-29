@@ -53,6 +53,10 @@ public final class Session {
 	private final SessionContext context;
 	private final WriterId peer;
 	private final Direction sending;
+
+	/* The exit writes each session as a writer of its own, so its Close is the last entry of that feed, and the chain
+	   can let the feed go. The client's writer carries every session of its attachment and goes on. */
+	private final boolean endsFeedOnClose;
 	private final SealingCipher.Sealer sealer;
 	private final SealingCipher.Opener opener;
 	private final byte[] ownTags;
@@ -69,6 +73,7 @@ public final class Session {
 		this.context = context;
 		this.peer = peer;
 		this.sending = sending;
+		endsFeedOnClose = !client;
 		sealer = SealingCipher.sealer(client ? secrets.clientToExit() : secrets.exitToClient(), sending,
 			secrets.binding());
 		opener = SealingCipher.opener(client ? secrets.exitToClient() : secrets.clientToExit(), sending.reverse(),
@@ -173,7 +178,7 @@ public final class Session {
 			+ SealingCipher.OVERHEAD));
 
 		sent++;
-		context.post(tag, sealed);
+		context.post(tag, sealed, endsFeedOnClose && !open);
 		lastActivity = context.now();
 	}
 
@@ -189,6 +194,24 @@ public final class Session {
 			return Optional.of(end(CloseReason.BROKEN));
 		}
 
+		final Optional<SealedMessage> message = open(entry);
+
+		message.filter(Close.class::isInstance).ifPresent(close -> closedByPeer());
+		return message;
+	}
+
+	/* The exit answers the Close of its client with one of its own, which ends the exit's feed. A Close that this side
+	   sent as the message did not open has ended the session already. */
+	private void closedByPeer() {
+		if (open && endsFeedOnClose) {
+			send(new Close(CloseReason.DONE));
+		}
+
+		open = false;
+	}
+
+	/* A message that does not open ends the session as broken */
+	private Optional<SealedMessage> open(Entry entry) {
 		try {
 			final byte[] plaintext = opener.open(entry.payload());
 
@@ -197,7 +220,6 @@ public final class Session {
 			final SealedMessage message = SealedCodec.decode(plaintext, context.maxPayloadBytes());
 
 			lastActivity = context.now();
-			open = !(message instanceof Close);
 			return Optional.of(message);
 		} catch (SealException | MalformedMessageException ex) {
 			return Optional.of(end(CloseReason.BROKEN));

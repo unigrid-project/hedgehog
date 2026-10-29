@@ -86,8 +86,13 @@ public record SessionContext(FeedWriter writer, Consumer<Entry> outbox, LongSupp
 	   the writer has signed the entry, a failure leaves a gap in the whole feed of the writer, which every session
 	   of this node on the chain shares, that no session can repair. */
 	Entry post(Tag tag, byte[] payload) {
+		return post(tag, payload, false);
+	}
+
+	/* The last entry of the writer's feed, after which the writer posts nothing */
+	Entry post(Tag tag, byte[] payload, boolean last) {
 		synchronized (writer) {
-			final Entry entry = writer.write(now(), tag, payload);
+			final Entry entry = last ? writer.writeLast(now(), tag, payload) : writer.write(now(), tag, payload);
 
 			outbox.accept(entry);
 			return entry;

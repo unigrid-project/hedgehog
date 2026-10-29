@@ -402,6 +402,39 @@ public class ChainExitTest {
 		}
 	}
 
+	/* The ways a relay ends: its client closes, its destination closes, it goes idle, or the grace of its chain is
+	   over */
+	private enum Ending {
+		CLIENT {
+			@Override
+			void end(final Rig rig, final Caller caller) {
+				caller.session().close(CloseReason.DONE);
+				rig.drive();
+			}
+		},
+		DESTINATION {
+			@Override
+			void end(final Rig rig, final Caller caller) {
+				rig.connector.requests.get(0).listener().closed();
+			}
+		},
+		IDLE {
+			@Override
+			void end(final Rig rig, final Caller caller) {
+				rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
+				rig.exit.tick();
+			}
+		},
+		GRACE {
+			@Override
+			void end(final Rig rig, final Caller caller) {
+				rig.exit.expired(rig.fleet.chain());
+			}
+		};
+
+		abstract void end(Rig rig, Caller caller);
+	}
+
 	private record Reached(Caller caller, IntSupplier closes) {
 		/* A caller whose session got to a stage, and how often what its relay held of the destination was closed */
 	}
@@ -813,6 +846,30 @@ public class ChainExitTest {
 			assertThat(ending, rig.connector.last().cancels().get(), is(1));
 			assertThat(ending, rig.exit.heldRelays(), is(0));
 		});
+	}
+
+	/* Every way a relay ends posts the Close of the exit, the last entry of the session's own feed, so that the chain
+	   can let the feed go once it is past the retention window */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void endsTheFeedOfTheSessionWithItsCloseWhicheverWayTheRelayEnds(@ForAll Ending ending) {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+
+		final WriterId writer = rig.answers(rig.fleet.chain()).get(0).header().writer();
+
+		ending.end(rig, caller);
+		rig.drive();
+
+		final List<Entry> written = rig.entries(rig.fleet.chain()).stream().filter(entry -> entry.header().writer()
+			.equals(writer)).toList();
+
+		assertThat(rig.exit.openRelays(), is(0));
+		assertThat(written.get(written.size() - 1).header().last(), is(true));
+		assertThat(written.stream().filter(entry -> entry.header().last()).count(), is(1L));
 	}
 
 	/* No two sessions of the exit share a writer, so its feeds on the chain do not tell which sessions one exit

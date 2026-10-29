@@ -20,9 +20,7 @@ package org.unigrid.hedgehog.service.chain;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
@@ -34,7 +32,8 @@ import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
 /* The exit end of the sessions sealed to one gridnode, without a destination behind it: it answers each opening its
-   sealing key opens, collects what the client sends, and sends what a test tells it to */
+   sealing key opens, collects what the client sends, and sends what a test tells it to. Like the exit of a gridnode,
+   it writes each session as a writer of its own, whose feed the Close of the session ends. */
 final class ExitStub {
 	final List<Session> sessions = new ArrayList<>();
 	final List<SealedMessage> received = new CopyOnWriteArrayList<>();
@@ -42,7 +41,6 @@ final class ExitStub {
 	private final ChainFleet fleet;
 	private final String id;
 	private final int number;
-	private final Map<ChainId, SessionContext> contexts = new HashMap<>();
 	private List<Entry> capture;
 
 	ExitStub(final ChainFleet fleet, final int number) {
@@ -88,10 +86,10 @@ final class ExitStub {
 		}
 	}
 
+	/* The writer of the next session of this stub, drawn from its number and how many sessions it has */
 	private SessionContext context(final ChainId chainId) {
-		return contexts.computeIfAbsent(chainId, chain -> new SessionContext(new FeedWriter(
-			ChainFleet.key(100 + number), chain), this::post, fleet.clock::get, new SecureRandom(),
-			fleet.settings.get().orElseThrow()));
+		return new SessionContext(new FeedWriter(ChainFleet.key(1000 * (number + 1) + sessions.size()), chainId),
+			this::post, fleet.clock::get, new SecureRandom(), fleet.settings.get().orElseThrow());
 	}
 
 	/* Called with the stub held, as its sessions only send from a test or from appended */

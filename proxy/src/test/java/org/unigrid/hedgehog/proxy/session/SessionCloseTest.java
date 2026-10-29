@@ -28,6 +28,9 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.GenerationMode;
+import net.jqwik.api.Property;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.Padding;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -35,6 +38,7 @@ import org.unigrid.hedgehog.proxy.chain.Gap;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 
@@ -51,6 +55,37 @@ public class SessionCloseTest {
 	private static final Tag OTHER_SESSION = new Tag(SessionFixtures.filled(Tag.SIZE, 9));
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT, new SocksAddress(
 		Socks5AddressType.DOMAIN, "example.org", 443));
+
+	/* How the exit ends a session of its own accord */
+	private enum ExitEnding {
+		CLOSED {
+			@Override
+			void end(SessionWire wire) {
+				wire.exitSession().close(CloseReason.DONE);
+			}
+		},
+		IDLE {
+			@Override
+			void end(SessionWire wire) {
+				wire.clock.addAndGet(IDLE_MILLIS);
+				wire.exitSession().tick();
+			}
+		},
+		BROKEN {
+			@Override
+			void end(SessionWire wire) {
+				wire.client.send(data(1));
+				wire.client.send(data(2));
+
+				final Entry second = List.copyOf(wire.posted).get(1);
+
+				wire.posted.clear();
+				wire.exitSession().receive(second);
+			}
+		};
+
+		abstract void end(SessionWire wire);
+	}
 
 	private static SessionWire opened() {
 		return opened(ProxySettings.DEFAULTS);
@@ -116,6 +151,11 @@ public class SessionCloseTest {
 	private static List<Optional<Close>> closeBrokenWhereNamed(List<Gap> gaps, Session session) {
 		return gaps.stream().filter(session::isNamedIn)
 			.map(gap -> session.close(CloseReason.BROKEN)).toList();
+	}
+
+	private static List<Entry> writtenBy(SessionWire wire, SessionContext writer) {
+		return wire.clientChain.entries().stream().filter(entry -> entry.header().writer()
+			.equals(writer.writer().writer())).toList();
 	}
 
 	private static long entriesOf(SessionWire wire, SessionContext writer) {
@@ -191,6 +231,39 @@ public class SessionCloseTest {
 		wire.pump();
 		assertThat(wire.atExit, equalTo(List.of(CONNECT, new Close(CloseReason.DONE))));
 		assertThat(wire.exitSession().isOpen(), is(false));
+	}
+
+	/* The exit writes each session as a writer of its own, so its Close is the last entry of that feed however the
+	   exit ends the session: closed there, gone idle, or broken by a message it never got */
+	@Property(generation = GenerationMode.EXHAUSTIVE)
+	public void shouldEndTheFeedOfTheExitWithItsCloseHoweverItEndsTheSession(@ForAll ExitEnding ending) {
+		final SessionWire wire = opened();
+
+		ending.end(wire);
+		wire.pump();
+
+		final List<Entry> written = writtenBy(wire, wire.exitContext);
+
+		assertThat(wire.exitSession().isOpen(), is(false));
+		assertThat(written.get(written.size() - 1).header().last(), is(true));
+		assertThat(written.stream().filter(entry -> entry.header().last()).count(), is(1L));
+	}
+
+	/* The exit answers the Close of its client with a Close of its own, which ends the exit's feed. The client's
+	   writer carries the other sessions of its attachment, so its Close ends nothing. */
+	@Example
+	public void shouldAnswerTheCloseOfTheClientWithOneThatEndsTheFeedOfTheExit() {
+		final SessionWire wire = opened();
+
+		wire.client.close(CloseReason.DONE);
+		wire.pump();
+
+		final List<Entry> written = writtenBy(wire, wire.exitContext);
+
+		assertThat(wire.atExit, equalTo(List.of(CONNECT, new Close(CloseReason.DONE))));
+		assertThat(wire.atClient, is(empty()));
+		assertThat(written.get(written.size() - 1).header().last(), is(true));
+		assertThat(writtenBy(wire, wire.clientContext).stream().anyMatch(entry -> entry.header().last()), is(false));
 	}
 
 	@Example
@@ -330,6 +403,7 @@ public class SessionCloseTest {
 		assertThat(wire.client.close(CloseReason.DONE), equalTo(Optional.empty()));
 	}
 
+	/* The chain holds the Close of the client and the Close the exit answered it with */
 	@Example
 	public void shouldTickAClosedSessionToNothing() {
 		final SessionWire wire = opened();
@@ -340,7 +414,7 @@ public class SessionCloseTest {
 		assertThat(wire.client.tick(), equalTo(Optional.empty()));
 		assertThat(wire.exitSession().tick(), equalTo(Optional.empty()));
 		assertThat(wire.posted.isEmpty(), is(true));
-		assertThat(wire.exitChain.entries().size(), is(HANDSHAKE_ENTRIES + 1));
+		assertThat(wire.exitChain.entries().size(), is(HANDSHAKE_ENTRIES + 2));
 	}
 
 	@Example
@@ -377,8 +451,10 @@ public class SessionCloseTest {
 		}
 	}
 
+	/* The client does not answer the Close of its exit, and the exit answers that of its client once, with the Close
+	   that ends its feed */
 	@Example
-	public void shouldNotAnswerTheCloseOfThePeer() {
+	public void shouldAnswerOnlyTheCloseOfTheClient() {
 		final SessionWire byClient = opened();
 		final SessionWire byExit = opened();
 
@@ -389,11 +465,13 @@ public class SessionCloseTest {
 
 		for (SessionWire wire : List.of(byClient, byExit)) {
 			assertThat(wire.posted.isEmpty(), is(true));
-			assertThat(wire.clientChain.entries().size(), is(HANDSHAKE_ENTRIES + 1));
 			assertThat(wire.exitChain.entries(), equalTo(wire.clientChain.entries()));
 			assertThat(wire.client.close(CloseReason.DONE), equalTo(Optional.empty()));
 			assertThat(wire.exitSession().close(CloseReason.DONE), equalTo(Optional.empty()));
 		}
+
+		assertThat(byClient.clientChain.entries().size(), is(HANDSHAKE_ENTRIES + 2));
+		assertThat(byExit.clientChain.entries().size(), is(HANDSHAKE_ENTRIES + 1));
 	}
 
 	@Example

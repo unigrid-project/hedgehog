@@ -223,6 +223,12 @@ public class SessionTest {
 		return last;
 	}
 
+	/* The exit answered the Close of the client once, with the Close that ends the exit's feed */
+	private static void assertExitAnsweredWithItsLastEntry(Pair pair) {
+		assertThat(pair.fromExit, hasSize(1));
+		assertThat(pair.fromExit.get(0).header().last(), is(true));
+	}
+
 	/* The exit closed and said so once, and the client took that Close and closed without an answer */
 	private static void assertExitBrokeAndTold(Pair pair) {
 		assertThat(pair.exit.isOpen(), is(false));
@@ -376,7 +382,7 @@ public class SessionTest {
 		assertThat(pair.toExit(), equalTo(List.of(new Close(CloseReason.DONE))));
 		assertThat(pair.exit.isOpen(), is(false));
 		Expect.assertThrows(IllegalStateException.class, () -> pair.exit.send(new Data(new byte[] { 1 })));
-		assertThat(pair.fromExit, is(empty()));
+		assertExitAnsweredWithItsLastEntry(pair);
 	}
 
 	@Example
@@ -438,7 +444,7 @@ public class SessionTest {
 		assertThat(pair.toExit(), equalTo(List.of(new Close(reason))));
 		assertThat(pair.exit.close(reason), equalTo(Optional.empty()));
 		assertThat(pair.exit.isOpen(), is(false));
-		assertThat(pair.fromExit, is(empty()));
+		assertExitAnsweredWithItsLastEntry(pair);
 	}
 
 	@Property
@@ -451,7 +457,7 @@ public class SessionTest {
 		assertThat(pair.toExit(), equalTo(List.of(new Close(reason))));
 		assertThat(pair.exit.isOpen(), is(false));
 		assertThat(pair.fromClient, is(empty()));
-		assertThat(pair.fromExit, is(empty()));
+		assertExitAnsweredWithItsLastEntry(pair);
 	}
 
 	@Example
@@ -489,7 +495,7 @@ public class SessionTest {
 		assertThat(pair.exit.receive(close), equalTo(Optional.empty()));
 		assertThat(pair.exit.receive(garbage), equalTo(Optional.empty()));
 		assertThat(pair.exit.isOpen(), is(false));
-		assertThat(pair.fromExit, is(empty()));
+		assertExitAnsweredWithItsLastEntry(pair);
 	}
 
 	@Example
