@@ -628,6 +628,48 @@ public class ChainClientTest {
 		assertThat(ChainHost.MAX_FOLLOWED, is(2 * ChainClient.MAX_ATTACHMENTS));
 	}
 
+	/* The last group is drawn for any country and again for Sweden, where its only members are the two the node
+	   attached through. It is passed over for the first group, which has three members there, and still serves
+	   the sessions that name no country. */
+	@Example
+	public void passesOverAGroupWhoseOnlyMembersInTheCountryAreItsAttachMembers() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final ChainAttachment any = attached(fleet, client, Optional.empty());
+		final List<String> swedes = fleet.view().groups().members(0).subList(0, 3);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		fleet.attachMembers(CLIENT, any).forEach(member -> countries.put(member, "SE"));
+		swedes.forEach(member -> countries.put(member, "SE"));
+
+		final ChainAttachment swedish = attached(fleet, client, Optional.of("SE"));
+
+		assertThat(List.of(any.group(), swedish.group()), equalTo(List.of(1, 0)));
+		assertThat(any.exit(Optional.of("SE"), Set.of()), equalTo(Optional.empty()));
+		assertThat(drawnExits(swedish, Optional.of("SE"), Set.of()), everyItem(is(in(swedes))));
+		assertThat(done(client.attachment(Optional.of("SE"))), sameInstance(swedish));
+		assertThat(done(client.attachment(Optional.empty())), sameInstance(any));
+		assertThat(List.of(client.isCurrent(any), client.isCurrent(swedish)), equalTo(List.of(true, true)));
+	}
+
+	/* No group is left once the only one with a member in the country has it at an attach member alone */
+	@Example
+	public void failsWhenTheCountryIsLeftOnlyAtAttachMembers() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), last());
+		final ChainAttachment any = attached(fleet, client, Optional.empty());
+		final long joins = delivered(fleet, JoinChain.class);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		countries.put(fleet.attachMembers(CLIENT, any).get(0), "SE");
+
+		assertFailsWith(client.attachment(Optional.of("SE")), "No shard group has a gridnode in the country");
+		assertThat(delivered(fleet, JoinChain.class), is(joins));
+		assertThat(client.isCurrent(any), is(true));
+	}
+
 	@Example
 	public void givesUpWhenEveryGroupRefuses() {
 		final ChainFleet fleet = twoGroups(16, 4, Set.of(0, 1));

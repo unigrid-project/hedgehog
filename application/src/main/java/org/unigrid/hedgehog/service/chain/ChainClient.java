@@ -78,6 +78,8 @@ public final class ChainClient {
 	/* The most groups the node attaches to at once, one for each country asked for until then */
 	static final int MAX_ATTACHMENTS = 4;
 
+	private static final String NO_GROUP_IN_THE_COUNTRY = "No shard group has a gridnode in the country";
+
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
 	private final CountryLookup countries;
@@ -152,11 +154,36 @@ public final class ChainClient {
 	   under way share it, and a join that failed is made again by the next caller. Each caller gets a copy, so that
 	   none can complete or cancel the join of the others. What a caller chains on it runs on a thread of the join
 	   executor, never on the event loop that completed the last reply, so it may do real work. */
-	public synchronized CompletableFuture<ChainAttachment> attachment(final Optional<String> country) {
+	public CompletableFuture<ChainAttachment> attachment(final Optional<String> country) {
+		return country.isPresent() ? withExitIn(country, new HashSet<>()) : joinFor(country, Set.of());
+	}
+
+	/* An attachment whose group has members in the country, but none that may be the exit, as they are all members
+	   the node attached through, is passed over for the country, which is drawn again among the other groups. The
+	   attach members stay drawn uniformly: drawn by the country, they would learn it. Each draw passes over one group
+	   more, so the draws end once no group with a member in the country is left. The join passed over stays in use
+	   for the other countries and for the sessions that name none. */
+	private CompletableFuture<ChainAttachment> withExitIn(final Optional<String> country,
+		final Set<Integer> passedOver) {
+
+		return joinFor(country, passedOver).thenComposeAsync(attachment -> {
+			if (attachment.exit(country, Set.of()).isPresent()) {
+				return CompletableFuture.completedFuture(attachment);
+			}
+
+			return passedOver.add(attachment.group()) ? withExitIn(country, passedOver)
+				: CompletableFuture.failedFuture(new IllegalStateException(NO_GROUP_IN_THE_COUNTRY));
+		}, joins);
+	}
+
+	private synchronized CompletableFuture<ChainAttachment> joinFor(final Optional<String> country,
+		final Set<Integer> passedOver) {
+
 		dropUnused();
 
 		try {
-			return given.computeIfAbsent(country, this::chosen).attachment().copy();
+			return given.compute(country, (key, join) -> join != null && !passedOver.contains(join.joinedGroup())
+				? join : chosen(key, passedOver)).attachment().copy();
 		} catch (RuntimeException ex) {
 			return CompletableFuture.failedFuture(ex);
 		}
@@ -231,17 +258,17 @@ public final class ChainClient {
 	   from the view the candidates come from, as the hosting may be a refresh behind at the turn of an epoch. A
 	   country that no gridnode of another group is in, as every country is without a GeoIP database, fails at once:
 	   no member is asked to take the node for a session that no exit could carry. */
-	private Join chosen(final Optional<String> country) {
+	private Join chosen(final Optional<String> country, final Set<Integer> passedOver) {
 		final ProxySettings proxy = settings.current()
 			.orElseThrow(() -> new IllegalStateException("The proxy is off"));
 		final List<Gridnode> active = directory.active();
 		final GroupView view = new GroupView(proxy, clock.getAsLong(), active.stream().map(Gridnode::getId)
 			.filter(Objects::nonNull).toList());
-		final Draw draw = new Draw(view, country, countriesOf(active), directory.self().stream()
-			.flatMapToInt(own -> view.groups().groupOf(own).stream()).boxed()
+		final Draw draw = new Draw(view, country, countriesOf(active), Stream.concat(directory.self().stream()
+			.flatMapToInt(own -> view.groups().groupOf(own).stream()).boxed(), passedOver.stream())
 			.collect(Collectors.toCollection(HashSet::new)));
 		final int group = draw.next(random).orElseThrow(() -> new IllegalStateException(country.isPresent()
-			? "No shard group has a gridnode in the country" : "No shard group took this node"));
+			? NO_GROUP_IN_THE_COUNTRY : "No shard group took this node"));
 
 		return joined.stream().filter(join -> join.epoch().equals(view.epoch()) && join.joinedGroup() == group)
 			.findFirst().orElseGet(() -> joined.size() < MAX_ATTACHMENTS ? started(draw, group)
@@ -258,10 +285,12 @@ public final class ChainClient {
 		return join;
 	}
 
-	/* The earliest of the joins whose groups have the most members in the country, the largest group for none */
+	/* The earliest of the joins not passed over whose groups have the most members in the country, the largest group
+	   for none */
 	private Join closest(final Draw draw) {
-		return joined.stream().max(Comparator.comparingLong(join -> GroupChoice.weight(join.joinedMembers(),
-			draw.country(), draw.countryOf()))).orElseThrow();
+		return joined.stream().filter(join -> !draw.passedOver().contains(join.joinedGroup()))
+			.max(Comparator.comparingLong(join -> GroupChoice.weight(join.joinedMembers(), draw.country(),
+			draw.countryOf()))).orElseThrow(() -> new IllegalStateException(NO_GROUP_IN_THE_COUNTRY));
 	}
 
 	/* Where each active gridnode is by the address it announces, and nowhere for a member the directory lacks */
