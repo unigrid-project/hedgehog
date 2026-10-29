@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -53,6 +54,9 @@ final class HostedChain {
 
 	private static final Set<Admission> HOLDS_A_FEED = Set.of(Admission.ACCEPTED, Admission.AHEAD);
 
+	/* A client attaches through two members of a group, so that many of the first flooders of a writer are kept */
+	static final int FIRST_FLOODERS = 2;
+
 	enum Attachment { NEW, KNOWN, REFUSED }
 
 	@Getter private final Chain chain;
@@ -77,10 +81,11 @@ final class HostedChain {
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
 	private final Set<WriterId> writers = ConcurrentHashMap.newKeySet();
 
-	/* The member stream that the first entry of each writer came in on, as the chain appended it. For the writer of a
-	   client that is a member the client attached through, which knows the client and is the one member an exit
-	   never passes the entries of a session with that client on to. */
-	private final Map<WriterId, Channel> firstFrom = new ConcurrentHashMap<>();
+	/* The first member streams that brought each writer's entries, as the chain appended them or found them a copy of
+	   the head of the feed, FIRST_FLOODERS of them at most. For the writer of a client those are the members the
+	   client attached through, which know the client and are the members an exit never passes the entries of a
+	   session with that client on to. */
+	private final Map<WriterId, Set<Channel>> firstFlooders = new ConcurrentHashMap<>();
 
 	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed, or
 	   for a chain the node follows, the streams to the members it follows the chain through. Replaced as a whole by
@@ -210,7 +215,7 @@ final class HostedChain {
 			final Set<WriterId> forgotten = chain.forgetEnded(cutoffMillis);
 
 			writers.removeAll(forgotten);
-			firstFrom.keySet().removeAll(forgotten);
+			firstFlooders.keySet().removeAll(forgotten);
 			return forgotten.size();
 		}
 	}
@@ -220,9 +225,33 @@ final class HostedChain {
 	void appended(final Entry entry, final Channel origin) {
 		embargo.release(entry);
 
-		if (origin != null && memberStreams.contains(origin)) {
-			firstFrom.putIfAbsent(entry.header().writer(), origin);
+		if (isNewFlooder(entry.header().writer(), origin)) {
+			noteFlooder(entry.header().writer(), origin);
 		}
+	}
+
+	/* Notes a stream that brought a copy of the head of a feed. A duplicate is found before the signature is checked,
+	   so it is checked here, once for each stream that would take a place, which is FIRST_FLOODERS at most. */
+	void duplicated(final Entry entry, final Channel origin) {
+		if (isNewFlooder(entry.header().writer(), origin) && entry.isAuthentic()) {
+			noteFlooder(entry.header().writer(), origin);
+		}
+	}
+
+	Set<Channel> firstFlooders(final WriterId writer) {
+		return firstFlooders.getOrDefault(writer, Set.of());
+	}
+
+	private boolean isNewFlooder(final WriterId writer, final Channel origin) {
+		final Set<Channel> noted = firstFlooders(writer);
+
+		return origin != null && memberStreams.contains(origin) && noted.size() < FIRST_FLOODERS
+			&& !noted.contains(origin);
+	}
+
+	private void noteFlooder(final WriterId writer, final Channel origin) {
+		firstFlooders.merge(writer, Set.of(origin), (noted, more) -> noted.size() < FIRST_FLOODERS
+			? Stream.concat(noted.stream(), more.stream()).collect(Collectors.toUnmodifiableSet()) : noted);
 	}
 
 	/* What the chain would make of an entry, counting what the embargo holds as if the chain had it already. There is
@@ -232,10 +261,6 @@ final class HostedChain {
 			return canTake(entry.header().writer()) ? Optional.of(chain.check(entry, embargo.bytes()))
 				: Optional.empty();
 		}
-	}
-
-	Optional<Channel> firstFrom(final WriterId writer) {
-		return Optional.ofNullable(firstFrom.get(writer));
 	}
 
 	/* Holds an entry of this node's own in the embargo, where it waits to come back by flood, once the chain would

@@ -25,7 +25,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.Function;
@@ -459,22 +458,24 @@ public class ChainHostStemTest {
 		assertThat(reach.flooded() * 2, is(greaterThanOrEqualTo(reach.posted())));
 	}
 
-	/* A client attached through gn-0 alone, whose entries the exit first hears from there: the stems of the exit's
-	   sessions with that client never go to gn-0 */
+	/* A client attached through gn-0 and gn-3, whose entries the exit first hears from those two: the stems of the
+	   exit's sessions with that client go to neither */
 	@Example
-	public void stemsNeverGoToTheMemberAClientAttachedThrough() {
+	public void stemsNeverGoToTheMembersAClientAttachedThrough() {
 		final ChainFleet fleet = ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3), ChainFleet::seeded);
-		final EmbeddedChannel client = fleet.client(RELAY, 1);
+		final Map<String, EmbeddedChannel> attachments = Map.of(RELAY, fleet.client(RELAY, 1), "gn-3",
+			fleet.client("gn-3", 1));
+		final List<Entry> client = entries(fleet, 1, 1);
 
-		fleet.host(RELAY).receive(client, new ChainEntry(entries(fleet, 1, 1)));
+		attachments.forEach((member, stream) -> fleet.host(member).receive(stream, new ChainEntry(client)));
 		fleet.deliver();
 
-		final Optional<Channel> attachMember = hosted(fleet, EXIT).firstFrom(ChainFleet.writer(1));
+		final Set<Channel> attachMembers = hosted(fleet, EXIT).firstFlooders(ChainFleet.writer(1));
 
-		assertThat(attachMember, is(Optional.of(fleet.stream(EXIT, RELAY))));
-		stemThrough(fleet, 40, writer -> Set.of(attachMember.orElseThrow()));
+		assertThat(attachMembers, is(Set.of(fleet.stream(EXIT, RELAY), fleet.stream(EXIT, "gn-3"))));
+		stemThrough(fleet, 40, writer -> attachMembers);
 		assertThat(fleet.deliveries.stream().filter(delivery -> delivery.from().equals(EXIT)
-			&& delivery.to().equals(RELAY)).map(ChainFleet.Delivery::packet).toList(),
+			&& attachments.containsKey(delivery.to())).map(ChainFleet.Delivery::packet).toList(),
 			everyItem(is(instanceOf(ChainEntry.class))));
 		assertThat(fleet.deliveries.stream().filter(delivery -> delivery.from().equals(EXIT)
 			&& delivery.packet() instanceof ChainStem).count(), is(greaterThanOrEqualTo(40L)));

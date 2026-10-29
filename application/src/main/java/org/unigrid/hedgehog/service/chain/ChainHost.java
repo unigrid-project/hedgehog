@@ -739,10 +739,7 @@ public class ChainHost implements ChainService {
 						final Optional<Offer> offer = hosted.offer(entry);
 
 						offers.add(offer);
-						offer.ifPresent(taken -> taken.appended().forEach(added -> {
-							appended.add(added);
-							hosted.appended(added, origin);
-						}));
+						offer.ifPresent(taken -> noted(hosted, entry, taken, origin, appended));
 					}
 				} finally {
 					beginsFullEpisode = queue(hosted, new Delivery(List.copyOf(appended), origin, tell));
@@ -755,6 +752,20 @@ public class ChainHost implements ChainService {
 		}
 
 		return offers;
+	}
+
+	/* What the chain appended is queued and noted by the chain, which notes a copy of the head of a feed too */
+	private static void noted(final HostedChain hosted, final Entry entry, final Offer offer, final Channel origin,
+		final List<Entry> appended) {
+
+		offer.appended().forEach(added -> {
+			appended.add(added);
+			hosted.appended(added, origin);
+		});
+
+		if (offer.admission() == Admission.DUPLICATE) {
+			hosted.duplicated(entry, origin);
+		}
 	}
 
 	/* A packet that appended nothing has nothing to deliver and takes no room in the queue. A delivery the queue has

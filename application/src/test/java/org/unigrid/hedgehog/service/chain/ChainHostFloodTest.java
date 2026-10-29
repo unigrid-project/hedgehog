@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -873,13 +874,14 @@ public class ChainHostFloodTest {
 		assertThat(fleet.stream("gn-0", "gn-1").outboundMessages(), hasSize(2));
 	}
 
-	/* An exit passes over the member it first heard the entries of a client from, as the client attached through that
-	   member. Only a member stream counts, as the stream of a client is no place to pass entries on to, and the
-	   record goes with the feed once it ended and is forgotten. */
+	/* An exit passes over the members it first heard the entries of a client from, as the client attached through
+	   them: up to two, as a client attaches through two. Only a member stream counts, as the stream of a client is no
+	   place to pass entries on to, and the record goes with the feed once it ended and is forgotten. */
 	@Example
-	public void recordsTheMemberThatFirstFloodedAWriterUntilItsFeedIsForgotten() {
+	public void recordsTheMembersThatFirstFloodedAWriterUntilItsFeedIsForgotten() {
 		final ChainFleet fleet = ChainFleet.group();
-		final EmbeddedChannel client = fleet.client("gn-0", 1);
+		final EmbeddedChannel viaFirst = fleet.client("gn-0", 1);
+		final EmbeddedChannel viaSecond = fleet.client("gn-3", 1);
 		final FeedWriter feed = new FeedWriter(ChainFleet.key(1), fleet.chain());
 		final List<Entry> first = ChainFleet.write(feed, 1, ChainFleet.NOW);
 		final Entry last = feed.writeLast(ChainFleet.NOW, ChainFleet.TAG, ChainFleet.padded(new byte[] { 1 },
@@ -887,16 +889,43 @@ public class ChainHostFloodTest {
 		final HostedChain attached = fleet.host("gn-0").hosted(fleet.chain()).orElseThrow();
 		final HostedChain other = fleet.host("gn-2").hosted(fleet.chain()).orElseThrow();
 
-		post(fleet, client, first);
-		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-3"), List.of(last));
+		receiveFrom(fleet.host("gn-0"), viaFirst, first);
+		receiveFrom(fleet.host("gn-3"), viaSecond, first);
+		fleet.deliver();
+		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-1"), List.of(last));
 
 		assertThat(other.getChain().heads().get(feed.writer()).last(), is(true));
-		assertThat(other.firstFrom(feed.writer()), is(Optional.of(fleet.stream("gn-2", "gn-0"))));
-		assertThat(attached.firstFrom(feed.writer()), is(Optional.empty()));
+		assertThat(other.firstFlooders(feed.writer()), is(Set.of(fleet.stream("gn-2", "gn-0"),
+			fleet.stream("gn-2", "gn-3"))));
+		assertThat(attached.firstFlooders(feed.writer()), is(Set.of(fleet.stream("gn-0", "gn-3"))));
 
 		fleet.clock.addAndGet(BEYOND_RETENTION_MILLIS);
 		fleet.host("gn-2").maintain();
 
-		assertThat(other.firstFrom(feed.writer()), is(Optional.empty()));
+		assertThat(other.firstFlooders(feed.writer()), is(empty()));
+	}
+
+	/* A copy of the head of a feed passes as a duplicate before any signature is checked, so a member that sends a
+	   forged one takes no place among the first flooders */
+	@Example
+	@SneakyThrows
+	public void takesNoForgedDuplicateForAFirstFlooder() {
+		final ChainFleet fleet = ChainFleet.group();
+		final Entry entry = write(fleet, 1).get(0);
+		final byte[] encoded = EntryCodec.encode(entry);
+		final HostedChain hosted = fleet.host("gn-2").hosted(fleet.chain()).orElseThrow();
+
+		encoded[encoded.length - 1] ^= 1;
+
+		final Entry forged = EntryCodec.decode(encoded, MAX_ENTRY_BYTES);
+
+		assertThat(forged.isAuthentic(), is(false));
+		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-0"), List.of(entry));
+		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-1"), List.of(forged));
+		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-3"), List.of(entry));
+		receiveFrom(fleet.host("gn-2"), fleet.stream("gn-2", "gn-1"), List.of(entry));
+
+		assertThat(hosted.firstFlooders(entry.header().writer()), is(Set.of(fleet.stream("gn-2", "gn-0"),
+			fleet.stream("gn-2", "gn-3"))));
 	}
 }
