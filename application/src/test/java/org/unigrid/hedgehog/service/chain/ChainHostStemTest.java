@@ -49,6 +49,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;
@@ -829,5 +830,15 @@ public class ChainHostStemTest {
 		assertThat(stem(fleet, RELAY, "gn-1", packet), equalTo(List.of(EntryRefused.of(packet.get(2),
 			Admission.FULL))));
 		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(packet.subList(0, 2)));
+	}
+
+	/* A host given one generator draws the stem from another seeded by it, so hosts given different generators do not
+	   draw the same modes and successors, and hosts given equal ones draw alike */
+	@Example
+	public void drawsTheStemFromAGeneratorSeededByTheOneItIsGiven() {
+		final List<Long> first = ChainHost.Draws.of(new Random(1)).stem().longs(8).boxed().toList();
+
+		assertThat(ChainHost.Draws.of(new Random(1)).stem().longs(8).boxed().toList(), equalTo(first));
+		assertThat(ChainHost.Draws.of(new Random(2)).stem().longs(8).boxed().toList(), is(not(equalTo(first))));
 	}
 }

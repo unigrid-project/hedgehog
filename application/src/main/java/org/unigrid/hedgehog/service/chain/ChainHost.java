@@ -159,6 +159,12 @@ public class ChainHost implements ChainService {
 	   they can be foreseen, so a host of its own draws them from a strong source */
 	record Draws(RandomGenerator picks, RandomGenerator stem) {
 		/* Two generators, so that a test which decides the member a host picks does not decide the stem with it */
+
+		/* The stem drawn from a generator seeded by the one for the picks, so that hosts given different ones draw
+		   unlike each other */
+		static Draws of(final RandomGenerator picks) {
+			return new Draws(picks, new Random(picks.nextLong()));
+		}
 	}
 
 	@Inject
@@ -183,7 +189,7 @@ public class ChainHost implements ChainService {
 		final LongSupplier clock, final RandomGenerator random, final ScheduledExecutorService scheduler,
 		final Executor deliveryExecutor) {
 
-		this(settings, directory, transport, clock, new Draws(random, new Random(0)), scheduler, deliveryExecutor);
+		this(settings, directory, transport, clock, Draws.of(random), scheduler, deliveryExecutor);
 	}
 
 	ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory, final ChainTransport transport,
