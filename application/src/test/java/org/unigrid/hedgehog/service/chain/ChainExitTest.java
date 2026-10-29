@@ -70,6 +70,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -221,9 +222,13 @@ public class ChainExitTest {
 		}
 
 		private ChainExit exit(final LongSupplier clock, final Executor resolving) {
-			return new ChainExit(fleet.host(EXIT), fleet.settings::get, ChainFleet.sealingKey(EXIT), clock,
-				new SecureRandom(), new ExitContexts(DestinationPolicy.allowLoopback(), connector, resolving,
-				() -> released.set(true), this::associate), scheduler);
+			return exit(fleet.settings::get, clock, resolving);
+		}
+
+		private ChainExit exit(final ProxySettingsSource proxy, final LongSupplier clock, final Executor resolving) {
+			return new ChainExit(fleet.host(EXIT), proxy, ChainFleet.sealingKey(EXIT), clock, new SecureRandom(),
+				new ExitContexts(DestinationPolicy.allowLoopback(), connector, resolving, () -> released.set(true),
+				this::associate), scheduler);
 		}
 
 		private void associate(final UdpConnector.Listener listener) {
@@ -767,6 +772,120 @@ public class ChainExitTest {
 		});
 	}
 
+	/* No two sessions of the exit share a writer, so its feeds on the chain do not tell which sessions one exit
+	   relays: each session writes its answer and all that follows as a writer of its own */
+	@Example
+	public void eachSessionHasItsOwnWriter() {
+		final Rig rig = new Rig();
+		final Caller first = rig.caller(1);
+		final Caller second = rig.caller(2);
+
+		first.open();
+		rig.connector.connect();
+		first.another();
+		rig.connector.connect();
+		second.open();
+		rig.connector.connect();
+		rig.drive();
+
+		final List<WriterId> writers = rig.answers(rig.fleet.chain()).stream().map(answer -> answer.header().writer())
+			.toList();
+		final Map<WriterId, Long> written = rig.entries(rig.fleet.chain()).stream()
+			.map(entry -> entry.header().writer()).filter(writers::contains)
+			.collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+		assertThat(Set.copyOf(writers), hasSize(3));
+		assertThat(written, equalTo(writers.stream().collect(Collectors.toMap(Function.identity(), writer -> 2L))));
+		assertThat(first.received, contains(CONNECTED, CONNECTED));
+		assertThat(second.received, contains(CONNECTED));
+	}
+
+	/* A session that ended takes its writer with it: a member that refuses an entry of that writer afterwards gets
+	   nothing offered again under it */
+	@Example
+	public void postsNothingMoreAsTheWriterOfASessionThatEnded() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+
+		final WriterId writer = rig.answers(rig.fleet.chain()).get(0).header().writer();
+		final Entry last = rig.entries(rig.fleet.chain()).stream().filter(entry -> entry.header().writer()
+			.equals(writer)).reduce((earlier, later) -> later).orElseThrow();
+
+		caller.session().close(CloseReason.DONE);
+		rig.drive();
+		rig.exit.tick();
+		rig.fleet.host(EXIT).refused(rig.stream, EntryRefused.of(last, Admission.FULL));
+		rig.exit.tick();
+		rig.exit.tick();
+
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat((Object) rig.stream.readOutbound(), is(nullValue()));
+	}
+
+	/* The Close of a session whose chain had no room waits in the outbox of the session, which outlives the relay
+	   until the chain takes what waits in it */
+	@Example
+	public void placesTheCloseOfASessionThatEndedWhileItsChainHadNoRoom() {
+		/* The opening, the answer, the Connect and the Connected fill the chain */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(4)));
+		final Caller caller = rig.caller(1);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+		rig.fleet.clock.addAndGet(10_000);
+		rig.connector.requests.get(0).listener().closed();
+		rig.exit.tick();
+		rig.drive();
+
+		assertThat(caller.received, contains(CONNECTED));
+		assertThat(rig.exit.openRelays(), is(0));
+		assertThat(rig.exit.heldRelays(), is(1));
+
+		rig.fleet.clock.addAndGet(21_000);
+		rig.fleet.host(EXIT).maintain();
+		rig.exit.tick();
+		rig.drive();
+
+		assertThat(caller.received, contains(CONNECTED, DONE));
+		assertThat(rig.exit.heldRelays(), is(0));
+	}
+
+	/* The entries of this exit's own writers are no openings, those of a session that ended too: a chain the host
+	   rebuilt takes them in again from a member, and none of them gets as far as the trial of an opening, which
+	   reads the settings first */
+	@Example
+	public void triesNoEntryOfItsOwnWritersAsAnOpening() {
+		final AtomicInteger reads = new AtomicInteger();
+		final ChainFleet fleet = ChainFleet.group();
+		final Rig rig = new Rig(fleet, built -> built.exit(() -> {
+			reads.incrementAndGet();
+			return fleet.settings.get();
+		}, fleet.clock::get, Runnable::run));
+
+		rig.caller(1).open();
+		rig.connector.connect();
+		rig.drive();
+
+		final WriterId writer = rig.answers(rig.fleet.chain()).get(0).header().writer();
+		final List<Entry> own = rig.entries(rig.fleet.chain()).stream().filter(entry -> entry.header().writer()
+			.equals(writer)).toList();
+
+		rig.fleet.settings.set(Optional.of(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 31, 3)));
+		rig.fleet.host(EXIT).refresh();
+		rig.exit.tick();
+		reads.set(0);
+		own.forEach(rig::offer);
+
+		assertThat(own, hasSize(2));
+		assertThat(rig.entries(rig.fleet.chain()).containsAll(own), is(true));
+		assertThat(reads.get(), is(0));
+	}
+
 	@Example
 	public void forgetsARelayOnceItsSessionEnded() {
 		final Rig rig = new Rig();
@@ -1208,10 +1327,10 @@ public class ChainExitTest {
 		assertThat(rig.entries(rig.fleet.chain()), hasSize(8));
 	}
 
-	/* A member had no room for an entry of the exit's feed, which pauses the feed until the tick offers the entries
-	   again */
+	/* A member had no room for an entry of one session's writer, which pauses that writer alone: a session that
+	   opens meanwhile writes as a writer of its own and reads its destination at once */
 	@Example
-	public void startsARelayPausedWhileItsChainTakesNothingFromTheExit() {
+	public void startsARelayUnpausedWhileAMemberRefusedTheWriterOfAnotherSession() {
 		final Rig rig = new Rig();
 
 		rig.caller(1).open();
@@ -1221,12 +1340,11 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
-		assertThat(target.readable, is(false));
-
-		rig.exit.tick();
 		assertThat(target.readable, is(true));
 	}
 
+	/* A session that opens on the chain the host rebuilt writes as a writer of its own, and the tick ends the sessions
+	   on the old chain */
 	@Example
 	public void startsAFeedOfItsOwnOnAChainTheHostRebuiltAndEndsTheSessionsOfTheOldOne() {
 		final Rig rig = new Rig();
@@ -1245,17 +1363,16 @@ public class ChainExitTest {
 		rig.connector.connect();
 		rig.drive();
 
-		assertThat(old.closed, is(true));
 		assertThat(caller.received, contains(CONNECTED));
 		assertThat(rig.answers(rig.fleet.chain()).get(0).header().writer(), not(feed));
 
 		rig.exit.tick();
+		assertThat(old.closed, is(true));
 		assertThat(rig.exit.heldRelays(), is(1));
-		assertThat(rig.exit.heldChains(), is(1));
 	}
 
 	/* What the destination sent waited for room longer than the chain keeps entries, so the chain will never take it:
-	   the tick ends the sessions of that feed as it does those of a chain the host dropped, and the next OPEN gets a
+	   the tick ends the session of that feed as it does those of a chain the host dropped, and the next OPEN gets a
 	   feed of its own */
 	@Example
 	public void endsTheSessionsOfAFeedWhoseEntryWaitedTooLongAndStartsAFeedOfItsOwn() {
@@ -1278,7 +1395,6 @@ public class ChainExitTest {
 
 		assertThat(old.closed, is(true));
 		assertThat(rig.exit.heldRelays(), is(0));
-		assertThat(rig.exit.heldChains(), is(0));
 
 		final Caller caller = rig.caller(2);
 
@@ -1289,14 +1405,13 @@ public class ChainExitTest {
 		assertThat(caller.received, contains(CONNECTED));
 		assertThat(rig.answers(rig.fleet.chain()).stream().map(accept -> accept.header().writer())
 			.toList(), everyItem(not(feed)));
-		assertThat(rig.exit.heldChains(), is(1));
 	}
 
-	/* The exit's writer holds the latest time it stamped, so once the clock stepped back further than the chain keeps
-	   entries the chain takes nothing more of that feed: an OPEN that arrives before the next tick already gets a feed
-	   of its own, and the sessions of the old one end */
+	/* A session's writer holds the latest time it stamped, so once the clock stepped back further than the chain keeps
+	   entries the chain takes nothing more of that feed and the tick ends the session. A session that opens meanwhile
+	   writes as a writer of its own. */
 	@Example
-	public void startsAFeedOfItsOwnAtOnceWhenTheClockSteppedBackFurtherThanTheChainKeepsEntries() {
+	public void endsTheSessionWhoseWriterTheClockSteppedBackFurtherThanTheChainKeepsEntries() {
 		final Rig rig = new Rig();
 		final Caller first = rig.caller(1);
 
@@ -1319,15 +1434,14 @@ public class ChainExitTest {
 		rig.connector.connect();
 		rig.drive();
 
-		assertThat(old.closed, is(true));
 		assertThat(first.received, contains(CONNECTED, new Data(new byte[] { 1 })));
 		assertThat(caller.received, contains(CONNECTED));
 		assertThat(rig.answers(rig.fleet.chain()).stream().map(accept -> accept.header().writer())
 			.toList(), everyItem(not(feed)));
 
 		rig.exit.tick();
+		assertThat(old.closed, is(true));
 		assertThat(rig.exit.heldRelays(), is(1));
-		assertThat(rig.exit.heldChains(), is(1));
 	}
 
 	@Example
@@ -1344,7 +1458,6 @@ public class ChainExitTest {
 
 		assertThat(target.closed, is(true));
 		assertThat(rig.exit.heldRelays(), is(0));
-		assertThat(rig.exit.heldChains(), is(0));
 	}
 
 	@Example

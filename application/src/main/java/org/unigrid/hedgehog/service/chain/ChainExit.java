@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -63,10 +64,10 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
    session opens, is ticked once a second, closed for a gap in its client's feed that names it and forgotten once it
    ended. Nothing on the chain names the exit, so every entry that no relay recognises is tried as an opening: one key
    agreement and one tag check for each entry of the smallest class, which is what an opening fills, and the host
-   already caps how many entries a stream brings in each second. The sessions of a chain write through one feed of
-   this node, each under tags of its own.
+   already caps how many entries a stream brings in each second. Each session writes as a writer of its own, so the
+   feeds on a chain do not tell which sessions one exit relays.
 
-   The outbox of a feed does not bound what waits in it, and the relays hear of a pause at the next tick, so in the
+   The outbox of a session does not bound what waits in it, and the relays hear of a pause at the next tick, so in the
    worst case the exit holds one second of what all its destinations send. */
 @Slf4j @Eager @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
@@ -99,18 +100,20 @@ public class ChainExit implements ChainDrain {
 	   it from a second answer, which holds once it is OPENING_MAX_AGE_MILLIS old. */
 	static final int MAX_ANSWERED = 4096;
 
+	/* The most writers of ended sessions that are still known as this node's own. Past it the eldest is let go, and an
+	   entry of it that comes back is tried as an opening, which it is not. */
+	static final int MAX_ENDED_WRITERS = 4096;
+
 	private static final int TICK_SECONDS = 1;
 
 	private record RelayKey(ChainId chainId, WriterId clientWriter, long session) {
 		/* One session of a client's writer on a chain, numbered in the order this node answered them */
 	}
 
-	private record ExitChain(Chain chain, FeedWriter writer, ChainOutbox outbox) {
-		/* This node's feed on one chain, where every session it accepts there writes */
-	}
-
-	private record Relayed(ExitChain feed, Session session, ExitRelay relay, long acceptedAt, AtomicBoolean heard) {
-		/* An accepted session, when its answer went out and whether its client was heard from since */
+	private record Relayed(Chain chain, FeedWriter writer, ChainOutbox outbox, Session session, ExitRelay relay,
+		long acceptedAt, AtomicBoolean heard) {
+		/* An accepted session on the chain it was answered on, the writer it writes as and the outbox of that
+		   writer, when its answer went out and whether its client was heard from since */
 	}
 
 	private record Opening(ChainId chainId, ByteBuffer message) {
@@ -124,9 +127,22 @@ public class ChainExit implements ChainDrain {
 	private final SecureRandom random;
 	private final ExitContexts contexts;
 	private final ScheduledExecutorService scheduler;
-	private final Map<ChainId, ExitChain> chains = new ConcurrentHashMap<>();
 	private final Map<RelayKey, Relayed> relays = new ConcurrentHashMap<>();
 	private final AtomicLong sessions = new AtomicLong();
+
+	/* The writers of the sessions that ended, oldest first, and until when their entries may still come back to this
+	   node, as a chain the host rebuilt takes them in again from the members until they age out */
+	private final Map<WriterId, Long> ended = Collections.synchronizedMap(new LinkedHashMap<>() {
+		@Override
+		protected boolean removeEldestEntry(final Map.Entry<WriterId, Long> eldest) {
+			return size() > MAX_ENDED_WRITERS;
+		}
+	});
+
+	/* The key of the writer that the next session takes. An entry is tried as an opening under it, as the answer names
+	   the writer, and another is drawn only once a session took it, so an entry that opens nothing draws no key. Only
+	   accept reads and writes it, under the monitor of this exit. */
+	private WriterKey spare;
 
 	/* The openings this node answered and when, oldest first, kept for the retention of their chain, and at least as
 	   long as an opening stays young, whatever became of their relays and their chain: a chain the host rebuilt
@@ -185,16 +201,12 @@ public class ChainExit implements ChainDrain {
 		return relays.size();
 	}
 
-	int heldChains() {
-		return chains.size();
-	}
-
 	/* The host tells the entries of a chain one at a time and in the order the chain appended them, so the session an
 	   opening starts is registered before the next entry of the chain, its client's Connect among them, is told. An
-	   entry of this node's own feed is no opening, and one of a client that a relay of that client recognises goes to
-	   that relay, which also breaks on an entry past the next one. */
+	   entry of a writer of this node's sessions is no opening, and one of a client that a relay of that client
+	   recognises goes to that relay, which also breaks on an entry past the next one. */
 	void appended(final ChainId chainId, final Entry entry) {
-		if (stopped || isOwn(chainId, entry.header().writer())) {
+		if (stopped || isOwn(entry.header().writer())) {
 			return;
 		}
 
@@ -213,9 +225,11 @@ public class ChainExit implements ChainDrain {
 		return key.chainId().equals(chainId) && key.clientWriter().equals(clientWriter);
 	}
 
-	private boolean isOwn(final ChainId chainId, final WriterId writer) {
-		return Optional.ofNullable(chains.get(chainId)).filter(feed -> feed.writer().writer().equals(writer))
-			.isPresent();
+	/* The writers of the sessions that ended count as well, as a chain the host rebuilt takes their entries in again.
+	   A relay is let go of only once its writer is in that record, so the writer counts as this node's all along. */
+	private boolean isOwn(final WriterId writer) {
+		return ended.containsKey(writer)
+			|| relays.values().stream().anyMatch(relayed -> relayed.writer().writer().equals(writer));
 	}
 
 	/* The Close of a session that failed to open an entry of its client reaches the relay like any message. A relay
@@ -278,20 +292,24 @@ public class ChainExit implements ChainDrain {
 		closeChain(chainId, CloseReason.DONE);
 	}
 
-	/* Run once a second: ends the sessions of the chains the host dropped or rebuilt and of the feeds that ended,
-	   places what the outboxes hold, ticks every relay and forgets the relays that ended */
+	/* Run once a second: ends the sessions on the chains the host dropped or rebuilt and those whose feed ended, places
+	   what the outboxes hold, ticks every relay and lets go of the relays that ended, each with its writer and its
+	   outbox once the outbox has nothing left to place: the Close of a session whose chain had no room waits there. */
 	void tick() {
 		final long now = clock.getAsLong();
 
-		chains.values().stream().filter(this::isStale).toList().forEach(this::retire);
-		chains.values().forEach(feed -> guarded(feed.outbox()::tick));
+		relays.values().stream().filter(relayed -> relayed.relay().isOpen() && isStale(relayed))
+			.forEach(relayed -> guarded(() -> relayed.relay().close(CloseReason.BROKEN)));
+		relays.values().forEach(relayed -> guarded(relayed.outbox()::tick));
 		relays.values().forEach(relayed -> guarded(() -> tick(relayed, now)));
-		relays.values().removeIf(relayed -> !relayed.relay().isOpen());
+		relays.entrySet().stream().filter(held -> isDone(held.getValue())).toList()
+			.forEach(held -> letGo(held.getKey(), held.getValue(), now));
+		forgetEnded(now);
 	}
 
-	/* An outbox tells a change of its writability once, so its level is handed to each of its relays every second */
+	/* An outbox tells a change of its writability once, so its level is handed to its relay every second */
 	private static void tick(final Relayed relayed, final long now) {
-		relayed.relay().setChainWritable(relayed.feed().outbox().isWritable());
+		relayed.relay().setChainWritable(relayed.outbox().isWritable());
 		relayed.relay().tick();
 
 		if (!relayed.heard().get() && now - relayed.acceptedAt() >= CONNECT_ARRIVAL_MILLIS) {
@@ -315,8 +333,8 @@ public class ChainExit implements ChainDrain {
 				OPENING_MAX_AGE_MILLIS + CLOCK_SKEW_MILLIS));
 
 			if (!answered.containsKey(opening)) {
-				sealingKey.privateKey().ifPresent(key -> host.chain(chainId).map(this::feedOn)
-					.ifPresent(feed -> answer(feed, entry, opening, key, proxy.get())));
+				sealingKey.privateKey().ifPresent(key -> host.chain(chainId)
+					.ifPresent(chain -> answer(chain, entry, opening, key, proxy.get())));
 			}
 		}
 	}
@@ -364,7 +382,7 @@ public class ChainExit implements ChainDrain {
 	   silent, as it would for an opening that is not for it, and the client moves on after its timeout. */
 	private boolean hasRoom(final ChainId chainId, final WriterId writer) {
 		return relays.size() < MAX_RELAYS
-			&& held(relayed -> relayed.feed().chain().id().equals(chainId)) < RELAYS_PER_CHAIN
+			&& held(relayed -> relayed.chain().id().equals(chainId)) < RELAYS_PER_CHAIN
 			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER;
 	}
 
@@ -374,59 +392,65 @@ public class ChainExit implements ChainDrain {
 
 	/* The relays this node holds on one chain */
 	private Stream<Relayed> relaysOn(final ChainId chainId) {
-		return relays.values().stream().filter(relayed -> relayed.feed().chain().id().equals(chainId));
+		return relays.values().stream().filter(relayed -> relayed.chain().id().equals(chainId));
 	}
 
-	/* The relay hears whether the chain takes what it sends before it hears the client */
-	private void answer(final ExitChain feed, final Entry entry, final Opening opening, final byte[] key,
+	/* The session writes as the spare writer, which goes back for the next trial when the entry opens nothing. The
+	   relay hears whether the chain takes what it sends before it hears the client. The tick hands the outbox's level
+	   to the relay right after the outbox ticked, which is where it would tell a change, so it tells nobody. */
+	private void answer(final Chain chain, final Entry entry, final Opening opening, final byte[] key,
 		final ProxySettings proxy) {
 
-		final SessionContext context = new SessionContext(feed.writer(), feed.outbox(), clock, random, proxy);
+		final WriterKey taken = takeSpare();
+		final FeedWriter writer = new FeedWriter(taken, chain.id());
+		final ChainOutbox outbox = new ChainOutbox(host, chain.id(), writer.writer(), writable -> { });
+		final SessionContext context = new SessionContext(writer, outbox, clock, random, proxy);
+		final Optional<Session> accepted = Session.tryAccept(context, entry, key);
 
-		Session.tryAccept(context, entry, key).ifPresent(session -> {
-			final ExitRelay relay = new ExitRelay(session, contexts.of(proxy));
-
-			answered.put(opening, clock.getAsLong());
-			relay.setChainWritable(feed.outbox().isWritable());
-			relays.put(new RelayKey(feed.chain().id(), session.peer(), sessions.incrementAndGet()),
-				new Relayed(feed, session, relay, clock.getAsLong(), new AtomicBoolean()));
-		});
-	}
-
-	/* This node's feed on the chain the host holds now. A chain the host rebuilt, because the spork changed its limits
-	   or the proxy was off for a while, is not the one an earlier feed went on, and a feed whose outbox ended takes
-	   nothing more: the sessions of that feed end, and a feed of its own starts on the chain. The tick hands the
-	   outbox's level to the relays right after the outbox ticked, which is where it would tell a change, so it tells
-	   nobody. */
-	private ExitChain feedOn(final Chain chain) {
-		final ExitChain known = chains.get(chain.id());
-
-		if (known != null && known.chain() == chain && !known.outbox().hasEnded()) {
-			return known;
+		if (accepted.isEmpty()) {
+			spare = taken;
+			return;
 		}
 
-		if (known != null) {
-			retire(known);
+		final Session session = accepted.get();
+		final ExitRelay relay = new ExitRelay(session, contexts.of(proxy));
+
+		answered.put(opening, clock.getAsLong());
+		relay.setChainWritable(outbox.isWritable());
+		relays.put(new RelayKey(chain.id(), session.peer(), sessions.incrementAndGet()),
+			new Relayed(chain, writer, outbox, session, relay, clock.getAsLong(), new AtomicBoolean()));
+	}
+
+	/* A spare that a failure took along is never handed out again, as its writer may have posted */
+	private WriterKey takeSpare() {
+		final WriterKey taken = spare == null ? WriterKey.generate(random) : spare;
+
+		spare = null;
+		return taken;
+	}
+
+	/* A chain the host rebuilt, because the spork changed its limits or the proxy was off for a while, is not the one
+	   the session went on, and a feed whose outbox ended takes nothing more */
+	private boolean isStale(final Relayed relayed) {
+		return relayed.outbox().hasEnded() || host.chain(relayed.chain().id())
+			.filter(chain -> chain == relayed.chain()).isEmpty();
+	}
+
+	/* A relay that ended has posted all it will, so it is done once its outbox placed what waited or ended */
+	private static boolean isDone(final Relayed relayed) {
+		return !relayed.relay().isOpen() && (relayed.outbox().hasEnded() || relayed.outbox().isWritable());
+	}
+
+	/* What the writer of the session posted may come back for as long as its chain keeps entries */
+	private void letGo(final RelayKey key, final Relayed relayed, final long now) {
+		ended.put(relayed.writer().writer(), now + relayed.chain().limits().retentionMillis());
+		relays.remove(key, relayed);
+	}
+
+	private void forgetEnded(final long now) {
+		synchronized (ended) {
+			ended.values().removeIf(until -> until < now);
 		}
-
-		final FeedWriter writer = new FeedWriter(WriterKey.generate(random), chain.id());
-		final ExitChain feed = new ExitChain(chain, writer, new ChainOutbox(host, chain.id(), writer.writer(),
-			writable -> { }));
-
-		chains.put(chain.id(), feed);
-		return feed;
-	}
-
-	private boolean isStale(final ExitChain feed) {
-		return feed.outbox().hasEnded() || host.chain(feed.chain().id()).filter(chain -> chain == feed.chain())
-			.isEmpty();
-	}
-
-	/* What the sessions of a feed whose chain is gone or whose outbox ended write reaches nobody */
-	private void retire(final ExitChain feed) {
-		chains.remove(feed.chain().id(), feed);
-		relays.values().stream().filter(relayed -> relayed.feed() == feed)
-			.forEach(relayed -> guarded(() -> relayed.relay().close(CloseReason.BROKEN)));
 	}
 
 	/* A relay, a feed or a tick that fails is logged by the class of the failure alone, as a message may name a
