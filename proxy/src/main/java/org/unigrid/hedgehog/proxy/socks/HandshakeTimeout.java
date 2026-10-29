@@ -23,11 +23,11 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-/* A client that connects and then says nothing, or stalls in the middle of its greeting or its command, would hold
-   its connection for as long as it likes. The handshake therefore has a deadline from the moment the connection
-   exists, however slowly the bytes trickle in, and it ends with the command: the handler sits behind the command
-   decoder, so the first message it sees is that command. What follows, the tunnel's answer and the open stream,
-   is bounded by the tunnel, not here. */
+/* A client that connects and then says nothing, or stalls in the middle of its greeting, its credentials or its
+   command, would hold its connection for as long as it likes. The handshake therefore has a deadline from the
+   moment the connection exists, however slowly the bytes trickle in, and it ends with the command: the handler
+   sits behind the command decoder, so the first message it sees is that command. What follows, the tunnel's
+   answer and the open stream, is bounded by the tunnel, not here. */
 final class HandshakeTimeout extends ChannelInboundHandlerAdapter {
 	private final long millis;
 	private ScheduledFuture<?> deadline;

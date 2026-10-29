@@ -26,6 +26,9 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandRequest;
 import io.netty.handler.codec.socksx.v5.Socks5CommandRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5InitialRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5InitialResponse;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequestDecoder;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthResponse;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthStatus;
 import io.netty.util.ReferenceCountUtil;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,15 +43,22 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
 public class SocksGreetingTest {
 	/* CONNECT to 192.0.2.1 port 80 */
 	private static final byte[] CONNECT = { 5, 1, 0, 1, (byte) 192, 0, 2, 1, 0, 80 };
 
+	/* The username SE with an empty password */
+	private static final byte[] CREDENTIALS = { 1, 2, 'S', 'E', 0 };
+
+	private static final int GSSAPI = 1;
+	private static final int PASSWORD = 2;
+
 	private static EmbeddedChannel channel() {
 		return new EmbeddedChannel(new Socks5InitialRequestDecoder(), new SocksGreetingHandler(),
-			new Socks5CommandRequestDecoder());
+			new Socks5PasswordAuthRequestDecoder(), new SocksPasswordHandler(), new Socks5CommandRequestDecoder());
 	}
 
 	private static byte[] greeting(List<Integer> methods) {
@@ -71,9 +81,16 @@ public class SocksGreetingTest {
 		return method;
 	}
 
+	/* Methods the proxy does not serve: everything but NO AUTH and USERNAME/PASSWORD */
 	@Provide
 	public Arbitrary<List<Integer>> authenticating() {
-		return Arbitraries.integers().between(1, 255).list().ofMinSize(1).ofMaxSize(20);
+		return Arbitraries.integers().between(1, 255).filter(method -> method != PASSWORD).list().ofMinSize(1)
+			.ofMaxSize(20);
+	}
+
+	@Provide
+	public Arbitrary<List<Integer>> anyMethods() {
+		return Arbitraries.integers().between(0, 255).list().ofMinSize(1).ofMaxSize(20);
 	}
 
 	@Example
@@ -85,6 +102,61 @@ public class SocksGreetingTest {
 		assertThat(channel.pipeline().get(SocksGreetingHandler.class), is(nullValue()));
 		assertThat(channel.pipeline().get(Socks5InitialRequestDecoder.class), is(nullValue()));
 		assertThat(channel.isOpen(), is(true));
+	}
+
+	/* The credentials are not for the command decoder to read, nor the command for the credentials' */
+	@Example
+	public void shouldTakeTheSubNegotiationOutOfThePipelineOfAClientThatNeedsNone() {
+		final EmbeddedChannel channel = channel();
+
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(0)), CONNECT));
+		assertThat(answer(channel), is(Socks5AuthMethod.NO_AUTH));
+		assertThat(channel.pipeline().get(Socks5PasswordAuthRequestDecoder.class), is(nullValue()));
+		assertThat(channel.pipeline().get(SocksPasswordHandler.class), is(nullValue()));
+		assertThat(channel.readInbound(), instanceOf(Socks5CommandRequest.class));
+	}
+
+	@Example
+	public void prefersPasswordWhenOffered() {
+		final EmbeddedChannel channel = channel();
+
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(0, PASSWORD))));
+		assertThat(answer(channel), is(Socks5AuthMethod.PASSWORD));
+		assertThat(channel.pipeline().get(SocksGreetingHandler.class), is(nullValue()));
+		assertThat(channel.pipeline().get(Socks5InitialRequestDecoder.class), is(nullValue()));
+		assertThat(channel.pipeline().get(Socks5PasswordAuthRequestDecoder.class), is(notNullValue()));
+		assertThat(channel.pipeline().get(SocksPasswordHandler.class), is(notNullValue()));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Property(tries = 50)
+	public void shouldPickPasswordAmongAnyOtherMethods(@ForAll("anyMethods") List<Integer> others,
+		@ForAll int position) {
+		final List<Integer> methods = new ArrayList<>(others);
+		final EmbeddedChannel channel = channel();
+
+		methods.add(Math.floorMod(position, methods.size() + 1), PASSWORD);
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(methods)));
+		assertThat(answer(channel), is(Socks5AuthMethod.PASSWORD));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Example
+	public void shouldReadTheCredentialsAndTheCommandSentAlongWithThePasswordGreeting() {
+		final EmbeddedChannel channel = channel();
+
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(0, PASSWORD)), CREDENTIALS, CONNECT));
+		assertThat(((Socks5InitialResponse) channel.readOutbound()).authMethod(), is(Socks5AuthMethod.PASSWORD));
+
+		final Socks5PasswordAuthResponse accepted = channel.readOutbound();
+
+		assertThat(accepted.status(), is(Socks5PasswordAuthStatus.SUCCESS));
+		assertThat(channel.attr(SocksPasswordHandler.COUNTRY).get(), is("SE"));
+
+		final Socks5CommandRequest request = channel.readInbound();
+
+		assertThat(request.dstAddr(), is("192.0.2.1"));
+		assertThat(request.dstPort(), is(80));
 	}
 
 	@Property(tries = 50)
@@ -113,9 +185,10 @@ public class SocksGreetingTest {
 	public void shouldHangUpOnlyOnceTheRefusalIsSent() {
 		final HeldWrites held = new HeldWrites();
 		final EmbeddedChannel channel = new EmbeddedChannel(held, new Socks5InitialRequestDecoder(),
-			new SocksGreetingHandler(), new Socks5CommandRequestDecoder());
+			new SocksGreetingHandler(), new Socks5PasswordAuthRequestDecoder(), new SocksPasswordHandler(),
+			new Socks5CommandRequestDecoder());
 
-		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(2))));
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(GSSAPI))));
 		assertThat(channel.isOpen(), is(true));
 		held.release();
 		assertThat(answer(channel), is(Socks5AuthMethod.UNACCEPTED));
@@ -148,7 +221,7 @@ public class SocksGreetingTest {
 	public void shouldNeverReadACommandBehindARefusedGreeting() {
 		final EmbeddedChannel channel = channel();
 
-		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(2)), CONNECT));
+		channel.writeInbound(Unpooled.wrappedBuffer(greeting(List.of(GSSAPI)), CONNECT));
 		assertThat(answer(channel), is(Socks5AuthMethod.UNACCEPTED));
 
 		for (Object inbound = channel.readInbound(); inbound != null; inbound = channel.readInbound()) {
@@ -159,7 +232,7 @@ public class SocksGreetingTest {
 
 	@Example
 	public void shouldFindNoAuthLastAmongAsManyMethodsAsAGreetingHolds() {
-		final List<Integer> methods = new ArrayList<>(Collections.nCopies(254, 2));
+		final List<Integer> methods = new ArrayList<>(Collections.nCopies(254, GSSAPI));
 		final EmbeddedChannel channel = channel();
 
 		methods.add(0);

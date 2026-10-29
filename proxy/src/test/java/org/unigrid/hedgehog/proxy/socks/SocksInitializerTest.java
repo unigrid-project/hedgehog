@@ -56,6 +56,7 @@ import static org.hamcrest.Matchers.is;
 /* Raw SOCKS5 bytes through the whole pipeline, as a client such as curl sends them */
 public class SocksInitializerTest {
 	private static final byte[] NO_AUTH_GREETING = { 5, 1, 0 };
+	private static final byte[] EMPTY_CREDENTIALS = { 1, 0, 0 };
 	private static final byte[] CONNECT_EXAMPLE_ORG = { 5, 1, 0, 3, 11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'o',
 		'r', 'g', 1, (byte) 0xbb };
 	private static final SocksAddress BOUND = new SocksAddress(Socks5AddressType.IPv4, "192.0.2.7", 40_000);
@@ -179,11 +180,35 @@ public class SocksInitializerTest {
 	}
 
 	@Example
-	public void shouldTurnAwayAClientThatInsistsOnAPassword() {
+	public void shouldTurnAwayAClientThatInsistsOnAMethodItDoesNotServe() {
 		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(new EchoTunnel()));
 
-		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }));
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 1 }));
 		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, (byte) 0xff }));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	@Example
+	public void shouldServeAClientThatOffersBothMethodsWithoutACountry() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 2, 0, 2 }, EMPTY_CREDENTIALS,
+			CONNECT_EXAMPLE_ORG));
+		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, 2, 1, 0 }));
+		assertThat(tunnel.streams.size(), is(1));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Example
+	public void shouldTurnAwayAClientThatNamesAnUnknownCountry() {
+		final EchoTunnel tunnel = new EchoTunnel();
+		final EmbeddedChannel channel = new EmbeddedChannel(new SocksInitializer(tunnel));
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }, new byte[] { 1, 2, 'X', 'X', 0 },
+			CONNECT_EXAMPLE_ORG));
+		assertThat(SocksCommandTest.readBytes(channel), equalTo(new byte[] { 5, 2, 1, (byte) 0xff }));
+		assertThat(tunnel.streams, empty());
 		assertThat(channel.isOpen(), is(false));
 	}
 
@@ -219,6 +244,23 @@ public class SocksInitializerTest {
 		final EmbeddedChannel channel = frozen(new EchoTunnel());
 
 		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 2, 0 }));
+		assertHangsUpWhenTheDeadlinePasses(channel);
+	}
+
+	@Example
+	public void shouldHangUpOnAClientThatStallsInTheMiddleOfItsCredentials() {
+		final EmbeddedChannel channel = frozen(new EchoTunnel());
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }));
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 1, 2, 'S' }));
+		assertHangsUpWhenTheDeadlinePasses(channel);
+	}
+
+	@Example
+	public void shouldHangUpOnAClientThatStallsBetweenItsCredentialsAndItsCommand() {
+		final EmbeddedChannel channel = frozen(new EchoTunnel());
+
+		channel.writeInbound(Unpooled.wrappedBuffer(new byte[] { 5, 1, 2 }, EMPTY_CREDENTIALS));
 		assertHangsUpWhenTheDeadlinePasses(channel);
 	}
 

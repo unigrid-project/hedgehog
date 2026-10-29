@@ -22,11 +22,13 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.handler.codec.socksx.v5.Socks5CommandRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5InitialRequestDecoder;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthRequestDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5ServerEncoder;
 import java.util.Objects;
 
-/* The pipeline of one SOCKS5 client connection: the greeting, then one command, then the relay. Each
-   handler takes itself or its decoder out of the way once its part is over, and the handshake is given a deadline.
+/* The pipeline of one SOCKS5 client connection: the greeting, the credentials of a client that sends any, then one
+   command, then the relay. Each handler takes itself or its decoder out of the way once its part is over, and for
+   a client that sends no credentials the greeting removes their handlers too. The handshake is given a deadline.
    Nothing is added later, so the handler added last stays last and closes whatever connection fails. */
 public final class SocksInitializer extends ChannelInitializer<Channel> {
 	static final long HANDSHAKE_TIMEOUT_MILLIS = 10_000;
@@ -40,7 +42,8 @@ public final class SocksInitializer extends ChannelInitializer<Channel> {
 	@Override
 	protected void initChannel(Channel channel) {
 		channel.pipeline().addLast(Socks5ServerEncoder.DEFAULT, new Socks5InitialRequestDecoder(),
-			new SocksGreetingHandler(), new Socks5CommandRequestDecoder(),
-			new HandshakeTimeout(HANDSHAKE_TIMEOUT_MILLIS), new SocksCommandHandler(tunnel), QuietClose.DEFAULT);
+			new SocksGreetingHandler(), new Socks5PasswordAuthRequestDecoder(), new SocksPasswordHandler(),
+			new Socks5CommandRequestDecoder(), new HandshakeTimeout(HANDSHAKE_TIMEOUT_MILLIS),
+			new SocksCommandHandler(tunnel), QuietClose.DEFAULT);
 	}
 }
