@@ -1069,6 +1069,29 @@ public class ChainExitTest {
 		assertThat(rig.exit.openRelays(), is(1));
 	}
 
+	/* The answer had no room on the chain, waited and came too late for it, so the writer of the session never had a
+	   feed there and holds no place once its entries would have aged out */
+	@Example
+	public void leavesNoLastingPlaceForAWriterThatNeverReachedItsChain() {
+		/* An entry of a stranger and the opening fill the chain */
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(2)));
+		final ChainId chainId = rig.fleet.chain();
+
+		rig.offer(rig.stranger(1, chainId).write(ChainFleet.NOW, ChainFleet.TAG, padded(new byte[1])));
+		rig.caller(1).open();
+		assertThat(rig.exit.heldRelays(), is(1));
+
+		IntStream.of(30_000, 31_000).forEach(millis -> {
+			rig.fleet.clock.set(ChainFleet.NOW + millis);
+			rig.exit.tick();
+		});
+		assertThat(rig.exit.heldRelays() + rig.exit.drainingRelays(), is(0));
+
+		rig.fleet.clock.set(ChainFleet.NOW + 62_000);
+		rig.exit.tick();
+		assertThat(rig.exit.writersOn(chainId, rig.fleet.clock.get()), is(0L));
+	}
+
 	/* A writer may have stamped ahead before the clock stepped back, so the writer of an ended session holds its
 	   place until its latest entry aged out of the chain, and not just for a retention from when its relay went */
 	@Example

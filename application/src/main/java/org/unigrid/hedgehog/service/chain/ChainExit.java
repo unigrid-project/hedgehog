@@ -500,16 +500,20 @@ public class ChainExit implements ChainDrain {
 	/* What the writer of the session posted may come back for as long as its chain keeps entries, and a chain forgets
 	   the feed once its last entry is that old. The writer may have stamped ahead of the clock, which then stepped
 	   back, so that time runs from its latest stamp. A Close that never reached the chain, as the outbox ended or the
-	   relay went with it still waiting, leaves a feed that never ends, which holds its place for as long as the host
-	   holds the chain. The writer is in the record before its relay leaves the others. It posts nothing more, so a
-	   pause a member put on it is lifted, as nothing would ever lift it. */
+	   relay went with it still waiting, leaves a feed that never ends where the writer has one, which holds its place
+	   for as long as the host holds the chain; a writer whose answer never got there has none. The writer is in the
+	   record before its relay leaves the others. It posts nothing more, so a pause a member put on it is lifted, as
+	   nothing would ever lift it. */
 	private void letGo(final Relayed relayed, final long now) {
+		final WriterId writer = relayed.writer().writer();
 		final boolean placed = relayed.outbox().isDrained() && !relayed.outbox().hasEnded();
+		final boolean lasting = !placed && host.chain(relayed.chain().id())
+			.filter(chain -> chain.heads().containsKey(writer)).isPresent();
 		final long latest = Math.max(now, relayed.writer().timestamp());
 
-		ended.put(relayed.writer().writer(), new Ended(relayed.chain().id(),
-			placed ? latest + relayed.chain().limits().retentionMillis() : Long.MAX_VALUE));
-		host.pauses().resume(relayed.chain().id(), relayed.writer().writer());
+		ended.put(writer, new Ended(relayed.chain().id(),
+			lasting ? Long.MAX_VALUE : latest + relayed.chain().limits().retentionMillis()));
+		host.pauses().resume(relayed.chain().id(), writer);
 	}
 
 	private void forgetEnded(final long now) {
