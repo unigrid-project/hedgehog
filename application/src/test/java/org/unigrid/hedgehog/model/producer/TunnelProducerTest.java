@@ -18,7 +18,18 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.nio.file.FileSystem;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -27,12 +38,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.sameInstance;
+import org.slf4j.LoggerFactory;
+import org.unigrid.hedgehog.jqwik.Expect;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
+import org.unigrid.hedgehog.model.geo.MmdbCountryLookupTest;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
@@ -49,6 +66,7 @@ public class TunnelProducerTest {
 	private static final int WAIT_SECONDS = 10;
 	private static final String SCHEDULER = "chain-client";
 	private static final String JOINS = "chain-client-join";
+	private static final String GEOIP = "/data/geoip/country.mmdb";
 
 	/* The tunnel of a node that is no gridnode and knows no gridnodes */
 	private static Tunnel tunnel(final Optional<ProxySettings> settings) {
@@ -93,6 +111,30 @@ public class TunnelProducerTest {
 		});
 
 		return heard;
+	}
+
+	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
+	private static List<ILoggingEvent> loggedWhile(final Expect.Action action) throws Throwable {
+		TunnelProducerTest.class.getModule()
+			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(TunnelProducer.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return List.copyOf(appender.list);
+	}
+
+	private static List<Level> levels(final List<ILoggingEvent> logged) {
+		return logged.stream().map(ILoggingEvent::getLevel).toList();
 	}
 
 	private static Set<Thread> threadsNamed(final String name) {
@@ -151,5 +193,48 @@ public class TunnelProducerTest {
 		assertThat(thread.getName(), equalTo(SCHEDULER));
 		assertThat(thread.isDaemon(), is(true));
 		scheduler.shutdown();
+	}
+
+	@Example
+	@SneakyThrows
+	public void readsTheGeoipDatabaseItIsGiven() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+			InputStream fixture = TunnelProducerTest.class.getResourceAsStream(MmdbCountryLookupTest.FIXTURE)) {
+
+			final Path database = fs.getPath(GEOIP);
+
+			Files.createDirectories(database.getParent());
+			Files.copy(fixture, database);
+
+			assertThat(TunnelProducer.countryLookup(database).countryOf(InetAddress.ofLiteral("89.160.20.112")),
+				equalTo(Optional.of("SE")));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void knowsNoCountryWithoutAGeoipDatabaseAndSaysSoOnce() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final List<ILoggingEvent> logged = loggedWhile(() -> assertThat(TunnelProducer.countryLookup(
+				fs.getPath(GEOIP)), sameInstance(CountryLookup.NONE)));
+
+			assertThat(levels(logged), equalTo(List.of(Level.INFO)));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void knowsNoCountryFromAGeoipDatabaseItCannotRead() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path database = fs.getPath(GEOIP);
+
+			Files.createDirectories(database.getParent());
+			Files.write(database, new byte[64]);
+
+			final List<ILoggingEvent> logged = loggedWhile(() -> assertThat(TunnelProducer.countryLookup(database),
+				sameInstance(CountryLookup.NONE)));
+
+			assertThat(levels(logged), equalTo(List.of(Level.WARN)));
+		}
 	}
 }

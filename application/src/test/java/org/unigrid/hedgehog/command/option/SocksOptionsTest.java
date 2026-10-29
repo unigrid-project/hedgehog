@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.option;
 
+import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
@@ -28,6 +29,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import org.unigrid.hedgehog.Hedgehog;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
@@ -118,11 +120,29 @@ public class SocksOptionsTest {
 	}
 
 	@Example
+	public void shouldReadTheGeoipDatabaseOfTheDataDirectoryByDefault() {
+		hedgehog().parseArgs("daemon");
+		assertThat(SocksOptions.getGeoip(), is(ApplicationDirectory.create().getUserDataDir().resolve("geoip")
+			.resolve("country.mmdb")));
+	}
+
+	@Example
+	public void shouldReadTheGeoipDatabaseItIsGivenForOneParseOnly() {
+		hedgehog().parseArgs("daemon", "--socks-geoip", "/srv/geoip/GeoLite2-Country.mmdb");
+		assertThat(SocksOptions.getGeoip(), is(Path.of("/srv/geoip/GeoLite2-Country.mmdb")));
+
+		hedgehog().parseArgs("daemon");
+		assertThat(SocksOptions.getGeoip(), is(ApplicationDirectory.create().getUserDataDir().resolve("geoip")
+			.resolve("country.mmdb")));
+	}
+
+	@Example
 	public void shouldOfferLongNamesOnly() {
 		final CommandSpec daemon = hedgehog().getSubcommands().get("daemon").getCommandSpec();
 
 		assertThat(daemon.findOption("--socks-host").names(), arrayContaining("--socks-host"));
 		assertThat(daemon.findOption("--socks-port").names(), arrayContaining("--socks-port"));
 		assertThat(daemon.findOption("--socks-country").names(), arrayContaining("--socks-country"));
+		assertThat(daemon.findOption("--socks-geoip").names(), arrayContaining("--socks-geoip"));
 	}
 }

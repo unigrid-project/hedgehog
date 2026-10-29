@@ -21,8 +21,17 @@ package org.unigrid.hedgehog.model.producer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Singleton;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.SocksOptions;
+import org.unigrid.hedgehog.model.geo.CountryLookup;
+import org.unigrid.hedgehog.model.geo.MmdbCountryLookup;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.proxy.socks.Tunnel;
@@ -33,6 +42,7 @@ import org.unigrid.hedgehog.service.chain.ChainTunnel;
 import org.unigrid.hedgehog.service.chain.ClientSessions;
 import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
+@Slf4j
 @ApplicationScoped
 public class TunnelProducer {
 	/* Streams run over client sessions on the shard group chains. The tunnel reads the communication spork for every
@@ -49,6 +59,26 @@ public class TunnelProducer {
 
 		return new ChainTunnel(settings, new ClientSessions(client, host, settings, System::currentTimeMillis,
 			random, scheduler), scheduler);
+	}
+
+	@Produces @Singleton
+	public CountryLookup countryLookup() {
+		return countryLookup(SocksOptions.getGeoip());
+	}
+
+	/* The countries of the gridnodes, from the GeoIP database the node was given. A node that has none, or one it
+	   cannot read, knows no country, and a stream that names one fails. */
+	static CountryLookup countryLookup(final Path database) {
+		try (InputStream in = Files.newInputStream(database)) {
+			return new MmdbCountryLookup(in);
+		} catch (NoSuchFileException ex) {
+			log.info("No GeoIP database at {}, so a SOCKS5 connection that names a country fails", database);
+		} catch (IOException ex) {
+			log.warn("The GeoIP database at {} cannot be read ({}), so a SOCKS5 connection that names a country "
+				+ "fails", database, ex.getClass().getName());
+		}
+
+		return CountryLookup.NONE;
 	}
 
 	/* One thread for the tick of the sessions and the deadlines of the streams and associations. It is a daemon

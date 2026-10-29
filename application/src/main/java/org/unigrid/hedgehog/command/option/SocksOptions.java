@@ -18,8 +18,10 @@
 
 package org.unigrid.hedgehog.command.option;
 
+import java.nio.file.Path;
 import java.util.Optional;
 import lombok.Getter;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.proxy.socks.Country;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
@@ -50,9 +52,23 @@ public class SocksOptions {
 	)
 	private static String country;
 
+	/* An empty default, so that a database one parse names is not taken as the default of the next */
+	@Option(names = "--socks-geoip", scope = CommandLine.ScopeType.INHERIT,
+		description = "GeoIP2 or GeoLite2 Country database in the MaxMind DB format to find the country of each "
+		+ "gridnode in (defaults to geoip/country.mmdb in the data directory). Without it, a SOCKS5 connection that "
+		+ "names a country fails.",
+		defaultValue = ""
+	)
+	private static Path geoip;
+
 	/* None unless the option names a country, which the converter has made upper case */
 	public static Optional<String> getCountry() {
 		return Optional.ofNullable(country).filter(code -> !code.isEmpty());
+	}
+
+	public static Path getGeoip() {
+		return geoip == null || geoip.toString().isEmpty()
+			? ApplicationDirectory.create().getUserDataDir().resolve("geoip").resolve("country.mmdb") : geoip;
 	}
 
 	/* Refused while parsing, so a port no socket can have never reaches the bind of a running daemon */
