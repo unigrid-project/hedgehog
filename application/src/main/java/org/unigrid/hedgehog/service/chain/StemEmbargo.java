@@ -80,6 +80,13 @@ final class StemEmbargo {
 		return held.containsKey(entry);
 	}
 
+	/* Whether the entry is held as one of a writer of this member */
+	synchronized boolean holdsOwn(final Entry entry) {
+		final Held waiting = held.get(entry);
+
+		return waiting != null && waiting.own();
+	}
+
 	synchronized boolean holdsAnyOf(final WriterId writer) {
 		return writers.containsKey(writer);
 	}

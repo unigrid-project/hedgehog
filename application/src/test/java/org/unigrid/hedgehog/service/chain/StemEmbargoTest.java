@@ -63,6 +63,7 @@ public class StemEmbargoTest {
 		final List<Entry> entries = entries(1, 3);
 
 		entries.forEach(entry -> assertThat(embargo.hold(entry, false, NOW), is(true)));
+		assertThat(embargo.holdsOwn(entries.get(0)), is(false));
 		assertThat(embargo.release(entries.get(1)), is(true));
 		assertThat(embargo.due(NOW + StemEmbargo.RELAY_MILLIS - 1), is(empty()));
 		assertThat(embargo.due(LONG_AFTER), is(List.of(entries.get(0), entries.get(2))));
@@ -81,6 +82,7 @@ public class StemEmbargoTest {
 
 		entries.forEach(entry -> embargo.hold(entry, true, NOW));
 		assertThat(embargo.hold(entries.get(0), true, NOW), is(false));
+		assertThat(embargo.holdsOwn(entries.get(0)), is(true));
 		assertThat(embargo.bytes(), is(3L * entries.get(0).size()));
 		assertThat(embargo.due(NOW + StemEmbargo.OWN_MILLIS - 1), is(empty()));
 		assertThat(embargo.due(LONG_AFTER), is(entries));

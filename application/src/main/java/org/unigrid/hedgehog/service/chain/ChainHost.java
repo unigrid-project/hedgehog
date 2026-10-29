@@ -608,8 +608,9 @@ public class ChainHost implements ChainService {
 	   counted as those of a flood are. Each entry is checked as a flood would be, and only one the chain would take, or
 	   hold for a gap before it, goes on: in a period this member diffuses, it is flooded, and in one it relays, it
 	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
-	   the embargo holds already has come round the stem, here as at its author, and goes no further, as the embargo
-	   floods it in time. What the chain had no room for is answered as for a flood. */
+	   the embargo holds already has come round the stem, and is flooded at once, which ends the round and tells
+	   nothing of the exit, as a member that relayed it is never its author; its author alone leaves it to the shorter
+	   timers of the relays that hold it. What the chain had no room for is answered as for a flood. */
 	@Override
 	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
 		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
@@ -642,17 +643,17 @@ public class ChainHost implements ChainService {
 		final long now = clock.getAsLong();
 		final List<Entry> full = new ArrayList<>();
 		final List<Entry> taken = new ArrayList<>();
+		final List<Entry> cameRound = new ArrayList<>();
 
 		for (final Entry entry : entries) {
-			final Optional<Admission> admission = hosted.getEmbargo().holds(entry) ? Optional.empty()
-				: hosted.check(entry);
-
-			if (admission.filter(Admission.FULL::equals).isPresent()) {
-				full.add(entry);
-			} else if (admission.filter(PASSES_ON::contains).isPresent()) {
-				taken.add(entry);
+			if (hosted.getEmbargo().holds(entry)) {
+				cameRound.addAll(hosted.getEmbargo().holdsOwn(entry) ? List.of() : List.of(entry));
+			} else {
+				sortOut(hosted, entry, full, taken);
 			}
 		}
+
+		diffuse(hosted, cameRound);
 
 		if (router.diffuses(hosted.getChain().id(), now)) {
 			diffuse(hosted, taken);
@@ -661,6 +662,18 @@ public class ChainHost implements ChainService {
 		}
 
 		return full;
+	}
+
+	private static void sortOut(final HostedChain hosted, final Entry entry, final List<Entry> full,
+		final List<Entry> taken) {
+
+		final Optional<Admission> admission = hosted.check(entry);
+
+		if (admission.filter(Admission.FULL::equals).isPresent()) {
+			full.add(entry);
+		} else if (admission.filter(PASSES_ON::contains).isPresent()) {
+			taken.add(entry);
+		}
 	}
 
 	private void diffuse(final HostedChain hosted, final List<Entry> entries) {

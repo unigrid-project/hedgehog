@@ -145,9 +145,10 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, "gn-1").getChain().entries(), equalTo(entries));
 	}
 
-	/* Every member that held the entry has passed it on already, so it goes round no more */
+	/* A relay that is passed an entry it passed on before floods it at once, which ends the round: a relay is never
+	   the author, so its flood tells nothing of the exit */
 	@Example
-	public void aStemThatCameRoundGoesNoFurther() {
+	public void floodsAStemThatCameRoundAtOnce() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> entries = entries(fleet, 1, 1);
 
@@ -155,10 +156,26 @@ public class ChainHostStemTest {
 		writtenBy(fleet, RELAY);
 		stem(fleet, RELAY, "gn-2", entries);
 
-		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
-		fleet.deliver();
-		assertThat(fleet.agree(fleet.chain()), is(true));
-		assertThat(hosted(fleet, RELAY).getChain().entries(), is(empty()));
+		final Map<String, List<Object>> written = writtenBy(fleet, RELAY);
+
+		assertThat(written.values(), everyItem(equalTo(List.of(new ChainEntry(entries)))));
+		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(entries));
+		assertThat(hosted(fleet, RELAY).getEmbargo().bytes(), is(0L));
+	}
+
+	/* The author of an entry that came round leaves it to the shorter timers of the relays that hold it */
+	@Example
+	public void theAuthorDropsItsOwnStemThatCameRound() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(true));
+		final List<Entry> own = entries(fleet, 1, 1);
+
+		postStem(fleet, own.get(0));
+		writtenBy(fleet, EXIT);
+
+		assertThat(stem(fleet, EXIT, RELAY, own), is(empty()));
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getChain().entries(), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 
 	/* A client passes nothing on, so a stem from its stream, from a stranger or for a chain this node only follows is
