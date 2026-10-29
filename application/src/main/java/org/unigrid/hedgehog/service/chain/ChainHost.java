@@ -688,8 +688,9 @@ public class ChainHost implements ChainService {
 	}
 
 	/* An entry that came round is flooded at once by a member that relayed it, but its author leaves it to the shorter
-	   timers of the relays, and so does a relay it came straight back to from the member it passed it to: an honest
-	   member never passes an entry back to the one it came from, so such a bounce gets the answer of the author */
+	   timers of the relays, and so does a relay it came straight back to from any member it passed it to, the one a
+	   refusal moved it away from too: an honest member never passes an entry back to the one it came from, so such a
+	   bounce gets the answer of the author */
 	private static boolean floodsWhatCameRound(final StemEmbargo embargo, final Entry entry, final Channel peer) {
 		return !embargo.holdsOwn(entry) && !embargo.wasSentTo(entry, peer);
 	}

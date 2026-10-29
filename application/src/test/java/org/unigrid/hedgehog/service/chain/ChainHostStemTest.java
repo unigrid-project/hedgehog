@@ -841,4 +841,33 @@ public class ChainHostStemTest {
 		assertThat(ChainHost.Draws.of(new Random(1)).stem().longs(8).boxed().toList(), equalTo(first));
 		assertThat(ChainHost.Draws.of(new Random(2)).stem().longs(8).boxed().toList(), is(not(equalTo(first))));
 	}
+
+	/* A successor that refuses an entry and then passes it straight back gets the same answer from an author and a
+	   relay: each passed the entry to it before it went on to the other successor, so each leaves it to the timer */
+	@Example
+	public void aRefusalThenABounceGetsTheSameAnswerFromAnAuthorAndARelay() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		final List<Entry> relayed = entries(fleet, 2, 1);
+		final String outsider = fleet.activeIds().stream().filter(id -> !id.equals(RELAY)
+			&& !drawnBy(fleet, RELAY).contains(id)).findFirst().orElseThrow();
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, outsider, relayed);
+
+		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		fleet.host(EXIT).refused(fleet.stream(EXIT, fromExit), EntryRefused.of(own.get(0), Admission.FULL));
+		fleet.host(RELAY).refused(fleet.stream(RELAY, fromRelay), EntryRefused.of(relayed.get(0), Admission.FULL));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(fromExit)));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(not(fromRelay)));
+
+		assertThat(stem(fleet, EXIT, fromExit, own), is(empty()));
+		assertThat(stem(fleet, RELAY, fromRelay, relayed), is(empty()));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
+	}
 }
