@@ -833,6 +833,12 @@ public class ChainHost implements ChainService {
 		return hosting.find(chainId).map(hosted -> postStem(hosted, entry, avoid)).orElse(Admission.WRONG_CHAIN);
 	}
 
+	/* Whether an entry posted to the stem now would find a successor outside the streams to avoid */
+	public boolean canStem(final ChainId chainId, final Set<Channel> avoid) {
+		return chainId != null && hosting.find(chainId).isPresent()
+			&& router.hasSuccessor(chainId, avoid, clock.getAsLong());
+	}
+
 	private Admission postStem(final HostedChain hosted, final Entry entry, final Set<Channel> avoid) {
 		final long now = clock.getAsLong();
 		final Admission admission = hosted.holdOwn(entry, now);

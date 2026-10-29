@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -359,8 +360,16 @@ public class ChainClientTest {
 	/* Eight gridnodes in two groups of four. Only the members of the groups on duty have seen the spork, the
 	   others answer every join as disabled. */
 	static ChainFleet twoGroups(final int clientsPerChain, final int chainsPerGroup, final Set<Integer> onDuty) {
+		return twoGroups(clientsPerChain, chainsPerGroup, onDuty, ChainFleet::seeded);
+	}
+
+	/* The same, with the hosts drawing the stem from the generators given for their ids */
+	static ChainFleet twoGroups(final int clientsPerChain, final int chainsPerGroup, final Set<Integer> onDuty,
+		final Function<String, RandomGenerator> stems) {
+
 		final ChainFleet fleet = new ChainFleet(8);
 
+		fleet.stems = stems;
 		fleet.settings.set(Optional.of(ChainFleet.settings(4, chainsPerGroup, clientsPerChain, 30, 3)));
 		IntStream.range(0, 8).forEach(number -> fleet.host("gn-" + number));
 		onDuty.forEach(group -> fleet.view().groups().members(group)

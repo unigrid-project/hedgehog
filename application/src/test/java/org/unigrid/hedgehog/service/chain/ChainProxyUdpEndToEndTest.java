@@ -122,7 +122,7 @@ public class ChainProxyUdpEndToEndTest {
 
 	@Example
 	public void carriesDatagramsBothWaysBetweenASocksClientAndAUdpServer() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 		final byte[] large = new byte[LARGE_DATAGRAM];
 
 		new Random(2).nextBytes(large);
@@ -143,7 +143,7 @@ public class ChainProxyUdpEndToEndTest {
 
 	@Example
 	public void endsTheAssociationAtTheExitWhenTheControlConnectionCloses() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort())) {
@@ -167,7 +167,7 @@ public class ChainProxyUdpEndToEndTest {
 
 	@Example
 	public void relaysNoFragment() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort())) {
@@ -183,7 +183,7 @@ public class ChainProxyUdpEndToEndTest {
 	/* The client named no port, so the first datagram it sends tells the proxy where it is */
 	@Example
 	public void relaysNothingFromAnotherSocketOnceTheClientIsKnown() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort()); DatagramSocket stranger = stranger()) {
@@ -203,7 +203,7 @@ public class ChainProxyUdpEndToEndTest {
 	/* The stranger is on the client's address and sends first, which only the port the client named tells apart */
 	@Example
 	public void relaysNothingFromAnotherPortThanTheOneTheClientNamed() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort()); DatagramSocket stranger = stranger()) {
@@ -221,7 +221,7 @@ public class ChainProxyUdpEndToEndTest {
 	   datagram for it to the local host, so a policy that let it through shows up at the echo. */
 	@Example
 	public void dropsDatagramsToADestinationThePolicyRefusesOrThatNothingAnswers() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort())) {
@@ -242,7 +242,7 @@ public class ChainProxyUdpEndToEndTest {
 	/* A datagram is carried in one entry, and the chains of the fleet take entries of 16 KiB at most */
 	@Example
 	public void dropsADatagramThatDoesNotFitOneEntry() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort())) {
@@ -259,7 +259,7 @@ public class ChainProxyUdpEndToEndTest {
 	   answers the second datagram */
 	@Example
 	public void relaysNoDatagramFromASourceTheAssociationDidNotSendTo() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing();
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient client = new SocksUdpClient(network.socksPort()); DatagramSocket stranger = stranger()) {
@@ -277,8 +277,8 @@ public class ChainProxyUdpEndToEndTest {
 	/* The refusal starts no session at all; the same network relays once the spork allows UDP */
 	@Example
 	public void refusesTheAssociationWhileTheSporkLacksTheUdpFlag() throws Exception {
-		final ChainFleet fleet = ChainFleet.group(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 30,
-			ProxySettings.CONNECT));
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16,
+			30, ProxySettings.CONNECT));
 
 		try (LoopbackUdpEcho echo = new LoopbackUdpEcho(); Network network = network(fleet);
 			SocksUdpClient refused = new SocksUdpClient(network.socksPort())) {
@@ -314,7 +314,7 @@ public class ChainProxyUdpEndToEndTest {
 	   association still relays, which is traffic; it ticks again a second after that traffic and the association ends
 	   at both ends: the proxy closes the control connection and lets go of its socket, and the exit of its own. */
 	private static void idles(final Consumer<Network> tick) throws Exception {
-		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
+		final ChainFleet fleet = ChainProxyEndToEndTest.diffusing(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
 			32L * 1024 * 1024, 30, 16 * 1024, 1, ProxySettings.CONNECT | ProxySettings.UDP));
 		final long idleMillis = fleet.settings.get().orElseThrow().sessionIdleMillis();
 

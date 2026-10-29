@@ -32,6 +32,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +41,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -56,7 +58,11 @@ import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
+import mockit.Invocation;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.GenerationMode;
@@ -72,6 +78,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
@@ -79,6 +86,7 @@ import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
+import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.model.network.packet.JoinReply;
@@ -104,6 +112,7 @@ import org.unigrid.hedgehog.proxy.session.ExitCandidate;
 import org.unigrid.hedgehog.proxy.session.ExitSelector;
 import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
+import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SessionState;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
@@ -208,6 +217,11 @@ public class ChainExitTest {
 		private final List<Caller> callers = new ArrayList<>();
 		private final Map<List<Object>, FeedWriter> strangers = new HashMap<>();
 		private final List<FakeSocket> sockets = new ArrayList<>();
+		private final List<Entry> leftOut = new ArrayList<>();
+
+		/* The other members the callers attached through, which hand the exit their entries after gn-0 does */
+		private final List<String> alsoFrom = new ArrayList<>();
+		private final Set<Entry> handedOut = new HashSet<>();
 		private final EmbeddedChannel stream;
 		private final ChainExit exit;
 
@@ -273,6 +287,63 @@ public class ChainExitTest {
 
 		private void offer(final Entry entry) {
 			fleet.host(EXIT).receive(stream, packet(entry));
+			alsoFrom.forEach(member -> fleet.host(EXIT).receive(fleet.stream(EXIT, member), packet(entry)));
+			echo();
+		}
+
+		/* What the exit stemmed comes back to it at once, flooded by the member it went to as a diffuser floods it, and
+		   that flood reaches gn-0 and the callers too. Of what the exit floods, only what it floods to gn-0 reaches
+		   them. Answers whether anything came out. */
+		private boolean echo() {
+			boolean echoed = false;
+
+			for (final String member : List.of("gn-0", "gn-2", "gn-3")) {
+				final EmbeddedChannel to = fleet.stream(EXIT, member);
+
+				for (Object out = to.readOutbound(); out != null; out = to.readOutbound()) {
+					echoed = true;
+
+					if (out instanceof ChainStem stem) {
+						leftOut.addAll(stem.getEntries());
+						fleet.host(EXIT).receive(to, ChainEntry.builder().entries(stem.getEntries()).build());
+					} else if (to == stream) {
+						leftOut.addAll(((ChainEntry) out).getEntries());
+					}
+				}
+			}
+
+			return echoed;
+		}
+
+		/* What reached the callers since the last call, each entry once, as gn-0 drops what it has already */
+		private List<Entry> takeOut() {
+			while (echo()) {
+				/* What came back may draw more */
+			}
+
+			final List<Entry> out = leftOut.stream().filter(handedOut::add).toList();
+
+			leftOut.clear();
+			return out;
+		}
+
+		/* Notes from now on what the exit writes to each member, in the order it writes it */
+		private List<Map.Entry<String, Object>> recordWrites() {
+			final List<Map.Entry<String, Object>> writes = new CopyOnWriteArrayList<>();
+
+			for (final String member : List.of("gn-0", "gn-2", "gn-3")) {
+				fleet.stream(EXIT, member).pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+					@Override
+					public void write(final ChannelHandlerContext context, final Object packet,
+						final ChannelPromise promise) {
+
+						writes.add(Map.entry(member, packet));
+						context.write(packet, promise);
+					}
+				});
+			}
+
+			return writes;
 		}
 
 		/* Hands entries between the callers and the exit until nothing more moves */
@@ -288,15 +359,11 @@ public class ChainExitTest {
 
 		/* Opens what the exit wrote in the sessions of the callers; true while it took anything out */
 		private boolean handOut() {
-			boolean moved = false;
+			final List<Entry> out = takeOut();
 
-			for (Object out = stream.readOutbound(); out != null; out = stream.readOutbound()) {
-				moved = true;
-				((ChainEntry) out).getEntries().forEach(entry -> callers.forEach(caller -> caller.sessions
-					.forEach(session -> session.receive(entry).ifPresent(caller.received::add))));
-			}
-
-			return moved;
+			out.forEach(entry -> callers.forEach(caller -> caller.sessions
+				.forEach(session -> session.receive(entry).ifPresent(caller.received::add))));
+			return !out.isEmpty();
 		}
 
 		/* A writer of the chain that is no caller of the test */
@@ -514,9 +581,7 @@ public class ChainExitTest {
 	}
 
 	private static void handTo(final Rig rig, final ClientSession session) {
-		for (Object out = rig.stream.readOutbound(); out != null; out = rig.stream.readOutbound()) {
-			((ChainEntry) out).getEntries().forEach(session::receive);
-		}
+		rig.takeOut().forEach(session::receive);
 	}
 
 	/* gn-0 refuses every entry the exit floods to it as one its chain has no room for, as a member that keeps the
@@ -761,7 +826,9 @@ public class ChainExitTest {
 			rig.fleet.host(otherId).receive(rig.fleet.stream(otherId, "gn-0"), packet(opening));
 		}
 
-		final List<Entry> atOther = rig.fleet.host(otherId).chain(chain).orElseThrow().entries();
+		final List<Entry> atOther = Stream.of("gn-0", "gn-1", "gn-3").map(member -> rig.fleet.stream(otherId, member))
+			.flatMap(stream -> stream.outboundMessages().stream()).filter(ChainStem.class::isInstance)
+			.flatMap(stem -> ((ChainStem) stem).getEntries().stream()).toList();
 
 		assertThat(rig.answers(chain, toExit), is(1L));
 		assertThat(rig.accepts(), is(1));
@@ -958,7 +1025,8 @@ public class ChainExitTest {
 	}
 
 	/* The Close of a session whose chain had no room waits in the outbox of the session, which outlives the relay
-	   until the chain takes what waits in it. The relay that drains holds no place among the relays meanwhile. */
+	   until the chain takes what waits in it and that came back from the stem. The relay that drains holds no place
+	   among the relays meanwhile. */
 	@Example
 	public void placesTheCloseOfASessionThatEndedWhileItsChainHadNoRoom() {
 		/* The opening, the answer, the Connect and the Connected fill the chain */
@@ -981,6 +1049,7 @@ public class ChainExitTest {
 		rig.fleet.host(EXIT).maintain();
 		rig.exit.tick();
 		rig.drive();
+		rig.exit.tick();
 
 		assertThat(caller.received, contains(CONNECTED, DONE));
 		assertThat(rig.exit.drainingRelays(), is(0));
@@ -1108,6 +1177,7 @@ public class ChainExitTest {
 		rig.drive();
 		rig.fleet.clock.addAndGet(-15_000);
 		rig.connector.requests.get(0).listener().closed();
+		rig.drive();
 		rig.exit.tick();
 		assertThat(rig.exit.heldRelays() + rig.exit.drainingRelays(), is(0));
 
@@ -1221,6 +1291,7 @@ public class ChainExitTest {
 
 		final FakeConnector.FakeTarget target = rig.connector.connect();
 
+		rig.drive();
 		rig.fleet.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
 		rig.exit.tick();
 		rig.drive();
@@ -1996,6 +2067,7 @@ public class ChainExitTest {
 
 		caller.open();
 		rig.connector.connect();
+		rig.drive();
 		rig.fleet.clock.addAndGet(EPOCH_MILLIS);
 		rig.fleet.host(EXIT).refresh();
 		rig.fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS);
@@ -2188,8 +2260,9 @@ public class ChainExitTest {
 	}
 
 	/* An exit whose host floods what this node posts on a delivery thread of its own, as the daemon's host does, and
-	   whose chains drain on the threads that hand them entries. Its one member stream takes no writes, so the flood
-	   passes it over, and what the exit writes is read from its chains. */
+	   whose chains drain on the threads that hand them entries. The member stream the entries come in on takes no
+	   writes, so the flood passes it over, the exit stems to the other one, and what the exit writes is read from its
+	   chains once it came back. */
 	private static final class Threaded implements AutoCloseable {
 		private final ChainFleet fleet = new ChainFleet(ChainFleet.MEMBERS);
 		private final ExecutorService delivery = Executors.newSingleThreadExecutor();
@@ -2202,6 +2275,7 @@ public class ChainExitTest {
 
 		private Threaded() {
 			fleet.host("gn-0");
+			fleet.host("gn-2");
 			host = new ChainHost(fleet.settings::get, fleet.directory(EXIT), fleet.transport(EXIT),
 				fleet.clock::get, new Random(1), new ManualScheduler(), delivery);
 			host.refresh();
@@ -2247,8 +2321,21 @@ public class ChainExitTest {
 		}
 
 		/* A thread that hands a chain entries leaves them to the delivery thread when that one drains the chain, and
-		   it drains until nothing waits before it takes the next task */
+		   it drains until nothing waits before it takes the next task. What the exit stemmed then comes back to it from
+		   the member it went to. */
 		private void quiesce() throws Exception {
+			delivery.submit(() -> { }).get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+			for (final String member : List.of("gn-0", "gn-2")) {
+				final EmbeddedChannel to = fleet.stream(EXIT, member);
+
+				for (Object out = to.readOutbound(); out != null; out = to.readOutbound()) {
+					if (out instanceof ChainStem stem) {
+						host.receive(to, ChainEntry.builder().entries(stem.getEntries()).build());
+					}
+				}
+			}
+
 			delivery.submit(() -> { }).get(WAIT_SECONDS, TimeUnit.SECONDS);
 		}
 
@@ -2351,5 +2438,133 @@ public class ChainExitTest {
 			assertThat(node.answers(chain, opening), is(1L));
 			assertThat(node.exit.heldRelays(), is(1));
 		}
+	}
+
+	/* The first packet each entry of the session's writer leaves the exit in, with the member it went to */
+	private static Map<Entry, Map.Entry<String, Object>> firstWrites(final List<Map.Entry<String, Object>> writes,
+		final WriterId writer) {
+
+		final Map<Entry, Map.Entry<String, Object>> first = new LinkedHashMap<>();
+
+		for (final Map.Entry<String, Object> write : writes) {
+			final List<Entry> entries = write.getValue() instanceof ChainStem stem ? stem.getEntries()
+				: ((ChainEntry) write.getValue()).getEntries();
+
+			entries.stream().filter(entry -> entry.header().writer().equals(writer))
+				.forEach(entry -> first.putIfAbsent(entry, write));
+		}
+
+		return first;
+	}
+
+	/* Every entry the session writes, its end-marked Close among them, leaves the exit in a stem and never to gn-0,
+	   which the client's entries came in from and so is a member the client attached through */
+	@Example
+	public void stemsWhatASessionWritesAndNeverToTheMemberOfItsClient() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+		final List<Map.Entry<String, Object>> writes = rig.recordWrites();
+
+		caller.open();
+
+		final FakeConnector.FakeTarget target = rig.connector.connect();
+
+		rig.drive();
+		rig.connector.requests.get(0).listener().received(new byte[] { 7 });
+		rig.drive();
+		caller.session().close(CloseReason.DONE);
+		rig.drive();
+
+		final WriterId writer = rig.answers(rig.fleet.chain()).get(0).header().writer();
+		final Map<Entry, Map.Entry<String, Object>> first = firstWrites(writes, writer);
+
+		assertThat(target.closed, is(true));
+		assertThat(caller.received.get(0), is(CONNECTED));
+		assertThat(first.keySet().stream().filter(entry -> entry.header().last()).count(), is(1L));
+		assertThat(first.size(), is(greaterThanOrEqualTo(4)));
+		first.values().forEach(write -> {
+			assertThat(write.getValue(), is(instanceOf(ChainStem.class)));
+			assertThat(write.getKey(), is(not("gn-0")));
+		});
+		assertThat(writes.stream().filter(write -> write.getKey().equals("gn-0"))
+			.map(Map.Entry::getValue).toList(), everyItem(is(instanceOf(ChainEntry.class))));
+	}
+
+	/* The only other member the exit holds a stream to is the one the client's entries came in from, so it has nowhere
+	   to stem an answer and stays silent; the client's timeout moves it to another exit. With another member back, an
+	   opening is answered once the period of the stem turned. */
+	@Example
+	public void answersNoOpeningWithoutASuccessorBesidesTheMemberOfItsClient() {
+		final Rig rig = new Rig();
+
+		rig.fleet.offline("gn-2");
+		rig.fleet.offline("gn-3");
+		rig.fleet.host(EXIT).refresh();
+		rig.caller(1).open();
+
+		assertThat(rig.accepts(), is(0));
+		assertThat(rig.exit.heldRelays(), is(0));
+
+		rig.fleet.online("gn-2");
+		rig.fleet.host(EXIT).refresh();
+		rig.fleet.clock.addAndGet(StemRouter.PERIOD_MILLIS);
+		rig.caller(2).open();
+
+		assertThat(rig.accepts(), is(1));
+		assertThat(rig.exit.heldRelays(), is(1));
+	}
+
+	/* The entries of the exit's own writers come back to it by flood and reach its listener, which knows them as its
+	   own and never tries one as an opening, nor hands it to a relay as a message of a client */
+	@Example
+	public void triesNoEntryOfItsOwnThatCameBackAsAnOpening() {
+		final List<Entry> tried = new CopyOnWriteArrayList<>();
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		/* The fake answers as the real one does, so it may stay for the tests that follow */
+		new MockUp<Session>() {
+			@Mock
+			Optional<Session> tryAccept(final Invocation invocation, final SessionContext context, final Entry entry,
+				final byte[] key) {
+
+				tried.add(entry);
+				return invocation.proceed();
+			}
+		};
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+		rig.connector.requests.get(0).listener().received(new byte[] { 7 });
+		rig.drive();
+
+		final WriterId own = rig.answers(rig.fleet.chain()).get(0).header().writer();
+
+		assertThat(rig.entries(rig.fleet.chain()).stream().filter(entry -> entry.header().writer().equals(own))
+			.count(), is(greaterThanOrEqualTo(3L)));
+		assertThat(tried, hasSize(1));
+		assertThat(tried.get(0).header().writer(), is(caller.writer()));
+		assertThat(caller.received, contains(CONNECTED, new Data(new byte[] { 7 })));
+		assertThat(rig.exit.heldRelays(), is(1));
+	}
+
+	/* A client attached through gn-0 and gn-2, whose entries the exit hears from both: what the sessions with it write
+	   is stemmed to neither. Its writer wrote before the session, as the client's writer serves all its sessions on a
+	   chain, so the exit knows both members by the time it answers. */
+	@Example
+	public void stemsToNeitherMemberAClientAttachedThrough() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+		final List<Map.Entry<String, Object>> writes = rig.recordWrites();
+
+		rig.alsoFrom.add("gn-2");
+		rig.offer(caller.write(ChainFleet.TAG, padded(new byte[] { 1 })));
+		caller.open();
+		IntStream.range(0, 7).forEach(session -> caller.another());
+
+		assertThat(rig.exit.heldRelays(), is(8));
+		assertThat(writes.stream().filter(write -> write.getValue() instanceof ChainStem).map(Map.Entry::getKey)
+			.distinct().toList(), contains("gn-3"));
 	}
 }

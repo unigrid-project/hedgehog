@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -29,6 +30,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -64,7 +66,9 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
    ended. Nothing on the chain names the exit, so every entry that no relay recognises is tried as an opening: one key
    agreement and one tag check for each entry of the smallest class, which is what an opening fills, and the host
    already caps how many entries a stream brings in each second. Each session writes as a writer of its own, so the
-   feeds on a chain do not tell which sessions one exit relays.
+   feeds on a chain do not tell which sessions one exit relays. What a session writes is stemmed and never flooded by
+   this node first, so that the first member to flood it is not its exit, and it never goes to the members the client
+   attached through, which know the client: the members that first flooded the client's entries here.
 
    The outbox of a session does not bound what waits in it, and the relays hear of a pause at the next tick, so in the
    worst case the exit holds one second of what all its destinations send. */
@@ -353,8 +357,7 @@ public class ChainExit implements ChainDrain {
 		final Optional<ProxySettings> proxy = settings.current();
 		final long now = clock.getAsLong();
 
-		if (proxy.isPresent() && isYoung(entry, now) && isExitOn(chainId)
-			&& hasRoom(chainId, entry.header().writer(), now)) {
+		if (proxy.isPresent() && isCandidate(chainId, entry, now)) {
 
 			final Opening opening = openingOf(chainId, entry);
 
@@ -366,6 +369,13 @@ public class ChainExit implements ChainDrain {
 					.ifPresent(chain -> answer(chain, entry, opening, key, proxy.get())));
 			}
 		}
+	}
+
+	/* An answer of this node that came back while the session it opened was still being registered waited for the
+	   monitor, and finds its writer among the relays now */
+	private boolean isCandidate(final ChainId chainId, final Entry entry, final long now) {
+		return !isOwn(entry.header().writer()) && isYoung(entry, now) && isExitOn(chainId)
+			&& hasRoom(chainId, entry.header().writer(), now);
 	}
 
 	/* An opening is young from as far ahead of this clock as the skew allows to OPENING_MAX_AGE_MILLIS behind it, so
@@ -415,8 +425,20 @@ public class ChainExit implements ChainDrain {
 		return relays.size() < MAX_RELAYS
 			&& held(relayed -> relayed.chain().id().equals(chainId)) < RELAYS_PER_CHAIN
 			&& held(relayed -> relayed.session().peer().equals(writer)) < RELAYS_PER_WRITER
-			&& writersOn(chainId, now) < MAX_WRITERS_PER_CHAIN
-			&& host.hosted(chainId).filter(HostedChain::takesNewWriters).isPresent();
+			&& chainHasRoom(chainId, writer, now);
+	}
+
+	/* The session also needs a successor to stem what it writes to, other than the members its client attached
+	   through, and an exit without one stays silent as well */
+	private boolean chainHasRoom(final ChainId chainId, final WriterId writer, final long now) {
+		return writersOn(chainId, now) < MAX_WRITERS_PER_CHAIN
+			&& host.hosted(chainId).filter(HostedChain::takesNewWriters).isPresent()
+			&& host.canStem(chainId, avoidFor(chainId, writer));
+	}
+
+	/* The member streams the entries of a client's writer first came in on, those the client attached through */
+	private Set<Channel> avoidFor(final ChainId chainId, final WriterId clientWriter) {
+		return host.hosted(chainId).map(hosted -> hosted.firstFlooders(clientWriter)).orElse(Set.of());
 	}
 
 	/* The writers of this exit that hold a place on the chain */
@@ -446,7 +468,8 @@ public class ChainExit implements ChainDrain {
 
 		final WriterKey taken = takeSpare();
 		final FeedWriter writer = new FeedWriter(taken, chain.id());
-		final ChainOutbox outbox = new ChainOutbox(host, chain.id(), writer.writer(), writable -> { });
+		final ChainOutbox outbox = new ChainOutbox(host, chain.id(), writer.writer(), writable -> { },
+			ChainOutbox.Mode.STEM, () -> avoidFor(chain.id(), entry.header().writer()));
 		final SessionContext context = new SessionContext(writer, outbox, clock, random, proxy);
 		final Optional<Session> accepted = Session.tryAccept(context, entry, key);
 

@@ -284,7 +284,7 @@ public class ChainProxyEndToEndTest {
 	/* The client sends hello right behind its request, before the reply, as a client may */
 	@Example
 	public void carriesBytesBothWaysBetweenASocksClientAndATcpServer() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 		final byte[] large = severalEntriesOfBytes();
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
@@ -305,7 +305,7 @@ public class ChainProxyEndToEndTest {
 
 	@Example
 	public void triesAnotherGroupWhenTheFirstOneRefuses() throws Exception {
-		final ChainFleet fleet = ChainClientTest.twoGroups(16, 4, Set.of(1));
+		final ChainFleet fleet = ChainClientTest.twoGroups(16, 4, Set.of(1), ChainFleet.everyMember(true));
 		final List<String> refusing = fleet.view().groups().members(0);
 		final List<String> onDuty = fleet.view().groups().members(1);
 
@@ -325,7 +325,7 @@ public class ChainProxyEndToEndTest {
 
 	@Example
 	public void refusesTheConnectionWhileTheSporkIsAbsent() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 
 		fleet.settings.set(Optional.empty());
 
@@ -352,7 +352,7 @@ public class ChainProxyEndToEndTest {
 	/* The spork closes sessions after a second without traffic. Two seconds pass and one end ticks, which closes the
 	   session at both ends. */
 	private static void idles(final Consumer<Network> tick) throws Exception {
-		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
+		final ChainFleet fleet = diffusing(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
 			32L * 1024 * 1024, 30, 16 * 1024, 1, ProxySettings.CONNECT));
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
@@ -373,7 +373,7 @@ public class ChainProxyEndToEndTest {
 
 	@Example
 	public void endsTheConnectionToTheServerWhenTheSocksClientHangsUp() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
@@ -390,7 +390,7 @@ public class ChainProxyEndToEndTest {
 	/* Two clients at once each get back what they sent and nothing of the other's, over two sessions of one node */
 	@Example
 	public void keepsTwoConnectionsApartWhenTheyRunAtOnce() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 		final byte[] first = severalEntriesOfBytes();
 		final byte[] second = bytes("second");
 
@@ -414,7 +414,7 @@ public class ChainProxyEndToEndTest {
 	/* The server hangs up right after the last byte it sends back, and the client still gets every byte first */
 	@Example
 	public void hangsUpOnTheSocksClientOnceItHasWhatTheServerSentBeforeItHungUp() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 		final byte[] large = severalEntriesOfBytes();
 
 		try (LoopbackEcho echo = new LoopbackEcho(large.length); Network network = new Network(fleet, new Random(1),
@@ -429,7 +429,7 @@ public class ChainProxyEndToEndTest {
 
 	@Example
 	public void answersConnectionRefusedForAPortThatNothingListensOn() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 
 		try (Network network = new Network(fleet, new Random(1), fleet.activeIds());
 			SocksClient client = network.connect(LoopbackEcho.closedPort(), NOTHING)) {
@@ -444,7 +444,7 @@ public class ChainProxyEndToEndTest {
 	   passed and the session asks another member */
 	@Example
 	public void passesOverAnExitThatDoesNotAnswer() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1), List.of());
 			SocksClient client = network.connect(echo.port(), NOTHING)) {
@@ -472,7 +472,7 @@ public class ChainProxyEndToEndTest {
 	   client. */
 	@Example
 	public void carriesTheNextReplyOfAnExitThatStayedQuietPastTheRetentionWhileTheClientSent() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = diffusing();
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
 			fleet.activeIds()); SocksClient client = network.connect(echo.port(), NOTHING)) {
@@ -513,7 +513,7 @@ public class ChainProxyEndToEndTest {
 	   end ticks, which ends the old session at both ends, and then no gridnode keeps a retired chain. An epoch of an
 	   hour leaves the grace at DRAIN_GRACE_MILLIS. */
 	private static void drains(final BiConsumer<Network, ChainHost> endOfGrace) throws Exception {
-		final ChainFleet fleet = ChainFleet.group(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
+		final ChainFleet fleet = diffusing(new ProxySettings(ChainFleet.MEMBERS, 3600, 4, 16,
 			32L * 1024 * 1024, 30, 16 * 1024, 10_000, ProxySettings.CONNECT));
 
 		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
@@ -564,6 +564,18 @@ public class ChainProxyEndToEndTest {
 				assertThat(echo.peers, hasSize(2));
 			}
 		}
+	}
+
+	/* A group whose members all diffuse, so that a stem is one hop long and never comes round. The threads of a test
+	   hand the entries over in an order no seed fixes, and the clock stands still unless the test moves it, so a stem
+	   that came round to its author would wait for good for the embargoes of the relays. The relays and the rounds of
+	   the stem are tested where one thread hands everything over. */
+	static ChainFleet diffusing(final ProxySettings settings) {
+		return ChainFleet.group(ChainFleet.MEMBERS, settings, ChainFleet.everyMember(true));
+	}
+
+	static ChainFleet diffusing() {
+		return diffusing(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 30, 3));
 	}
 
 	/* What every node does once a second: the hosts, the exits on the gridnodes and the sessions of the client */
