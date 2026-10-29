@@ -100,6 +100,11 @@ public class ChainExit implements ChainDrain {
 	   it from a second answer, which holds once it is OPENING_MAX_AGE_MILLIS old. */
 	static final int MAX_ANSWERED = 4096;
 
+	/* The relays that ended while their outbox still held what the chain had no room for. They hold no place among the
+	   relays, so they are bounded on their own, by as many as there are relays; past it a relay that ends goes at once,
+	   and what waited in its outbox goes with it. */
+	static final int MAX_DRAINING = MAX_RELAYS;
+
 	/* The most writers of ended sessions that are still known as this node's own. Past it the eldest is let go, and an
 	   entry of it that comes back is tried as an opening, which it is not. */
 	static final int MAX_ENDED_WRITERS = 4096;
@@ -116,6 +121,10 @@ public class ChainExit implements ChainDrain {
 		   writer, when its answer went out and whether its client was heard from since */
 	}
 
+	private record Draining(Relayed relayed, long until) {
+		/* A relay that ended, whose outbox places what waits in it until the chain took it all or the time is up */
+	}
+
 	private record Opening(ChainId chainId, ByteBuffer message) {
 		/* The handshake message of an opening this node answered, on the chain it answered it on */
 	}
@@ -128,6 +137,7 @@ public class ChainExit implements ChainDrain {
 	private final ExitContexts contexts;
 	private final ScheduledExecutorService scheduler;
 	private final Map<RelayKey, Relayed> relays = new ConcurrentHashMap<>();
+	private final Map<RelayKey, Draining> draining = new ConcurrentHashMap<>();
 	private final AtomicLong sessions = new AtomicLong();
 
 	/* The writers of the sessions that ended, oldest first, and until when their entries may still come back to this
@@ -201,6 +211,10 @@ public class ChainExit implements ChainDrain {
 		return relays.size();
 	}
 
+	int drainingRelays() {
+		return draining.size();
+	}
+
 	/* The host tells the entries of a chain one at a time and in the order the chain appended them, so the session an
 	   opening starts is registered before the next entry of the chain, its client's Connect among them, is told. An
 	   entry of a writer of this node's sessions is no opening, and one of a client that a relay of that client
@@ -228,8 +242,8 @@ public class ChainExit implements ChainDrain {
 	/* The writers of the sessions that ended count as well, as a chain the host rebuilt takes their entries in again.
 	   A relay is let go of only once its writer is in that record, so the writer counts as this node's all along. */
 	private boolean isOwn(final WriterId writer) {
-		return ended.containsKey(writer)
-			|| relays.values().stream().anyMatch(relayed -> relayed.writer().writer().equals(writer));
+		return ended.containsKey(writer) || Stream.concat(relays.values().stream(), draining.values().stream()
+			.map(Draining::relayed)).anyMatch(relayed -> relayed.writer().writer().equals(writer));
 	}
 
 	/* The Close of a session that failed to open an entry of its client reaches the relay like any message. A relay
@@ -293,17 +307,23 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* Run once a second: ends the sessions on the chains the host dropped or rebuilt and those whose feed ended, places
-	   what the outboxes hold, ticks every relay and lets go of the relays that ended, each with its writer and its
-	   outbox once the outbox has nothing left to place: the Close of a session whose chain had no room waits there. */
+	   what the outboxes hold and ticks every relay. A relay that ended gives its place up, and its writer and outbox
+	   go once the outbox has nothing left to place: the Close of a session whose chain had no room waits there. */
 	void tick() {
 		final long now = clock.getAsLong();
 
 		relays.values().stream().filter(relayed -> relayed.relay().isOpen() && isStale(relayed))
 			.forEach(relayed -> guarded(() -> relayed.relay().close(CloseReason.BROKEN)));
-		relays.values().forEach(relayed -> guarded(relayed.outbox()::tick));
+		Stream.concat(relays.values().stream(), draining.values().stream().map(Draining::relayed))
+			.forEach(relayed -> guarded(relayed.outbox()::tick));
 		relays.values().forEach(relayed -> guarded(() -> tick(relayed, now)));
-		relays.entrySet().stream().filter(held -> isDone(held.getValue())).toList()
-			.forEach(held -> letGo(held.getKey(), held.getValue(), now));
+		relays.entrySet().stream().filter(held -> !held.getValue().relay().isOpen()).toList()
+			.forEach(held -> drain(held.getKey(), held.getValue(), now));
+		draining.entrySet().stream().filter(held -> isDrained(held.getValue(), now)).toList()
+			.forEach(held -> {
+				letGo(held.getValue().relayed(), now);
+				draining.remove(held.getKey(), held.getValue());
+			});
 		forgetEnded(now);
 	}
 
@@ -436,15 +456,28 @@ public class ChainExit implements ChainDrain {
 			.filter(chain -> chain == relayed.chain()).isEmpty();
 	}
 
-	/* A relay that ended has posted all it will, so it is done once its outbox placed what waited or ended */
-	private static boolean isDone(final Relayed relayed) {
-		return !relayed.relay().isOpen() && (relayed.outbox().hasEnded() || relayed.outbox().isWritable());
+	/* A relay that ended has posted all it will. Whether its outbox still holds any of it is what counts, and not
+	   whether the writer is paused, as a member may keep any writer paused for good. */
+	private void drain(final RelayKey key, final Relayed relayed, final long now) {
+		if (relayed.outbox().isDrained() || draining.size() >= MAX_DRAINING) {
+			letGo(relayed, now);
+		} else {
+			draining.put(key, new Draining(relayed, now + relayed.chain().limits().retentionMillis()));
+		}
+
+		relays.remove(key, relayed);
 	}
 
-	/* What the writer of the session posted may come back for as long as its chain keeps entries */
-	private void letGo(final RelayKey key, final Relayed relayed, final long now) {
+	/* A relay drains for the retention of its chain at most: what waited longer would be refused as too old for the
+	   chain, so nothing that could still be placed is given up on */
+	private static boolean isDrained(final Draining held, final long now) {
+		return held.relayed().outbox().isDrained() || now >= held.until();
+	}
+
+	/* What the writer of the session posted may come back for as long as its chain keeps entries. The writer is in
+	   the record before its relay leaves the others. */
+	private void letGo(final Relayed relayed, final long now) {
 		ended.put(relayed.writer().writer(), now + relayed.chain().limits().retentionMillis());
-		relays.remove(key, relayed);
 	}
 
 	private void forgetEnded(final long now) {

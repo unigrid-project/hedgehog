@@ -18,6 +18,9 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
@@ -428,6 +431,22 @@ public class ChainExitTest {
 		return new Reached(caller, rig.sockets.get(0).closes::get);
 	}
 
+	/* gn-0 refuses every entry the exit floods to it as one its chain has no room for, as a member that keeps the
+	   exit's writers paused does, and takes it all the same */
+	private static void refuseEverythingAt(final Rig rig) {
+		rig.stream.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void write(final ChannelHandlerContext context, final Object packet, final ChannelPromise promise) {
+				if (packet instanceof ChainEntry flooded) {
+					flooded.getEntries().forEach(entry -> rig.fleet.host(EXIT).refused(rig.stream,
+						EntryRefused.of(entry, Admission.FULL)));
+				}
+
+				context.write(packet, promise);
+			}
+		});
+	}
+
 	private static byte[] padded(final byte[] payload) {
 		return ChainFleet.padded(payload, ProxySettings.DEFAULTS.chainLimits().maxEntryBytes());
 	}
@@ -827,7 +846,7 @@ public class ChainExitTest {
 	}
 
 	/* The Close of a session whose chain had no room waits in the outbox of the session, which outlives the relay
-	   until the chain takes what waits in it */
+	   until the chain takes what waits in it. The relay that drains holds no place among the relays meanwhile. */
 	@Example
 	public void placesTheCloseOfASessionThatEndedWhileItsChainHadNoRoom() {
 		/* The opening, the answer, the Connect and the Connected fill the chain */
@@ -843,8 +862,8 @@ public class ChainExitTest {
 		rig.drive();
 
 		assertThat(caller.received, contains(CONNECTED));
-		assertThat(rig.exit.openRelays(), is(0));
-		assertThat(rig.exit.heldRelays(), is(1));
+		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.exit.drainingRelays(), is(1));
 
 		rig.fleet.clock.addAndGet(21_000);
 		rig.fleet.host(EXIT).maintain();
@@ -852,7 +871,31 @@ public class ChainExitTest {
 		rig.drive();
 
 		assertThat(caller.received, contains(CONNECTED, DONE));
+		assertThat(rig.exit.drainingRelays(), is(0));
+	}
+
+	/* A member that refuses every entry of the exit keeps the writers of its sessions paused for good, which says
+	   nothing about what their outboxes hold: a relay that ended with nothing waiting goes at the tick, so its place
+	   is free for the next opening */
+	@Example
+	public void freesThePlaceOfAnEndedRelayWhileAMemberKeepsItsWriterPaused() {
+		final Rig rig = new Rig();
+		final Caller caller = rig.caller(1);
+
+		refuseEverythingAt(rig);
+		caller.open();
+		IntStream.range(1, ChainExit.RELAYS_PER_WRITER).forEach(session -> caller.another());
+		assertThat(rig.exit.openRelays(), is(ChainExit.RELAYS_PER_WRITER));
+
+		caller.sessions.forEach(session -> session.close(CloseReason.DONE));
+		rig.drive();
+		rig.exit.tick();
+
 		assertThat(rig.exit.heldRelays(), is(0));
+		assertThat(rig.exit.drainingRelays(), is(0));
+
+		caller.another();
+		assertThat(rig.exit.openRelays(), is(1));
 	}
 
 	/* The entries of this exit's own writers are no openings, those of a session that ended too: a chain the host

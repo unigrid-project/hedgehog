@@ -384,6 +384,27 @@ public class ChainOutboxTest {
 			&& delivery.packet() instanceof ChainEntry).count(), is(3L));
 	}
 
+	/* A member's refusal pauses the writer but leaves nothing waiting, while an entry the chain has no room for waits
+	   until it is placed */
+	@Example
+	public void isDrainedWhileNothingWaitsWhateverPausesTheWriter() {
+		final Entry entry = mine(1).get(0);
+
+		outbox.accept(entry);
+		fleet.deliver();
+		host.refused(fleet.stream("gn-1", "gn-0"), EntryRefused.of(entry, Admission.FULL));
+		assertThat(outbox.isWritable(), is(false));
+		assertThat(outbox.isDrained(), is(true));
+
+		fillTheChain();
+		mine(2).subList(1, 2).forEach(outbox::accept);
+		assertThat(outbox.isDrained(), is(false));
+
+		makeRoom();
+		outbox.tick();
+		assertThat(outbox.isDrained(), is(true));
+	}
+
 	@Example
 	public void offersWhatAMemberRefusedWhileEntriesWaitedAgainAndWhatWaitedOnce() {
 		final List<Entry> entries = mine(2);

@@ -96,6 +96,11 @@ public final class ChainOutbox implements Consumer<Entry> {
 		return ended;
 	}
 
+	/* Whether nothing waits to be placed, whatever pauses the writer. An outbox that ended dropped what waited. */
+	public synchronized boolean isDrained() {
+		return waiting.isEmpty() && !posting;
+	}
+
 	/* Run about once a second, on one thread. What a member refused is offered again before what waited is placed,
 	   as lifting the pause of what waited would lift that refusal with it, and what is placed now goes out once. */
 	public void tick() {
