@@ -654,7 +654,8 @@ public class ChainHost implements ChainService {
 			if (embargo.holds(entry)) {
 				cameRound.addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry) : List.of());
 			} else {
-				final Optional<Admission> admission = diffuses ? hosted.check(entry)
+				final Optional<Admission> admission = diffuses
+					? hosted.checkToDiffuse(entry, taken.stream().mapToLong(Entry::size).sum())
 					: hosted.holdRelayed(entry, peer, now);
 
 				sortOut(admission, entry, full, taken);

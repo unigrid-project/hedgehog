@@ -294,6 +294,15 @@ final class HostedChain {
 		}
 	}
 
+	/* What the chain would make of an entry passed on to this node that it floods at once, counting all the embargo
+	   holds and the bytes of the earlier entries of the packet that it takes too */
+	Optional<Admission> checkToDiffuse(final Entry entry, final long taking) {
+		synchronized (chain) {
+			return canTake(entry.header().writer()) ? Optional.of(chain.check(entry, embargo.bytes() + taking))
+				: Optional.empty();
+		}
+	}
+
 	/* Holds an entry passed on to this node for others once the chain would take it in or hold it past a gap and it
 	   fits the share of what is relayed, weighed and held in one step under the chain's own lock, so that the entries
 	   of one packet or of streams that pass entries on at once never take more than the share. There is no answer for

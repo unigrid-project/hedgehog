@@ -818,4 +818,16 @@ public class ChainHostStemTest {
 
 		assertThat(hosted(other, RELAY).getEmbargo().relayedBytes(), is(lessThanOrEqualTo(share)));
 	}
+
+	/* A diffuser weighs the entries of one packet against what the chain will hold once the earlier ones of the packet
+	   are in, so the sender hears of the one it had no room for */
+	@Example
+	public void aDiffuserCountsTheEntriesOfAPacketAsItGoes() {
+		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(true));
+		final List<Entry> packet = entries(fleet, 1, 3);
+
+		assertThat(stem(fleet, RELAY, "gn-1", packet), equalTo(List.of(EntryRefused.of(packet.get(2),
+			Admission.FULL))));
+		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(packet.subList(0, 2)));
+	}
 }
