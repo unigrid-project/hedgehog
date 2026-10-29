@@ -870,4 +870,28 @@ public class ChainHostStemTest {
 		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
 		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
 	}
+
+	/* A refusal of an entry that the refusing member was never passed through the stem, as one of a copy of a flood or
+	   one sent unasked, neither bars that member nor spends the move of the period */
+	@Example
+	public void aRefusalOfWhatWentElsewhereMovesNothing() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 2);
+		final ChainHost exit = fleet.host(EXIT);
+
+		postStem(fleet, own.get(0));
+
+		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String other = drawnBy(fleet, EXIT).stream().filter(id -> !id.equals(successor)).findFirst()
+			.orElseThrow();
+
+		exit.receive(fleet.stream(EXIT, other), new ChainEntry(own.subList(0, 1)));
+		writtenBy(fleet, EXIT);
+		exit.refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
+		postStem(fleet, own.get(1));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(successor));
+
+		exit.refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(1), Admission.FULL));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(other));
+	}
 }

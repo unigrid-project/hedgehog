@@ -1201,8 +1201,12 @@ public class ChainHost implements ChainService {
 		final Set<Channel> avoid = Stream.concat(refused.stream().map(embargo::sourceOf).flatMap(Optional::stream),
 			hosted.avoidOf(refusal.getWriter()).stream()).collect(Collectors.toSet());
 
-		router.refused(refusal.getChainId(), refusal.getWriter(), refuser, avoid, clock.getAsLong())
-			.filter(next -> !refused.isEmpty()).ifPresent(next -> stemTo(hosted, next, refused));
+		/* A refusal of nothing that went to the member through the stem, as of a copy of a flood or one sent
+		   unasked, neither bars it nor spends the move of the period */
+		if (!refused.isEmpty()) {
+			router.refused(refusal.getChainId(), refusal.getWriter(), refuser, avoid, clock.getAsLong())
+				.ifPresent(next -> stemTo(hosted, next, refused));
+		}
 	}
 
 	public WriterPauses pauses() {
