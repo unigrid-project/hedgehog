@@ -75,6 +75,11 @@ final class HostedChain {
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
 	private final Set<WriterId> writers = ConcurrentHashMap.newKeySet();
 
+	/* The member stream that the first entry of each writer came in on, as the chain appended it. For the writer of a
+	   client that is a member the client attached through, which knows the client and is the one member an exit
+	   never passes the entries of a session with that client on to. */
+	private final Map<WriterId, Channel> firstFrom = new ConcurrentHashMap<>();
+
 	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed, or
 	   for a chain the node follows, the streams to the members it follows the chain through. Replaced as a whole by
 	   an immutable list and never changed in place, volatile so that the netty threads which read it see the list
@@ -192,8 +197,20 @@ final class HostedChain {
 			final Set<WriterId> forgotten = chain.forgetEnded(cutoffMillis);
 
 			writers.removeAll(forgotten);
+			firstFrom.keySet().removeAll(forgotten);
 			return forgotten.size();
 		}
+	}
+
+	/* Notes an entry the chain appended and the stream it came in on, none for this node's own */
+	void appended(final Entry entry, final Channel origin) {
+		if (origin != null && memberStreams.contains(origin)) {
+			firstFrom.putIfAbsent(entry.header().writer(), origin);
+		}
+	}
+
+	Optional<Channel> firstFrom(final WriterId writer) {
+		return Optional.ofNullable(firstFrom.get(writer));
 	}
 
 	/* Offering and counting happen under the chain's own lock, so streams that offer at once cannot take the

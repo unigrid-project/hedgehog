@@ -604,7 +604,10 @@ public class ChainHost implements ChainService {
 						final Optional<Offer> offer = hosted.offer(entry);
 
 						offers.add(offer);
-						offer.ifPresent(taken -> appended.addAll(taken.appended()));
+						offer.ifPresent(taken -> taken.appended().forEach(added -> {
+							appended.add(added);
+							hosted.appended(added, origin);
+						}));
 					}
 				} finally {
 					beginsFullEpisode = queue(hosted, new Delivery(List.copyOf(appended), origin, tell));
