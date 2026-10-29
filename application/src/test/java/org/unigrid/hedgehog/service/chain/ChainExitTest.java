@@ -2433,7 +2433,12 @@ public class ChainExitTest {
 	public void answersAnOpeningOnceWhenItArrivesTwiceAtOnce() throws Exception {
 		try (Threaded node = new Threaded()) {
 			final ChainId chain = node.chain(0);
-			final Entry opening = opening(new FeedWriter(ChainFleet.key(1), chain), ChainFleet.NOW, EXIT);
+			final FeedWriter client = new FeedWriter(ChainFleet.key(1), chain);
+
+			/* The client wrote before, through gn-0, so the exit passes the answer over gn-0, which takes no writes */
+			node.offer(client.write(ChainFleet.NOW, ChainFleet.TAG, padded(new byte[] { 1 })));
+
+			final Entry opening = opening(client, ChainFleet.NOW, EXIT);
 
 			node.atOnce(List.of(() -> node.exit.appended(chain, opening), () -> node.exit.appended(chain, opening)));
 			node.awaitWork();
