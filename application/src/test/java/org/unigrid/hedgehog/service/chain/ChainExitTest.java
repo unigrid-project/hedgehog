@@ -468,6 +468,37 @@ public class ChainExitTest {
 		return new Reached(caller, rig.sockets.get(0).closes::get);
 	}
 
+	/* The opening, the answer, the Connect, the Connected, a Data the exit sends 20 s later and an entry of a stranger
+	   fill a chain of six entries. The clock steps back 15 s, the destination closes and the Close waits for room, which
+	   entries of the stranger take as soon as the first four age out, until the relay's 30 s are up. */
+	private static void drainPastTheRetention(final Rig rig, final Caller caller) {
+		final ChainId chainId = rig.fleet.chain();
+		final FeedWriter stranger = rig.stranger(1, chainId);
+
+		caller.open();
+		rig.connector.connect();
+		rig.drive();
+		rig.fleet.clock.addAndGet(20_000);
+		rig.connector.requests.get(0).listener().received(new byte[] { 1 });
+		rig.offer(stranger.write(rig.fleet.clock.get(), ChainFleet.TAG, padded(new byte[1])));
+		rig.drive();
+		rig.fleet.clock.addAndGet(-15_000);
+		rig.connector.requests.get(0).listener().closed();
+		rig.exit.tick();
+		assertThat(rig.exit.drainingRelays(), is(1));
+
+		rig.fleet.clock.set(ChainFleet.NOW + 31_000);
+		rig.fleet.host(EXIT).maintain();
+		IntStream.range(0, 4).forEach(entry -> rig.offer(stranger.write(rig.fleet.clock.get(), ChainFleet.TAG,
+			padded(new byte[1]))));
+		rig.exit.tick();
+		assertThat(rig.exit.drainingRelays(), is(1));
+
+		rig.fleet.clock.set(ChainFleet.NOW + 40_000);
+		rig.exit.tick();
+		rig.drive();
+	}
+
 	/* One session of the caller that opens, takes the answer if the exit sends one, and ends at once. Only this
 	   session is handed what the exit writes, as the caller keeps no record of it. */
 	private static void churn(final Rig rig, final Caller caller) {
@@ -986,6 +1017,20 @@ public class ChainExitTest {
 		rig.exit.tick();
 		churn(rig, caller);
 		assertThat(rig.fleet.host(EXIT).chain(chainId).orElseThrow().heads().size(), is(exitWriters.size() + 2));
+	}
+
+	/* A relay drains for the retention of its chain at most. Its writer stamped ahead before the clock stepped back, so
+	   its Close is still young enough for the chain when the time is up, and only the chain, kept full, has no room
+	   for it: the relay goes all the same, and its Close with it. */
+	@Example
+	public void letsGoOfADrainingRelayOnceTheRetentionOfItsChainIsUp() {
+		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(6)));
+		final Caller caller = rig.caller(1);
+
+		drainPastTheRetention(rig, caller);
+
+		assertThat(rig.exit.drainingRelays(), is(0));
+		assertThat(caller.received, contains(CONNECTED, new Data(new byte[] { 1 })));
 	}
 
 	/* A member that refuses every entry of the exit keeps the writers of its sessions paused for good, which says
