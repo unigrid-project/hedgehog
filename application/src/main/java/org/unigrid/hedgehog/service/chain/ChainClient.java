@@ -169,9 +169,11 @@ public final class ChainClient {
 
 	/* A join made for this country never asks a pair that holds all of the country, but an attachment made for
 	   another country or for none may, and the exits of any may have gone while it was joined. Such an attachment is
-	   passed over for the country, which is drawn again among the other groups. Each draw passes over one group
-	   more, so the draws end once no group with a member in the country is left. The join passed over stays in use
-	   for the other countries and for the sessions that name none. */
+	   passed over for the country, which is drawn again among the other groups. A join under way that the country
+	   shared may end in a group passed over already, when the group it asked refused; the draws go on all the same,
+	   as the next one is never that join again. Every other draw passes over one group more, so the draws end once no
+	   group with a member in the country is left. The join passed over stays in use for the other countries and for
+	   the sessions that name none. */
 	private CompletableFuture<ChainAttachment> withExitIn(final Optional<String> country,
 		final Set<Integer> passedOver) {
 
@@ -192,8 +194,8 @@ public final class ChainClient {
 				return CompletableFuture.completedFuture(join.handOut(attachment));
 			}
 
-			return passedOver.add(attachment.group()) ? withExitIn(country, passedOver)
-				: CompletableFuture.failedFuture(new IllegalStateException(NO_GROUP_IN_THE_COUNTRY));
+			passedOver.add(attachment.group());
+			return withExitIn(country, passedOver);
 		}, joins);
 	}
 

@@ -24,11 +24,13 @@ import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.channels.ClosedChannelException;
+import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -390,6 +392,40 @@ public class ChainClientTest {
 		return new Random(seed);
 	}
 
+	/* Twelve gridnodes in three groups of four, of which only the groups on duty take a client */
+	static ChainFleet threeGroups(final Set<Integer> onDuty) {
+		final ChainFleet fleet = new ChainFleet(12);
+
+		fleet.settings.set(Optional.of(ChainFleet.settings(4, 1, 16, 30, 3)));
+		IntStream.range(0, 12).forEach(number -> fleet.host("gn-" + number));
+		onDuty.forEach(group -> fleet.view().groups().members(group)
+			.forEach(member -> fleet.host(member).refresh()));
+		return fleet;
+	}
+
+	/* Draws the given numbers in turn for the choices of a group, the first of whatever else it is offered, and a
+	   seed of zero for every shuffle, so that each group is asked through the same pair every time */
+	private static RandomGenerator drawing(final long... draws) {
+		final Queue<Long> queued = new ArrayDeque<>(LongStream.of(draws).boxed().toList());
+
+		return new RandomGenerator() {
+			@Override
+			public long nextLong() {
+				return 0;
+			}
+
+			@Override
+			public long nextLong(final long bound) {
+				return queued.remove();
+			}
+
+			@Override
+			public int nextInt(final int bound) {
+				return 0;
+			}
+		};
+	}
+
 	/* Draws the last of whatever it is offered, so that of the groups that weigh anything the last one is chosen */
 	private static RandomGenerator last() {
 		return new RandomGenerator() {
@@ -734,6 +770,36 @@ public class ChainClientTest {
 		return fleet.deliveries.stream().filter(delivery -> members.contains(delivery.to()))
 			.map(ChainFleet.Delivery::packet).filter(JoinChain.class::isInstance).map(JoinChain.class::cast)
 			.map(JoinChain::getWriter).findFirst().orElseThrow();
+	}
+
+	/* The first group is held for any country, through the two members it has in Sweden. A join for Norway is
+	   under way in the second group, which Sweden is drawn next and shares, but the second group refuses, and the
+	   join ends in the first one too, through the same pair. Sweden is drawn once more and lands in the third. */
+	@Example
+	public void drawsOnWhenAJoinItSharedEndsInAGroupPassedOver() {
+		final ChainFleet fleet = threeGroups(Set.of(0, 2));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT),
+			drawing(0, 2, 0, 0, 0, 1));
+		final ChainAttachment any = attached(fleet, client, Optional.empty());
+		final List<String> pair = fleet.attachMembers(CLIENT, any);
+		final List<String> refusing = fleet.view().groups().members(1);
+		final List<String> swedes = fleet.view().groups().members(2).subList(0, 3);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		pair.forEach(member -> countries.put(member, "SE"));
+		countries.put(refusing.get(0), "SE");
+		swedes.forEach(member -> countries.put(member, "SE"));
+		countries.put(fleet.view().groups().members(2).get(3), "DK");
+
+		final CompletableFuture<ChainAttachment> norwegian = client.attachment(Optional.of("NO"));
+		final CompletableFuture<ChainAttachment> swedish = client.attachment(Optional.of("SE"));
+
+		fleet.deliver();
+
+		assertThat(List.of(any.group(), done(norwegian).group(), done(swedish).group()), equalTo(List.of(0, 0, 2)));
+		assertThat(joinsTo(fleet, refusing), is(1L));
+		assertThat(drawnExits(done(swedish), Optional.of("SE"), Set.of()), everyItem(is(in(swedes))));
 	}
 
 	/* No group is left once the only one with a member in the country has it at an attach member alone */
