@@ -60,9 +60,6 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
-import mockit.Invocation;
-import mockit.Mock;
-import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.GenerationMode;
@@ -112,7 +109,6 @@ import org.unigrid.hedgehog.proxy.session.ExitCandidate;
 import org.unigrid.hedgehog.proxy.session.ExitSelector;
 import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
-import org.unigrid.hedgehog.proxy.session.Session;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 import org.unigrid.hedgehog.proxy.session.SessionState;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
@@ -2526,24 +2522,18 @@ public class ChainExitTest {
 	   own and never tries one as an opening, nor hands it to a relay as a message of a client */
 	@Example
 	public void triesNoEntryOfItsOwnThatCameBackAsAnOpening() {
-		final List<Entry> tried = new CopyOnWriteArrayList<>();
-		final Rig rig = new Rig();
+		final AtomicInteger reads = new AtomicInteger();
+		final ChainFleet fleet = ChainFleet.group();
+		final Rig rig = new Rig(fleet, built -> built.exit(() -> {
+			reads.incrementAndGet();
+			return fleet.settings.get();
+		}, fleet.clock::get, Runnable::run));
 		final Caller caller = rig.caller(1);
-
-		/* The fake answers as the real one does, so it may stay for the tests that follow */
-		new MockUp<Session>() {
-			@Mock
-			Optional<Session> tryAccept(final Invocation invocation, final SessionContext context, final Entry entry,
-				final byte[] key) {
-
-				tried.add(entry);
-				return invocation.proceed();
-			}
-		};
 
 		caller.open();
 		rig.connector.connect();
 		rig.drive();
+		reads.set(0);
 		rig.connector.requests.get(0).listener().received(new byte[] { 7 });
 		rig.drive();
 
@@ -2551,11 +2541,11 @@ public class ChainExitTest {
 
 		assertThat(rig.entries(rig.fleet.chain()).stream().filter(entry -> entry.header().writer().equals(own))
 			.count(), is(greaterThanOrEqualTo(3L)));
-		assertThat(tried, hasSize(1));
-		assertThat(tried.get(0).header().writer(), is(caller.writer()));
+		assertThat(reads.get(), is(0));
 		assertThat(caller.received, contains(CONNECTED, new Data(new byte[] { 7 })));
 		assertThat(rig.exit.heldRelays(), is(1));
 	}
+
 
 	/* A client attached through gn-0 and gn-2, whose entries the exit hears from both: what the sessions with it write
 	   is stemmed to neither. Its writer wrote before the session, as the client's writer serves all its sessions on a
