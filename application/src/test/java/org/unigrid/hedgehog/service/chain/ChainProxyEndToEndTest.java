@@ -60,6 +60,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Tag;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
@@ -528,6 +529,7 @@ public class ChainProxyEndToEndTest {
 			assertThat(opens, hasSize(1));
 
 			final ChainHost exit = fleet.host(network.named(opens.get(0)));
+			final List<ChainId> retiring = exit.hostedChains();
 
 			fleet.clock.addAndGet(EPOCH_MILLIS);
 			everyNodeTicks(fleet, network);
@@ -547,7 +549,7 @@ public class ChainProxyEndToEndTest {
 				old.write(bytes("three"));
 				assertReceived(old, bytes("onetwothree"));
 				assertThat(network.openRelays(), is(2));
-				assertThat(exit.retiredChains(), hasSize(1));
+				assertThat(exit.retiredChains(), equalTo(retiring));
 
 				fleet.clock.incrementAndGet();
 				endOfGrace.accept(network, exit);

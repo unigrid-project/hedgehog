@@ -40,6 +40,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
@@ -129,8 +130,13 @@ public class ChainHostDrainTest {
 			ProxySettings.CONNECT | ProxySettings.UDP);
 	}
 
-	/* The first chain of an epoch that ended keeps a session, which its drain says, and the others are dropped as
-	   soon as the retention window is over */
+	/* A group with one chain, so that the epoch that ends retires that chain alone */
+	private static ChainFleet oneChain() {
+		return ChainFleet.group(ChainFleet.settings(ChainFleet.MEMBERS, 1, 16, 30, 3));
+	}
+
+	/* The one chain of an epoch that ended keeps a session, which its drain says, and is still held once the
+	   retention window is over */
 	private static ChainId drainingAlone(final ChainFleet fleet, final Sessions sessions) {
 		final ChainId first = fleet.chain();
 
@@ -143,8 +149,10 @@ public class ChainHostDrainTest {
 		return first;
 	}
 
+	/* An exit stems the entries of a session that drains on a retired chain to any member of the group, so every
+	   member keeps the chain while a session may drain on it, whether anything runs on it here or not */
 	@Example
-	public void keepsARetiredChainForARetentionWindowAndThenDropsOneNothingRunsOn() {
+	public void keepsARetiredChainNothingRunsOnUntilItsGraceIsOver() {
 		final ChainFleet fleet = ChainFleet.group();
 		final ChainHost host = fleet.host(MEMBER);
 		final List<ChainId> first = retire(fleet);
@@ -152,7 +160,11 @@ public class ChainHostDrainTest {
 		host.drain();
 		assertThat(host.retiredChains(), equalTo(first));
 
-		fleet.clock.addAndGet(RETENTION_MILLIS - 1);
+		fleet.clock.addAndGet(RETENTION_MILLIS);
+		host.drain();
+		assertThat(host.retiredChains(), equalTo(first));
+
+		fleet.clock.addAndGet(GRACE_MILLIS - RETENTION_MILLIS - 1);
 		host.drain();
 		assertThat(host.retiredChains(), equalTo(first));
 
@@ -173,29 +185,36 @@ public class ChainHostDrainTest {
 		retire(fleet);
 		fleet.clock.addAndGet(RETENTION_MILLIS);
 		host.drain();
-		assertThat(host.retiredChains(), contains(first.get(0)));
+		assertThat(host.retiredChains(), equalTo(first));
 
 		fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS - RETENTION_MILLIS - 1);
 		host.drain();
-		assertThat(host.retiredChains(), contains(first.get(0)));
+		assertThat(host.retiredChains(), equalTo(first));
 		assertThat(sessions.expired, is(empty()));
 
 		fleet.clock.addAndGet(1);
 		host.drain();
 		assertThat(host.retiredChains(), is(empty()));
-		assertThat(sessions.expired, equalTo(List.of(first.get(0))));
-		assertThat(sessions.hostedWhenTold, equalTo(List.of(true)));
+		assertThat(sessions.expired, equalTo(first));
+		assertThat(sessions.hostedWhenTold, everyItem(is(true)));
 	}
 
+	/* While the spork is absent the proxy is off and nothing drains, so the chains nothing runs on go once the
+	   retention window is over, and one a client is attached to stays until the client leaves */
 	@Example
-	public void keepsAChainAClientIsAttachedToUntilItLeaves() {
+	public void keepsAChainAClientIsAttachedToWhileTheSporkIsAbsentUntilItLeaves() {
 		final ChainFleet fleet = ChainFleet.group();
 		final ChainHost host = fleet.host(MEMBER);
 		final ChainId attached = fleet.chain();
 		final EmbeddedChannel client = fleet.client(MEMBER, 2);
 
 		retire(fleet);
-		fleet.clock.addAndGet(RETENTION_MILLIS);
+		fleet.settings.set(Optional.empty());
+		fleet.clock.addAndGet(RETENTION_MILLIS - 1);
+		host.drain();
+		assertThat(host.retiredChains().size(), is(host.hostedChains().size()));
+
+		fleet.clock.addAndGet(1);
 		host.drain();
 		assertThat(host.retiredChains(), contains(attached));
 
@@ -217,12 +236,12 @@ public class ChainHostDrainTest {
 		host.refresh();
 		fleet.clock.addAndGet(59_999);
 		host.drain();
-		assertThat(host.retiredChains(), contains(chain));
+		assertThat(host.retiredChains(), hasItem(chain));
 
 		fleet.clock.addAndGet(1);
 		host.drain();
 		assertThat(host.retiredChains(), is(empty()));
-		assertThat(sessions.expired, equalTo(List.of(chain)));
+		assertThat(sessions.expired, hasItem(chain));
 		assertThat(ChainHost.graceMillis(fleet.settings.get().orElseThrow()), is(60_000L));
 		assertThat(ChainHost.graceMillis(ProxySettings.DEFAULTS), is(ChainHost.DRAIN_GRACE_MILLIS));
 	}
@@ -233,7 +252,7 @@ public class ChainHostDrainTest {
 		final ChainHost host = fleet.host(MEMBER);
 
 		retire(fleet);
-		fleet.clock.addAndGet(RETENTION_MILLIS);
+		fleet.clock.addAndGet(GRACE_MILLIS);
 		host.tick();
 
 		assertThat(host.retiredChains(), is(empty()));
@@ -259,17 +278,20 @@ public class ChainHostDrainTest {
 
 		fleet.client(MEMBER, 2);
 		host.addDrain(sessions);
-		retire(fleet);
+
+		final List<ChainId> first = retire(fleet);
+
 		fleet.clock.addAndGet(GRACE_MILLIS - 1);
 		host.drain();
-		assertThat(host.retiredChains(), contains(attached));
+		assertThat(host.retiredChains(), equalTo(first));
 		assertThat(sessions.expired, is(empty()));
 
 		fleet.clock.addAndGet(1);
 		host.drain();
 		assertThat(host.retiredChains(), is(empty()));
-		assertThat(sessions.expired, equalTo(List.of(attached)));
-		assertThat(sessions.hostedWhenTold, equalTo(List.of(true)));
+		assertThat(sessions.expired, equalTo(first));
+		assertThat(first, hasItem(attached));
+		assertThat(sessions.hostedWhenTold, everyItem(is(true)));
 	}
 
 	@Example
@@ -357,7 +379,7 @@ public class ChainHostDrainTest {
 		host.refresh();
 		assertThat(retiredAt(host), everyItem(is(retired)));
 
-		fleet.clock.set(retired + RETENTION_MILLIS - 1);
+		fleet.clock.set(retired + GRACE_MILLIS - 1);
 		host.drain();
 		assertThat(host.retiredChains(), equalTo(first));
 
@@ -405,14 +427,15 @@ public class ChainHostDrainTest {
 		assertThat(host.hostedChains(), is(empty()));
 	}
 
+	/* The grace is the one of the spork as it reads now, whatever the hosting was built with */
 	@Example
-	public void followsTheRetentionWindowOfTheSporkAsItReadsNow() {
+	public void followsTheGraceOfTheSporkAsItReadsNow() {
 		final ChainFleet fleet = ChainFleet.group();
 		final ChainHost host = fleet.host(MEMBER);
 		final List<ChainId> first = retire(fleet);
 
-		fleet.settings.set(Optional.of(ChainFleet.settings(ChainFleet.MEMBERS, 4, 16, 60, 3)));
-		fleet.clock.addAndGet(2 * RETENTION_MILLIS - 1);
+		fleet.settings.set(Optional.of(withPeriod(120)));
+		fleet.clock.addAndGet(119_999);
 		host.drain();
 		assertThat(host.retiredChains(), equalTo(first));
 
@@ -518,7 +541,7 @@ public class ChainHostDrainTest {
 	/* A refresh that holds the host does not keep the drains from being told, and the swap waits for it */
 	@Example
 	public void tellsTheDrainsWhileARefreshHoldsTheHostAndTakesItsLockForTheSwapAlone() throws Exception {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = oneChain();
 		final ChainHost host = fleet.host(MEMBER);
 		final Sessions sessions = new Sessions(host);
 		final ChainId first = drainingAlone(fleet, sessions);
@@ -558,7 +581,7 @@ public class ChainHostDrainTest {
 
 	@Example
 	public void asksAndTellsTheDrainsWithNoLockOfTheHostHeld() {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = oneChain();
 		final Sessions sessions = new Sessions(fleet.host(MEMBER));
 
 		drainingAlone(fleet, sessions);
@@ -683,7 +706,7 @@ public class ChainHostDrainTest {
 	   told go at the next tick, which tells them again */
 	@Example
 	public void leavesTheDropToTheNextTickWhenARefreshRebuiltTheHostingMeanwhile() {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = oneChain();
 		final ChainHost host = fleet.host(MEMBER);
 		final Sessions sessions = new Sessions(host);
 		final ChainId first = drainingAlone(fleet, sessions);
@@ -709,7 +732,7 @@ public class ChainHostDrainTest {
 	/* A refresh that takes a chain back while the drains are told leaves it with the current ones */
 	@Example
 	public void leavesAChainARefreshTookBackMeanwhileWithTheCurrentOnes() {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = oneChain();
 		final ChainHost host = fleet.host(MEMBER);
 		final Sessions sessions = new Sessions(host);
 		final ChainId first = drainingAlone(fleet, sessions);
@@ -731,10 +754,10 @@ public class ChainHostDrainTest {
 	}
 
 	/* A chain taken back and retired again while the drains are told has retired anew: it is not dropped on what was
-	   decided before, and it is kept for a retention window from its new retirement */
+	   decided before, and it is kept for its grace from its new retirement, whose end the drains are told again */
 	@Example
 	public void startsOverWithAChainARefreshTookBackAndRetiredAgainMeanwhile() {
-		final ChainFleet fleet = ChainFleet.group();
+		final ChainFleet fleet = oneChain();
 		final ChainHost host = fleet.host(MEMBER);
 		final Sessions sessions = new Sessions(host);
 		final ChainId first = drainingAlone(fleet, sessions);
@@ -750,13 +773,13 @@ public class ChainHostDrainTest {
 		host.drain();
 		assertThat(host.retiredChains().contains(first), is(true));
 
-		fleet.clock.addAndGet(RETENTION_MILLIS - 1);
+		fleet.clock.addAndGet(GRACE_MILLIS - 1);
 		host.drain();
 		assertThat(host.retiredChains().contains(first), is(true));
 
 		fleet.clock.addAndGet(1);
 		host.drain();
 		assertThat(host.retiredChains(), is(empty()));
-		assertThat(sessions.expired, equalTo(List.of(first)));
+		assertThat(sessions.expired, equalTo(List.of(first, first)));
 	}
 }

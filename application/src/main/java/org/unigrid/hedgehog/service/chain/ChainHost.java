@@ -900,13 +900,14 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* Drops the retired chains that are done, by two rules. A chain nothing runs on, with no client attached to it
-	   here and no session of this node on it, goes once it has been retired for the retention window, as a node
-	   whose clock runs a little behind still writes to it for a moment. Any chain goes once its grace is over, after
-	   every drain was told while the chain is still hosted, so that the Close of each session a drain ends is flooded
-	   on; a drain that failed is told again at the next tick. The rules follow the spork as it reads now. One that is
-	   absent or cannot be read means the proxy is off, as it does to the client sessions: no grace runs out and no
-	   drain is told, and the retired chains nothing runs on go by the retention window the hosting was built with.
+	/* Drops the retired chains that are done, by the spork as it reads now. While it is on, a chain goes once its
+	   grace is over, after every drain was told while the chain is still hosted, so that the Close of each session a
+	   drain ends is flooded on; a drain that failed is told again at the next tick. It goes no sooner, whether anything
+	   runs on it here or not, as an exit stems the entries of a session that drains on it to any member of the group.
+	   A spork that is absent or cannot be read means the proxy is off, as it does to the client sessions: no grace
+	   runs out and no drain is told, and a chain nothing runs on, with no client attached to it here and no session of
+	   this node on it, goes once it has been retired for the retention window the hosting was built with, as a node
+	   whose clock runs a little behind still writes to it for a moment.
 
 	   No lock of this host is held while a drain is asked or told: a drain that ends its sessions posts into this host
 	   under locks of its own (its relay's, its session's and its outbox's, then the delivery lock of the chain), and
@@ -937,9 +938,13 @@ public class ChainHost implements ChainService {
 
 		final Set<ChainId> drop = new LinkedHashSet<>();
 
-		spork.ifPresent(on -> drop.addAll(expire(previous, graceMillis(on), now)));
-		previous.retiredFor(now, TimeUnit.SECONDS.toMillis(proxy.retentionSeconds())).stream()
-			.filter(id -> !isInUse(previous.retired().get(id), id)).forEach(drop::add);
+		if (spork.isPresent()) {
+			drop.addAll(expire(previous, graceMillis(spork.get()), now));
+		} else {
+			previous.retiredFor(now, TimeUnit.SECONDS.toMillis(proxy.retentionSeconds())).stream()
+				.filter(id -> !isInUse(previous.retired().get(id), id)).forEach(drop::add);
+		}
+
 		swapOut(previous, drop);
 	}
 
@@ -966,8 +971,8 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* A client attached to the chain, or a session of this node on it, is what a chain past the retention window
-	   but inside its grace is kept for */
+	/* A client attached to the chain, or a session of this node on it, is what a chain past the retention window is
+	   kept for while the proxy is off */
 	private boolean isInUse(final HostedChain hosted, final ChainId id) {
 		return hosted.clientCount() > 0 || drains.any(draining -> draining.holds(id));
 	}

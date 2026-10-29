@@ -2057,7 +2057,7 @@ public class ChainExitTest {
 		rig.fleet.clock.addAndGet(ChainHost.DRAIN_GRACE_MILLIS - 1);
 		host.drain();
 		rig.handOut();
-		assertThat(host.retiredChains(), contains(rig.fleet.chain()));
+		assertThat(host.retiredChains(), hasItem(rig.fleet.chain()));
 		assertThat(reached.caller().received, equalTo(stage.told));
 
 		rig.fleet.clock.addAndGet(1);
