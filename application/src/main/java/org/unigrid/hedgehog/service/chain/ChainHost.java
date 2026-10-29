@@ -46,6 +46,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -850,6 +851,12 @@ public class ChainHost implements ChainService {
 	   to a fetch. It goes to the successor of its writer for the period, never to one of the streams to avoid, and
 	   waits in the embargo while there is none. A writer the chain takes no more of is told FULL, as by post. */
 	public Admission postStem(final ChainId chainId, final Entry entry, final Set<Channel> avoid) {
+		return postStem(chainId, entry, () -> avoid);
+	}
+
+	/* The same for a writer whose streams to avoid may grow, as an exit learns of the second member its client
+	   attached through: they are asked again whenever an entry of the writer is stemmed, a refused one too */
+	public Admission postStem(final ChainId chainId, final Entry entry, final Supplier<Set<Channel>> avoid) {
 		if (chainId == null || !chainId.equals(entry.header().chainId())) {
 			return Admission.WRONG_CHAIN;
 		}
@@ -863,12 +870,13 @@ public class ChainHost implements ChainService {
 			&& router.hasSuccessor(chainId, avoid, clock.getAsLong());
 	}
 
-	private Admission postStem(final HostedChain hosted, final Entry entry, final Set<Channel> avoid) {
+	private Admission postStem(final HostedChain hosted, final Entry entry, final Supplier<Set<Channel>> avoid) {
 		final long now = clock.getAsLong();
 		final Admission admission = hosted.holdOwn(entry, now);
 
 		if (PASSES_ON.contains(admission)) {
-			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid, now);
+			hosted.avoidFor(entry.header().writer(), avoid);
+			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid.get(), now);
 		}
 
 		return admission;
@@ -1174,10 +1182,10 @@ public class ChainHost implements ChainService {
 		final StemEmbargo embargo = hosted.getEmbargo();
 		final List<Entry> refused = embargo.from(refusal.getWriter(), refusal.getSeq()).stream()
 			.filter(entry -> embargo.wasSentTo(entry, refuser)).toList();
-		final Set<Channel> sources = refused.stream().map(embargo::sourceOf).flatMap(Optional::stream)
-			.collect(Collectors.toSet());
+		final Set<Channel> avoid = Stream.concat(refused.stream().map(embargo::sourceOf).flatMap(Optional::stream),
+			hosted.avoidOf(refusal.getWriter()).stream()).collect(Collectors.toSet());
 
-		router.refused(refusal.getChainId(), refusal.getWriter(), refuser, sources, clock.getAsLong())
+		router.refused(refusal.getChainId(), refusal.getWriter(), refuser, avoid, clock.getAsLong())
 			.filter(next -> !refused.isEmpty()).ifPresent(next -> stemTo(hosted, next, refused));
 	}
 

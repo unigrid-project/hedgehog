@@ -139,7 +139,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 		Admission admission;
 
 		try {
-			admission = mode == Mode.STEM ? host.postStem(chainId, entry, avoid.get()) : host.post(entry);
+			admission = mode == Mode.STEM ? host.postStem(chainId, entry, avoid) : host.post(entry);
 		} catch (RuntimeException ex) {
 			log.warn("Posting an entry of this node failed with {}", ex.getClass().getName());
 			admission = Admission.FULL;

@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
@@ -94,6 +95,9 @@ final class HostedChain {
 	   client attached through, which know the client and are the members an exit never passes the entries of a
 	   session with that client on to. */
 	private final Map<WriterId, Set<Channel>> firstFlooders = new ConcurrentHashMap<>();
+
+	/* What each writer of this node whose entries go out through the stem avoids, asked again whenever it is needed */
+	private final Map<WriterId, Supplier<Set<Channel>>> avoids = new ConcurrentHashMap<>();
 
 	/* The streams this node holds to the other members of the group, looked up when the hosting is refreshed, or
 	   for a chain the node follows, the streams to the members it follows the chain through. Replaced as a whole by
@@ -224,6 +228,7 @@ final class HostedChain {
 
 			writers.removeAll(forgotten);
 			firstFlooders.keySet().removeAll(forgotten);
+			avoids.keySet().removeAll(forgotten);
 			return forgotten.size();
 		}
 	}
@@ -244,6 +249,15 @@ final class HostedChain {
 		if (isNewFlooder(entry.header().writer(), origin) && entry.isAuthentic()) {
 			noteFlooder(entry.header().writer(), origin);
 		}
+	}
+
+	void avoidFor(final WriterId writer, final Supplier<Set<Channel>> avoid) {
+		avoids.put(writer, avoid);
+	}
+
+	/* What a writer of this node avoids now, nothing for a writer of another */
+	Set<Channel> avoidOf(final WriterId writer) {
+		return Optional.ofNullable(avoids.get(writer)).map(Supplier::get).orElse(Set.of());
 	}
 
 	Set<Channel> firstFlooders(final WriterId writer) {

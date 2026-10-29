@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
@@ -730,5 +731,26 @@ public class ChainHostStemTest {
 		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
 
 		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getValue(), equalTo(List.of(new ChainStem(own.subList(0, 1)))));
+	}
+
+	/* What an exit avoids grows once the second member its client attached through shows up, so a refusal moves the
+	   writer on with what it avoids now: never to a member it came to avoid after it was routed */
+	@Example
+	public void aRefusalNeverStemsToAMemberTheWriterCameToAvoid() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 1);
+		final AtomicReference<Set<Channel>> avoid = new AtomicReference<>(Set.of());
+
+		fleet.host(EXIT).postStem(fleet.chain(), own.get(0), avoid::get);
+
+		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String other = drawnBy(fleet, EXIT).stream().filter(id -> !id.equals(successor)).findFirst()
+			.orElseThrow();
+
+		avoid.set(Set.of(fleet.stream(EXIT, other)));
+		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 }

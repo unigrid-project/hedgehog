@@ -44,15 +44,11 @@ final class StemRouter {
 	static final long PERIOD_MILLIS = 60_000;
 	static final int SUCCESSORS = 2;
 
-	private record Period(long number, boolean diffuses, List<Channel> successors, Map<WriterId, Route> routes,
+	private record Period(long number, boolean diffuses, List<Channel> successors, Map<WriterId, Channel> routes,
 		Map<WriterId, Set<Channel>> barred, Set<WriterId> rerouted) {
-		/* The mode and the successors of one chain for one period, the route of each writer in it, the successor
-		   that refused an entry of a writer, which gets none of it for the rest of the period, and the writers moved
-		   on a refusal already */
-	}
-
-	private record Route(Channel successor, Set<Channel> avoid) {
-		/* The successor of a writer and the streams it avoided when it was routed */
+		/* The mode and the successors of one chain for one period, the successor of each writer routed in it, the
+		   successor that refused an entry of a writer, which gets none of it for the rest of the period, and the
+		   writers moved on a refusal already */
 	}
 
 	private final RandomGenerator random;
@@ -77,43 +73,40 @@ final class StemRouter {
 
 		final Period period = period(chainId, now);
 		final List<Channel> open = open(chainId, period, avoid, period.barred().getOrDefault(writer, Set.of()));
-		final Route routed = period.routes().get(writer);
+		final Channel routed = period.routes().get(writer);
 
 		if (open.isEmpty()) {
 			return Optional.empty();
 		}
 
-		if (routed != null && open.contains(routed.successor())) {
-			return Optional.of(routed.successor());
+		if (routed != null && open.contains(routed)) {
+			return Optional.of(routed);
 		}
 
 		final Channel chosen = open.get(random.nextInt(open.size()));
 
-		period.routes().put(writer, new Route(chosen, Set.copyOf(avoid)));
+		period.routes().put(writer, chosen);
 		return Optional.of(chosen);
 	}
 
 	/* The successor a writer moves to when the one it is routed to refused an entry of it for want of room: the
-	   other drawn successor, if it is there and avoided neither when the writer was routed nor now, and the one that
-	   refused gets nothing more of the writer for the period. An author and a relay move alike, once for each writer
-	   in a period, so a second refusal moves nothing, and a refusal from a stream the writer is not routed to moves
-	   nothing either. */
+	   other drawn successor, if it is there and not among what the caller avoids now, and the one that refused gets
+	   nothing more of the writer for the period. An author and a relay move alike, once for each writer in a period,
+	   so a second refusal moves nothing, and a refusal from a stream the writer is not routed to moves nothing
+	   either. */
 	synchronized Optional<Channel> refused(final ChainId chainId, final WriterId writer, final Channel successor,
 		final Set<Channel> avoid, final long now) {
 
 		final Period period = periods.get(chainId);
-		final Route routed = period == null || period.number() != numberOf(now) ? null : period.routes().get(writer);
+		final boolean current = period != null && period.number() == numberOf(now);
 
-		if (routed == null || routed.successor() != successor || !period.rerouted().add(writer)) {
+		if (!current || period.routes().get(writer) != successor || !period.rerouted().add(writer)) {
 			return Optional.empty();
 		}
 
-		final Set<Channel> both = new HashSet<>(routed.avoid());
-
-		both.addAll(avoid);
 		period.barred().put(writer, Set.of(successor));
 		period.routes().remove(writer);
-		return successor(chainId, writer, both, now);
+		return successor(chainId, writer, avoid, now);
 	}
 
 	/* The successors drawn for the period, for a test */
