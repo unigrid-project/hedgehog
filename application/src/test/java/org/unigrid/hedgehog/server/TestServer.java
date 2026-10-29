@@ -38,6 +38,9 @@ import org.unigrid.hedgehog.server.socks.SocksServer;
 
 @ApplicationScoped
 public class TestServer {
+	/* A GeoIP database that is not there, on one file system in memory that every server of the tests shares */
+	private static final Path GEOIP = Jimfs.newFileSystem(Configuration.unix()).getPath("/data/geoip/country.mmdb");
+
 	@Inject @Getter
 	private P2PServer p2p;
 
@@ -55,16 +58,13 @@ public class TestServer {
 	}
 
 	/* Only for tests that mock SocksOptions, as BaseServerTest does: an unmocked option would be stale static state.
-	   The GeoIP database is a file that is not there, on a file system in memory, as the mocked path would hand the
-	   reader a mocked stream that never ends. */
+	   The GeoIP database is a file that is not there, as the mocked path would hand the reader a mocked stream. */
 	public static void mockSocksProperties(TestServer server) {
-		final Path geoip = Jimfs.newFileSystem(Configuration.unix()).getPath("/data/geoip/country.mmdb");
-
 		new Expectations() {{
 			SocksOptions.getHost(); result = "localhost";
 			SocksOptions.getPort(); result = FreePortFinder.findFreeLocalPort();
 			SocksOptions.getCountry(); result = Optional.empty(); minTimes = 0;
-			SocksOptions.getGeoip(); result = geoip; minTimes = 0;
+			SocksOptions.getGeoip(); result = GEOIP; minTimes = 0;
 		}};
 
 		CDIUtil.instantiate(server.getSocks());
