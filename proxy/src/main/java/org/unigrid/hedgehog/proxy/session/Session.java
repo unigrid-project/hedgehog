@@ -42,7 +42,7 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
    is passed over and ends nothing. */
 public final class Session {
 	/* The tags of the peer an end keeps ahead of the next one. A peer entry whose tag is among them but is not the
-	   next one, or a gap that names one, means messages of the session were lost. */
+	   next one, or a gap in the client's feed that names one, means messages of the session were lost. */
 	static final int WINDOW = 64;
 
 	/* An answer carries the exit's writer as its payload, under the handshake */
@@ -146,9 +146,13 @@ public final class Session {
 		return isOfPeer(entry) && ahead.containsKey(entry.header().tag());
 	}
 
-	/* Whether the chain gave up on entries of the peer that carried a tag this session looks out for */
+	/* Whether the chain gave up on entries of the peer that belong to this session. The exit writes each session as a
+	   writer of its own, so at the client every gap in the peer's feed does, however far past the window the entries
+	   that waited were. The client's writer carries every session of its attachment, so at the exit only a gap that
+	   skipped an entry under a tag this session looks out for does. */
 	public synchronized boolean isNamedIn(Gap gap) {
-		return open && peer.equals(gap.writer()) && gap.tags().stream().anyMatch(ahead::containsKey);
+		return open && peer.equals(gap.writer())
+			&& (sending == Direction.CLIENT_TO_EXIT || gap.tags().stream().anyMatch(ahead::containsKey));
 	}
 
 	private boolean isOfPeer(Entry entry) {

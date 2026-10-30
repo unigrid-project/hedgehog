@@ -330,6 +330,32 @@ public class SessionCloseTest {
 		assertThat(wire.atClient, equalTo(List.of(new Close(CloseReason.BROKEN))));
 	}
 
+	/* The exit writes the session as a writer of its own, so a gap in that feed lost messages of the session however
+	   many it skipped: the entry that waited past more than the window carries a tag the client does not look out
+	   for yet */
+	@Example
+	public void shouldBreakAtOnceWhenTheChainSkipsMoreOfTheExitThanTheWindow() {
+		final SessionWire wire = opened();
+
+		for (int i = 0; i <= Session.WINDOW; i++) {
+			wire.exitSession().send(data(i));
+		}
+
+		wire.lostAtClient.addAll(wire.posted);
+		wire.exitSession().send(data(Session.WINDOW + 1));
+		wire.pump();
+		wire.clock.addAndGet(RETENTION_MILLIS + 1);
+
+		final List<Gap> gaps = wire.clientChain.expireGaps();
+
+		assertThat(gaps.size(), is(1));
+		assertThat(wire.client.isNamedIn(gaps.get(0)), is(true));
+		assertThat(wire.client.close(CloseReason.BROKEN), equalTo(Optional.of(close(CloseReason.BROKEN))));
+		wire.pump();
+		assertThat(wire.atClient, equalTo(List.of()));
+		assertThat(wire.atExit, equalTo(List.of(CONNECT, close(CloseReason.BROKEN))));
+	}
+
 	@Example
 	public void shouldCloseAtTheIdleTimeOfTheSettingAndNotOneMillisecondBefore() {
 		for (int seconds : List.of(1, 2, 0xFFFF)) {

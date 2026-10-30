@@ -47,8 +47,9 @@ final class SessionWire {
 	final List<Session> exits = new ArrayList<>();
 	final List<SealedMessage> atClient = new ArrayList<>();
 	final List<SealedMessage> atExit = new ArrayList<>();
-	/* Entries that never reach the exit's replica, as if lost on the way */
+	/* Entries that never reach the exit's replica, or the client's, as if lost on the way */
 	final Set<Entry> lostAtExit = new HashSet<>();
+	final Set<Entry> lostAtClient = new HashSet<>();
 	final String exitId;
 	ClientSession client;
 
@@ -80,7 +81,10 @@ final class SessionWire {
 		while (!posted.isEmpty()) {
 			final Entry entry = posted.poll();
 
-			clientChain.offer(entry).appended().forEach(appended -> client.receive(appended).ifPresent(atClient::add));
+			if (!lostAtClient.remove(entry)) {
+				clientChain.offer(entry).appended().forEach(appended -> client.receive(appended)
+					.ifPresent(atClient::add));
+			}
 
 			if (!lostAtExit.remove(entry)) {
 				exitChain.offer(entry).appended().forEach(this::atExitSide);

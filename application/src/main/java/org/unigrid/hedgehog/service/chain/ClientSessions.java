@@ -289,7 +289,7 @@ public final class ClientSessions implements SessionOpener {
 			ask(() -> session.close(CloseReason.DONE));
 		}
 
-		/* Only a gap in the exit's feed that skipped an entry under a tag the session still looks out for lost a
+		/* The exit writes each session as a writer of its own, so any gap in the feed of the session's exit lost a
 		   message of the exit */
 		private void lost(final Gap gap) {
 			ask(() -> session.isNamedIn(gap) ? session.close(CloseReason.BROKEN) : Optional.empty());

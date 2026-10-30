@@ -192,6 +192,10 @@ public class SessionTest {
 		return Tags.of(SECRETS.clientTags(), Direction.CLIENT_TO_EXIT, counter);
 	}
 
+	private static Tag exitTag(long counter) {
+		return Tags.of(SECRETS.exitTags(), Direction.EXIT_TO_CLIENT, counter);
+	}
+
 	/* The counter of each entry, read back from its tag */
 	private static List<Long> counters(List<Entry> entries) {
 		return entries.stream().map(entry -> CLIENT_TAGS.get(entry.header().tag())).collect(Collectors.toList());
@@ -980,6 +984,22 @@ public class SessionTest {
 		assertThat(pair.exit.isNamedIn(gapOf(SessionFixtures.key(3).id(), clientTag(1))), is(false));
 		pair.exit.close(CloseReason.DONE);
 		assertThat(pair.exit.isNamedIn(gapOf(client, clientTag(1))), is(false));
+	}
+
+	/* At the client the peer is the writer the exit took for this session alone, so a gap in its feed names the
+	   session whatever tags waited behind it */
+	@Example
+	public void shouldFindItselfInEveryGapOfTheExitsFeedAtTheClient() {
+		final Pair pair = new Pair();
+		final WriterId exit = pair.exitContext.writer().writer();
+
+		assertThat(pair.client.isNamedIn(gapOf(exit, exitTag(Session.WINDOW + 1))), is(true));
+		assertThat(pair.client.isNamedIn(gapOf(exit, TAG)), is(true));
+		assertThat(pair.client.isNamedIn(new Gap(exit, 0, 0, Set.of())), is(true));
+		assertThat(pair.client.isNamedIn(gapOf(pair.clientContext.writer().writer(), exitTag(1))), is(false));
+		assertThat(pair.client.isNamedIn(gapOf(SessionFixtures.key(3).id(), exitTag(1))), is(false));
+		pair.client.close(CloseReason.DONE);
+		assertThat(pair.client.isNamedIn(gapOf(exit, exitTag(1))), is(false));
 	}
 
 	private static Gap gapOf(WriterId writer, Tag tag) {

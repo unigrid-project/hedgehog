@@ -556,7 +556,8 @@ public class ClientSessionsTest {
 			new Close(CloseReason.BROKEN))));
 	}
 
-	/* The exit loses an entry of the second session only, and the chain gives up on it: the first is whole */
+	/* The exit writes each session as a writer of its own and loses an entry of the second session only, and the
+	   chain gives up on it: the first is whole */
 	@Example
 	public void closesOnlyTheSessionsWhoseEntriesTheGapOfTheirExitDropped() {
 		final Rig rig = new Rig(ChainFleet.group());
@@ -570,10 +571,11 @@ public class ClientSessionsTest {
 
 		final ChainAttachment attachment = rig.attachment();
 		final List<Entry> posted = new ArrayList<>();
-		final SessionContext exit = new SessionContext(new FeedWriter(ChainFleet.key(200), attachment.chainId()),
-			posted::add, rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS);
-		final List<Session> sessions = rig.opens().stream()
-			.map(open -> Session.tryAccept(exit, open, Rig.sealingKeyOf(Rig.exitOf(open))).orElseThrow()).toList();
+		final List<Entry> opens = rig.opens();
+		final List<Session> sessions = IntStream.range(0, opens.size()).mapToObj(number -> Session.tryAccept(
+			new SessionContext(new FeedWriter(ChainFleet.key(200 + number), attachment.chainId()), posted::add,
+			rig.fleet.clock::get, new SecureRandom(), ProxySettings.DEFAULTS), opens.get(number),
+			Rig.sealingKeyOf(Rig.exitOf(opens.get(number)))).orElseThrow()).toList();
 
 		sessions.forEach(session -> session.send(CONNECTED));
 		sessions.get(0).send(data(1));
@@ -590,7 +592,7 @@ public class ClientSessionsTest {
 			List.of(CONNECTED, new Close(CloseReason.BROKEN))));
 	}
 
-	/* A gap names a session only by a tag the session looks out for, so the gap of a writer under the tag of an
+	/* A gap names a session only by the writer of its exit, so the gap of another writer under the tag of an
 	   opening breaks nothing, be the session opening, which a retry replaces, or established */
 	@Example
 	public void leavesASessionAloneForAGapOfAWriterThatIsNotItsExit() {
