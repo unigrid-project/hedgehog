@@ -759,35 +759,38 @@ public class ChainHost implements ChainService {
 		relayed.forEach((next, batch) -> stemTo(hosted, next, batch, now));
 	}
 
-	/* Notes for each entry that went out the successor it went to, and for a successor that took no writes since when
-	   it took none */
+	/* A successor whose stream takes no writes is passed over, as a flood passes such a stream over, since writes it
+	   does not take pile up in memory, and it stays the route of the writer; it is noted since when it took none.
+	   What went out is noted as passed to the successor once its stream took it, so an entry whose write failed, as
+	   when the stream closed before it went out, never left. One that fails must not stop the others, and only the
+	   class of its failure is logged, as a message may name an address. What a successor did not take waits in the
+	   embargo. */
 	private static void stemTo(final HostedChain hosted, final Channel successor, final List<Entry> entries,
 		final long now) {
 
-		if (stemTo(successor, entries)) {
-			entries.forEach(entry -> hosted.getEmbargo().sent(entry, successor));
-			StemStalls.took(successor);
-		} else if (!successor.isWritable()) {
-			StemStalls.missed(successor, now);
-		}
-	}
-
-	/* A successor whose stream takes no writes is passed over, as a flood passes such a stream over, since writes it
-	   does not take pile up in memory, and it stays the route of the writer. One that fails must not stop the others,
-	   and only the class of its failure is logged, as a message may name an address. What a successor did not take
-	   waits in the embargo. */
-	private static boolean stemTo(final Channel successor, final List<Entry> entries) {
 		if (!successor.isWritable()) {
-			return false;
+			StemStalls.missed(successor, now);
+			return;
 		}
 
 		try {
-			ChainCodecs.batches(entries, ChainStem::new).forEach(successor::write);
+			for (final ChainStem batch : ChainCodecs.batches(entries, ChainStem::new)) {
+				successor.write(batch)
+					.addListener(written -> taken(hosted, successor, batch, written.isSuccess()));
+			}
+
 			successor.flush();
-			return true;
 		} catch (RuntimeException ex) {
 			log.warn("The stem to a member stream failed with {}", ex.getClass().getName());
-			return false;
+		}
+	}
+
+	private static void taken(final HostedChain hosted, final Channel successor, final ChainStem batch,
+		final boolean success) {
+
+		if (success) {
+			batch.getEntries().forEach(entry -> hosted.getEmbargo().sent(entry, successor));
+			StemStalls.took(successor);
 		}
 	}
 

@@ -19,7 +19,11 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
+import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Collections;
@@ -1266,6 +1270,45 @@ public class ChainHostStemTest {
 
 		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(fromExit));
 		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(fromRelay));
+	}
+
+	/* Fails every stem written to the stream, as when the stream closes before what it was handed went out */
+	private static void failStems(final EmbeddedChannel stream) {
+		stream.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void write(final ChannelHandlerContext context, final Object packet, final ChannelPromise promise) {
+				if (packet instanceof ChainStem) {
+					promise.setFailure(new ClosedChannelException());
+				} else {
+					context.write(packet, promise);
+				}
+			}
+		});
+	}
+
+	/* An entry counts as passed to a successor once its stream took it, so one whose write failed, as when the stream
+	   closed before it went out, never left, at the author and at a relay alike, and the exit never floods it */
+	@Example
+	public void anEntryWhoseWriteFailedNeverLeft() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> relayed = entries(fleet, 2, 2);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+		failStems(fleet.stream(EXIT, stemmedTo(writtenBy(fleet, EXIT)).getKey()));
+		failStems(fleet.stream(RELAY, stemmedTo(writtenBy(fleet, RELAY)).getKey()));
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		assertThat(hosted(fleet, EXIT).getEmbargo().wasSent(own.get(1)), is(false));
+		assertThat(hosted(fleet, RELAY).getEmbargo().wasSent(relayed.get(1)), is(false));
+
+		for (int second = 0; second < MAX_ROUNDS; second++) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(1)), is(empty()));
+		}
 	}
 
 	/* An honest member never passes an entry back to the one it came from, so an entry that comes straight back from
