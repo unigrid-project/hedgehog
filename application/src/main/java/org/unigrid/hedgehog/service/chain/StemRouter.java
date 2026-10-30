@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,14 +34,15 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
 
 /* Where this member passes the entries of the stem of one chain on, as Dandelion++ (Fanti et al., 2018) has it. The
    member draws once for each writer, the first time it takes an entry of the writer into the stem, and keeps the draw
-   for the life of the writer on the chain: a writer it relays is diffused, its entries flooded, or relayed, with even
-   odds, and one of its own is always relayed. A relayed writer has two successors drawn among the streams to the
-   other members of the group, never a client's, outside what the writer avoids, and every entry of it goes to the
-   first of them. Drawing once per writer, and not once in a while, keeps a member that watches who floods the entries
-   of a writer first from ruling members out over time. A successor that closes or leaves the group is passed over for
-   the other one. A writer for which each drawn successor is avoided or gone is routed to another member instead,
-   which it keeps. A successor that refused an entry of a writer counts as gone for the writer but is never replaced
-   that way, so refusals cannot walk the stem of a writer to members outside the draw. */
+   for the life of the writer on the chain, until the chain forgets the writer: a writer it relays is diffused, its
+   entries flooded, or relayed, with even odds, and one of its own is always relayed. A relayed writer has two
+   successors drawn among the streams to the other members of the group, never a client's, outside what the writer
+   avoids, and every entry of it goes to the first of them. Drawing once per writer, and not once in a while, keeps a
+   member that watches who floods the entries of a writer first from ruling members out over time. A successor that
+   closes or leaves the group is passed over for the other one. A writer for which each drawn successor is avoided or
+   gone is routed to another member instead, which it keeps. A successor that refused an entry of a writer counts as
+   gone for the writer but is never replaced that way, so refusals cannot walk the stem of a writer to members outside
+   the draw. */
 final class StemRouter {
 	static final int SUCCESSORS = 2;
 
@@ -179,6 +181,11 @@ final class StemRouter {
 		final List<Channel> current = members.get();
 
 		return current.stream().anyMatch(member -> isOpen(current, member, avoid, null));
+	}
+
+	/* Lets go of the draws of the writers the chain forgot */
+	synchronized void forget(final Collection<WriterId> writers) {
+		draws.keySet().removeAll(writers);
 	}
 
 	/* The successors drawn for a writer, for a test */

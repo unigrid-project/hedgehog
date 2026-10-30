@@ -246,6 +246,29 @@ public class ChainHostStemTest {
 		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(relayMovesTo));
 	}
 
+	/* A member forgets what it drew for a writer once the chain forgets the writer, whose feed ended before the
+	   retention window, so the draws it holds never outgrow the writers the chain holds */
+	@Example
+	public void forgetsTheDrawOfAWriterTheChainForgets() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final Entry last = new FeedWriter(ChainFleet.key(2), fleet.chain()).writeLast(NOW, ChainFleet.TAG,
+			ChainFleet.padded(new byte[1], ProxySettings.DEFAULTS.chainLimits().maxEntryBytes()));
+		final List<Entry> going = entries(fleet, 3, 1);
+		final StemRouter router = hosted(fleet, RELAY).getRouter();
+
+		stem(fleet, RELAY, "gn-1", List.of(last));
+		stem(fleet, RELAY, "gn-1", going);
+		fleet.host(RELAY).receive(fleet.stream(RELAY, "gn-2"), new ChainEntry(List.of(last, going.get(0))));
+
+		assertThat(router.draws(), is(2));
+		fleet.clock.addAndGet(31_000);
+		fleet.host(RELAY).maintain();
+
+		assertThat(router.draws(), is(1));
+		assertThat(router.drawn(ChainFleet.writer(2)), is(empty()));
+		assertThat(router.drawn(ChainFleet.writer(3)), hasSize(StemRouter.SUCCESSORS));
+	}
+
 	/* A client passes nothing on, so a stem from its stream, from a stranger or for a chain this node only follows is
 	   dropped like a fetch from one */
 	@Example

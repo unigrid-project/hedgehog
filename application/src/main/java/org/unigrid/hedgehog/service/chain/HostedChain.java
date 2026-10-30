@@ -234,7 +234,8 @@ final class HostedChain {
 	}
 
 	/* Forgets the writers whose feeds ended before the cutoff, so that their places come free, under the chain's own
-	   lock like the offers that count the writers. Answers how many were forgotten. */
+	   lock like the offers that count the writers, and what the stem drew for them. Answers how many were
+	   forgotten. */
 	int forgetEnded(final long cutoffMillis) {
 		synchronized (chain) {
 			final Set<WriterId> forgotten = chain.forgetEnded(cutoffMillis);
@@ -242,6 +243,7 @@ final class HostedChain {
 			writers.removeAll(forgotten);
 			firstFlooders.keySet().removeAll(forgotten);
 			avoids.keySet().removeAll(forgotten);
+			router.forget(forgotten);
 			return forgotten.size();
 		}
 	}
