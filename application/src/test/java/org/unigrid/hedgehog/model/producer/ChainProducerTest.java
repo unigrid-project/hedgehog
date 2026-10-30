@@ -207,7 +207,7 @@ public class ChainProducerTest {
 
 	@Example
 	public void mapsTheSmallestValidSpork() {
-		assertMapsTo(new ProxySettings(1, 60, 1, 1, 1024, 1, 1024, 1, 0));
+		assertMapsTo(new ProxySettings(1, 60, 1, 1, 4096, 1, 1024, 1, 0));
 	}
 
 	@Example
@@ -217,9 +217,9 @@ public class ChainProducerTest {
 	}
 
 	@Example
-	public void mapsAChainThatHoldsExactlyOneEntry() {
-		assertMapsTo(new ProxySettings(8, 3600, 4, 16, 1024, 30, 1024, 300, 3));
-		assertMapsTo(new ProxySettings(8, 3600, 4, 16, 1_048_576, 30, 1_048_576, 300, 3));
+	public void mapsAChainThatHoldsExactlyFourOfTheLargestEntries() {
+		assertMapsTo(new ProxySettings(8, 3600, 4, 16, 4096, 30, 1024, 300, 3));
+		assertMapsTo(new ProxySettings(8, 3600, 4, 16, 4_194_304, 30, 1_048_576, 300, 3));
 	}
 
 	@Example
@@ -249,6 +249,11 @@ public class ChainProducerTest {
 		assertOff("capacity below the largest entry size", data -> {
 			data.setMaxEntryBytes(1_048_576);
 			data.setChainCapacityBytes(1_048_575);
+		});
+
+		assertOff("capacity below four of the largest entries", data -> {
+			data.setMaxEntryBytes(16_384);
+			data.setChainCapacityBytes(65_535);
 		});
 
 		assertOff("capacity at 4294967296", data -> data.setChainCapacityBytes(MAX_UNSIGNED_INT + 1));

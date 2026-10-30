@@ -40,7 +40,7 @@ public class CommunicationSporkContentTest {
 		MAX_ENTRY_BYTES_AT_LOWER_LIMIT(data -> data.setMaxEntryBytes(1024)),
 		MAX_ENTRY_BYTES_AT_UPPER_LIMIT(data -> data.setMaxEntryBytes(1_048_576)),
 		REORGANIZE_PERIOD_AT_LOWER_LIMIT(data -> data.setReorganizePeriodSeconds(60)),
-		CHAIN_CAPACITY_HOLDING_ONE_ENTRY(data -> data.setChainCapacityBytes(data.getMaxEntryBytes())),
+		CHAIN_CAPACITY_HOLDING_FOUR_ENTRIES(data -> data.setChainCapacityBytes(4 * data.getMaxEntryBytes())),
 		NO_FLAGS(data -> data.setCommunicationFlags(0));
 
 		private final Consumer<SporkData> change;
@@ -53,7 +53,7 @@ public class CommunicationSporkContentTest {
 		REORGANIZE_PERIOD_OF_ZERO(data -> data.setReorganizePeriodSeconds(0)),
 		REORGANIZE_PERIOD_BELOW_LOWER_LIMIT(data -> data.setReorganizePeriodSeconds(59)),
 		GROUP_SIZE_OF_ZERO(data -> data.setGroupSize(0)),
-		CHAIN_CAPACITY_BELOW_ONE_ENTRY(data -> data.setChainCapacityBytes(data.getMaxEntryBytes() - 1)),
+		CHAIN_CAPACITY_BELOW_FOUR_ENTRIES(data -> data.setChainCapacityBytes(4 * data.getMaxEntryBytes() - 1)),
 		UNKNOWN_FLAG(data -> data.setCommunicationFlags(0x04));
 
 		private final Consumer<SporkData> change;

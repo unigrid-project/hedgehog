@@ -49,6 +49,10 @@ public class CommunicationSpork extends GridSpork implements Serializable {
 		private static final long MIN_ENTRY_BYTES = 1024;
 		private static final long MAX_ENTRY_BYTES = 1024 * 1024;
 
+		/* An exit keeps room for what it relays, at least one of the largest entries, beside its own entries, so a
+		   chain of fewer than four of them can leave it no room for one of its own and stall its sessions */
+		private static final long MIN_LARGEST_ENTRIES = 4;
+
 		private int groupSize = 8;
 		private long reorganizePeriodSeconds = 3600;
 		private int chainsPerGroup = 4;
@@ -88,8 +92,8 @@ public class CommunicationSpork extends GridSpork implements Serializable {
 				"reorganizePeriodSeconds must be 60-4294967295");
 			requireBetween(MIN_ENTRY_BYTES, MAX_ENTRY_BYTES, maxEntryBytes,
 				"maxEntryBytes must be 1024-1048576");
-			requireBetween(maxEntryBytes, MAX_UNSIGNED_INT, chainCapacityBytes,
-				"chainCapacityBytes must hold one entry and be at most 4294967295");
+			requireBetween(MIN_LARGEST_ENTRIES * maxEntryBytes, MAX_UNSIGNED_INT, chainCapacityBytes,
+				"chainCapacityBytes must hold four of the largest entries and be at most 4294967295");
 			Validate.isTrue(CommunicationFlag.areKnown(communicationFlags),
 				"communicationFlags holds unknown flags: 0x" + Integer.toHexString(communicationFlags));
 		}

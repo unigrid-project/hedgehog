@@ -222,6 +222,7 @@ public class CommunicationSporkIntegrityTest {
 		final SporkData data = withEveryFieldAt(1, 1024);
 
 		data.setReorganizePeriodSeconds(60);
+		data.setChainCapacityBytes(4 * 1024);
 		data.setCommunicationFlags(0);
 		assertThat(CommunicationSporkTest.accepts(data), is(true));
 		assertThat(overTheWire(data), equalTo(data));
