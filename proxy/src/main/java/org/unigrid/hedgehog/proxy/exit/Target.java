@@ -23,7 +23,7 @@ import java.net.InetSocketAddress;
 /* The exit's open connection to a destination. Reads start off: the listener turns them on when it is ready
    for what the destination sends. */
 public interface Target {
-	/* The exit's own end of the connection, the bound address of the SOCKS5 reply */
+	/* The exit's own end of the connection, which the reply to the client never names */
 	InetSocketAddress localAddress();
 
 	/* Queues bytes towards the destination without a bound, so a caller that must not buffer for ever checks

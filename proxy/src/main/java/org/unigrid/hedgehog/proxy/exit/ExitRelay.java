@@ -278,7 +278,9 @@ public final class ExitRelay {
 		if (state == State.CONNECTING) {
 			this.target = target;
 			state = State.RELAYING;
-			send(new Connected(Socks5CommandStatus.SUCCESS, addressOf(target.localAddress())));
+
+			/* Where the exit connects from would point at the exit, so the reply names no address */
+			send(new Connected(Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED));
 
 			/* The session may have closed under the send, which ended the relay and closed the target */
 			if (state == State.RELAYING) {

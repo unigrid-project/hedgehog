@@ -156,14 +156,15 @@ public class ExitRelayTest {
 		return relay;
 	}
 
-	/* Answers the relay's connection request with a target bound to 192.0.2.7:40000 */
+	/* Answers the relay's connection request with a target bound to 192.0.2.7:40000. The reply names no address, as
+	   where the exit connects from would point at the exit. */
 	private FakeConnector.FakeTarget connected(SessionPair pair) throws UnknownHostException {
 		final FakeConnector.FakeTarget target = new FakeConnector.FakeTarget(new InetSocketAddress(
 			address("192.0.2.7"), 40_000));
 
 		connector.last().listener().connected(target);
-		assertThat(pair.toClient(), equalTo(List.of(new Connected(Socks5CommandStatus.SUCCESS, new SocksAddress(
-			Socks5AddressType.IPv4, "192.0.2.7", 40_000)))));
+		assertThat(pair.toClient(), equalTo(List.of(new Connected(Socks5CommandStatus.SUCCESS,
+			SocksAddress.UNSPECIFIED))));
 		return target;
 	}
 
@@ -386,14 +387,14 @@ public class ExitRelayTest {
 	}
 
 	@Example
-	public void shouldReplyWithAnIpv6BoundAddress() throws UnknownHostException {
+	public void shouldNameNoAddressOfItsOwnForATargetBoundToAnIpv6Address() throws UnknownHostException {
 		final SessionPair pair = new SessionPair(connect(PUBLIC_LITERAL));
 
 		relay(pair, ProxySettings.DEFAULTS, NEVER);
 		connector.last().listener().connected(new FakeConnector.FakeTarget(new InetSocketAddress(
 			address("2001:db8::7"), 40_000)));
-		assertThat(pair.toClient(), equalTo(List.of(new Connected(Socks5CommandStatus.SUCCESS, new SocksAddress(
-			Socks5AddressType.IPv6, "2001:db8::7", 40_000)))));
+		assertThat(pair.toClient(), equalTo(List.of(new Connected(Socks5CommandStatus.SUCCESS,
+			SocksAddress.UNSPECIFIED))));
 	}
 
 	@Example

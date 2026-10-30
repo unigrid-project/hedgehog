@@ -161,7 +161,7 @@ public class ExitRelayLoopbackTest {
 			final Connected connected = (Connected) atClient.get(0);
 
 			assertThat(connected.status(), is(Socks5CommandStatus.SUCCESS));
-			assertThat(connected.bound().host(), is("127.0.0.2"));
+			assertThat(connected.bound(), equalTo(SocksAddress.UNSPECIFIED));
 			assertThat(echo.peerAddress(), equalTo(EchoServer.loopback(2)));
 		}
 	}
@@ -175,10 +175,7 @@ public class ExitRelayLoopbackTest {
 			pair = pairFor(echo.port());
 			relay = open(pair);
 
-			final SocksAddress bound = ((Connected) atClient.get(0)).bound();
-
-			assertThat(bound.host(), is("127.0.0.1"));
-			assertThat(bound.port(), is(echo.peerPort()));
+			assertThat(((Connected) atClient.get(0)).bound(), equalTo(SocksAddress.UNSPECIFIED));
 		}
 
 		awaitAtClient(pair, 2);
