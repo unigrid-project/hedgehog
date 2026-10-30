@@ -333,13 +333,13 @@ public final class NoiseNk {
 		state.mixHash(initiatorEphemeral);
 		state.mixKey(secret.get());
 
-		final byte[] answerTagKey = state.answerTagKey();
-
+		/* Most entries tried open nothing, so the tag is checked before the answer tag key is derived; the check
+		   leaves the chaining key that key comes from as it was */
 		if (state.decryptAndHash(Arrays.copyOfRange(message, KEY_SIZE, message.length)).isEmpty()) {
 			return Optional.empty();
 		}
 
-		return Optional.of(new Responder(state, initiatorEphemeral, answerTagKey));
+		return Optional.of(new Responder(state, initiatorEphemeral, state.answerTagKey()));
 	}
 
 	/* Empty for a peer key of low order, which gives the all-zero secret whatever the own key; BouncyCastle
