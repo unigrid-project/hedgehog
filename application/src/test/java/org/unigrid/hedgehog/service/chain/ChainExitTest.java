@@ -124,8 +124,8 @@ public class ChainExitTest {
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private static final Connect CONNECT = new Connect(Socks5CommandType.CONNECT,
 		new SocksAddress(Socks5AddressType.IPv4, "127.0.0.1", 8080));
-	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS,
-		new SocksAddress(Socks5AddressType.IPv4, "127.0.0.1", 40_000));
+	/* The exit names no address of its own, as where it connects from would point at it */
+	private static final Connected CONNECTED = new Connected(Socks5CommandStatus.SUCCESS, SocksAddress.UNSPECIFIED);
 	private static final Close BROKEN = new Close(CloseReason.BROKEN);
 	private static final Close IDLE = new Close(CloseReason.IDLE);
 	private static final Close DONE = new Close(CloseReason.DONE);
