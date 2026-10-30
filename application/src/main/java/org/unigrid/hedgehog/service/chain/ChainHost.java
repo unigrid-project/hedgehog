@@ -743,20 +743,32 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* The entries are held in the embargo already, and one without a successor waits there, which floods it in time, as
-	   does one whose route is the stream it came in on, as it never goes back there */
-	private static void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries,
-		final long now) {
-
+	/* The entries are held in the embargo already, and one without a successor waits there until it has one, or is
+	   flooded at the deadline without */
+	private void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries, final long now) {
 		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
 
 		for (final Entry entry : entries) {
-			hosted.getRouter().successor(entry.header().writer(), Set.of(peer)).filter(next -> next != peer)
+			hosted.getRouter().successor(entry.header().writer(), Set.of(peer))
 				.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
 				.ifPresent(batch -> batch.add(entry));
 		}
 
-		relayed.forEach((next, batch) -> stemTo(hosted, next, batch, now));
+		relayed.forEach((next, batch) -> pass(hosted, next, batch, now));
+	}
+
+	/* Passes entries on to their route, at the author and at a relay alike, but never one to the stream it came in on:
+	   that one waits in the embargo, which floods it at the deadline */
+	private void pass(final HostedChain hosted, final Channel route, final List<Entry> entries, final long now) {
+		final StemEmbargo embargo = hosted.getEmbargo();
+		final Map<Boolean, List<Entry>> back = entries.stream()
+			.collect(Collectors.partitioningBy(entry -> embargo.sourceOf(entry).equals(Optional.of(route))));
+
+		back.get(true).forEach(embargo::heldForSource);
+
+		if (!back.get(false).isEmpty()) {
+			stemTo(hosted, route, back.get(false), now);
+		}
 	}
 
 	/* A successor whose stream takes no writes is passed over, as a flood passes such a stream over, since writes it
@@ -764,12 +776,14 @@ public class ChainHost implements ChainService {
 	   What went out is noted as passed to the successor once its stream took it, so an entry whose write failed, as
 	   when the stream closed before it went out, never left. One that fails must not stop the others, and only the
 	   class of its failure is logged, as a message may name an address. What a successor did not take waits in the
-	   embargo. */
-	private static void stemTo(final HostedChain hosted, final Channel successor, final List<Entry> entries,
-		final long now) {
+	   embargo, and goes to it as soon as it takes writes again. */
+	private void stemTo(final HostedChain hosted, final Channel successor, final List<Entry> entries, final long now) {
+		final boolean missed = !successor.isWritable();
 
-		if (!successor.isWritable()) {
-			StemStalls.missed(successor, now);
+		entries.forEach(entry -> hosted.getEmbargo().tried(entry, successor, now, missed));
+
+		if (missed) {
+			StemStalls.missed(successor, now, this::retry);
 			return;
 		}
 
@@ -950,10 +964,25 @@ public class ChainHost implements ChainService {
 		return admission;
 	}
 
-	private static void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
+	private void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
 		final Set<Channel> avoid, final long now) {
 
-		hosted.getRouter().ownSuccessor(writer, avoid).ifPresent(next -> stemTo(hosted, next, entries, now));
+		hosted.getRouter().ownSuccessor(writer, avoid).ifPresent(next -> pass(hosted, next, entries, now));
+	}
+
+	/* What waits for a member whose stream took no writes goes to the route of its writer as soon as that stream takes
+	   writes again, at the author and at a relay alike */
+	private void retry(final Channel stream) {
+		final long now = clock.getAsLong();
+
+		hosting.all().forEach(hosted -> byWriter(hosted.getEmbargo().waitingFor(stream))
+			.forEach((writer, entries) -> hosted.getRouter().successor(writer, hosted.avoidOf(writer))
+				.ifPresent(route -> pass(hosted, route, entries, now))));
+	}
+
+	private static Map<WriterId, List<Entry>> byWriter(final List<Entry> entries) {
+		return entries.stream().collect(Collectors.groupingBy(entry -> entry.header().writer(), LinkedHashMap::new,
+			Collectors.toList()));
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
@@ -1013,25 +1042,23 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* What the embargo held past its deadline is flooded as if it came in now, and told to the listeners like any
-	   entry the chain appends: those of this node's own writers they know as such. An entry of this node's own that
-	   the chain has no room for stays in the embargo and is flooded again at its next deadline; one the chain will
-	   never take goes. One of this node's own that never left is never flooded, as this node would be the first to
-	   flood it, which names it as its author: it goes to the successor of its writer now. A route that still takes no
-	   writes then counts as gone, at the author and at a relay alike. */
+	/* What the embargo held past its deadline, passed on and not back, or held as its route is the stream it came in
+	   on, is flooded as if it came in now, and told to the listeners like any entry the chain appends: those of this
+	   node's own writers they know as such. An entry of this node's own that the chain has no room for stays in the
+	   embargo and is flooded again at its next deadline; one the chain will never take goes. What never left is
+	   flooded by neither the author nor a relay: it goes to the route of its writer now, once the writer was moved
+	   off a route that stalled, and waits on otherwise. Only with no successor left does a relay flood it, while the
+	   author drops it and the session of the writer ends, as the first to flood it would be its author. */
 	private void floodDue(final HostedChain hosted) {
 		final long now = clock.getAsLong();
 		final List<StemEmbargo.Due> waited = hosted.getEmbargo().waited(now);
+		final List<Entry> due = new ArrayList<>(waited.stream().filter(held -> held.sent() || held.bySource())
+			.map(StemEmbargo.Due::entry).toList());
 
-		waited.stream().collect(Collectors.toMap(held -> held.entry().header().writer(), StemEmbargo.Due::since,
-			Math::max, LinkedHashMap::new)).forEach((writer, since) -> moveOffStalled(hosted, writer, since));
-
-		final Map<Boolean, List<Entry>> held = waited.stream().map(StemEmbargo.Due::entry)
-			.collect(Collectors.partitioningBy(entry -> neverLeft(hosted, entry)));
-		final List<Entry> due = held.get(false);
-
-		held.get(true).stream().collect(Collectors.groupingBy(entry -> entry.header().writer(), LinkedHashMap::new,
-			Collectors.toList())).forEach((writer, entries) -> stemLate(hosted, writer, entries, now));
+		waited.stream().filter(held -> !held.sent() && !held.bySource())
+			.collect(Collectors.groupingBy(held -> held.entry().header().writer(), LinkedHashMap::new,
+				Collectors.toList()))
+			.forEach((writer, unsent) -> due.addAll(passLate(hosted, writer, unsent, now)));
 
 		if (!due.isEmpty()) {
 			final List<Optional<Offer>> offers = offerAndQueue(hosted, due, null, true);
@@ -1042,30 +1069,32 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	private static boolean neverLeft(final HostedChain hosted, final Entry entry) {
-		return hosted.getEmbargo().holdsOwn(entry) && !hosted.getEmbargo().wasSent(entry);
-	}
-
-	/* A route that took no writes for the whole wait of an entry of its writer, from the given time on, counts as
-	   gone, and the writer goes to the successor that takes its place. One that took any in between, or turned
-	   writable, moves nothing. */
-	private static void moveOffStalled(final HostedChain hosted, final WriterId writer, final long since) {
-		hosted.getRouter().moveIfStalled(writer, hosted.avoidOf(writer), route -> StemStalls.since(route, since));
-	}
-
-	/* What a writer of this node's own could not pass on for as long as an entry waits in the embargo goes to its
-	   successor now, and waits again while that one takes no writes. With no successor left it is dropped, and the
-	   session of the writer ends on it. */
-	private static void stemLate(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
+	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
+	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
+	   entry tried on it when it took no writes since the entry first missed it. */
+	private List<Entry> passLate(final HostedChain hosted, final WriterId writer, final List<StemEmbargo.Due> unsent,
 		final long now) {
 
-		final Optional<Channel> next = hosted.getRouter().ownSuccessor(writer, hosted.avoidOf(writer));
+		final List<Entry> entries = unsent.stream().map(StemEmbargo.Due::entry).toList();
+		final Optional<Channel> route = hosted.getRouter().moveIfStalled(writer, hosted.avoidOf(writer),
+			current -> stalls(current, unsent));
 
-		if (next.isPresent()) {
-			stemTo(hosted, next.get(), entries, now);
-		} else {
-			entries.forEach(hosted.getEmbargo()::release);
+		if (route.isPresent()) {
+			pass(hosted, route.get(), entries, now);
+			return List.of();
 		}
+
+		if (unsent.get(0).own()) {
+			entries.forEach(hosted.getEmbargo()::release);
+			return List.of();
+		}
+
+		return entries;
+	}
+
+	private static boolean stalls(final Channel route, final List<StemEmbargo.Due> unsent) {
+		return unsent.stream().map(StemEmbargo.Due::waiting).filter(Objects::nonNull)
+			.anyMatch(waiting -> waiting.route() == route && StemStalls.since(route, waiting.since()));
 	}
 
 	/* Drops the retired chains that are done, by the spork as it reads now. While it is on, a chain goes once its
@@ -1284,7 +1313,7 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	private static void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
+	private void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
 		final long now) {
 
 		final StemEmbargo embargo = hosted.getEmbargo();
@@ -1296,8 +1325,7 @@ public class ChainHost implements ChainService {
 		   successor it moves to waits in the embargo. */
 		if (!refused.isEmpty()) {
 			hosted.getRouter().refused(refusal.getWriter(), refuser, hosted.avoidOf(refusal.getWriter()))
-				.ifPresent(next -> stemTo(hosted, next, refused.stream()
-					.filter(entry -> !embargo.sourceOf(entry).equals(Optional.of(next))).toList(), now));
+				.ifPresent(next -> pass(hosted, next, refused, now));
 		}
 	}
 

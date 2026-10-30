@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import io.netty.channel.Channel;
+import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +29,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.is;
@@ -39,6 +42,7 @@ public class StemEmbargoTest {
 	private static final long NOW = ChainFleet.NOW;
 	private static final long LONG_AFTER = NOW + 600_000;
 	private static final ChainId CHAIN = new ChainId(new byte[ChainId.SIZE]);
+	private static final Channel SUCCESSOR = new EmbeddedChannel();
 
 	private static List<Entry> entries(final int writer, final int count) {
 		return ChainFleet.entries(ChainFleet.key(writer), CHAIN, count, NOW);
@@ -63,6 +67,7 @@ public class StemEmbargoTest {
 		final List<Entry> entries = entries(1, 3);
 
 		entries.forEach(entry -> assertThat(embargo.hold(entry, false, NOW), is(true)));
+		entries.forEach(entry -> embargo.sent(entry, SUCCESSOR));
 		assertThat(embargo.holdsOwn(entries.get(0)), is(false));
 		assertThat(embargo.release(entries.get(1)), is(true));
 		assertThat(embargo.due(NOW + StemEmbargo.RELAY_MILLIS - 1), is(empty()));
@@ -70,6 +75,29 @@ public class StemEmbargoTest {
 		assertThat(embargo.due(LONG_AFTER), is(empty()));
 		assertThat(embargo.bytes(), is(0L));
 		assertThat(embargo.holdsAnyOf(entries.get(0).header().writer()), is(false));
+	}
+
+	/* What a relay never passed on, as its route took no writes, waits past its deadline as long as it never leaves,
+	   one more deadline missed on that route at a time, and is let go only once it was passed on */
+	@Property(tries = 10)
+	public void holdsWhatNeverLeftPastItsDeadline(@ForAll long seed) {
+		final StemEmbargo embargo = new StemEmbargo(new SplittableRandom(seed));
+		final Entry entry = entries(1, 1).get(0);
+
+		embargo.hold(entry, false, NOW);
+		embargo.tried(entry, SUCCESSOR, NOW, true);
+
+		assertThat(embargo.waitingFor(SUCCESSOR), is(List.of(entry)));
+		assertThat(embargo.waited(LONG_AFTER).get(0).waiting(), equalTo(new StemEmbargo.Waiting(SUCCESSOR, NOW, 1,
+			true)));
+		assertThat(embargo.waited(LONG_AFTER * 2).get(0).waiting().missed(), is(2));
+		assertThat(embargo.holds(entry), is(true));
+
+		embargo.sent(entry, SUCCESSOR);
+
+		assertThat(embargo.waitingFor(SUCCESSOR), is(empty()));
+		assertThat(embargo.waited(LONG_AFTER * 3).get(0).sent(), is(true));
+		assertThat(embargo.holds(entry), is(false));
 	}
 
 	/* The exit floods its own entry once no relay did, and keeps it until it comes back, as its own replica may have had

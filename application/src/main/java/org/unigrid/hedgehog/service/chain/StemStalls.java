@@ -22,6 +22,7 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.util.AttributeKey;
+import java.util.function.Consumer;
 
 /* Since when a stream to a member has taken none of the stems this node passed it: from the first it did not take,
    for as long as it took none and its writability did not change, which a handler on the stream notes. A route
@@ -39,9 +40,10 @@ final class StemStalls {
 		stream.attr(SINCE).set(null);
 	}
 
-	/* The stream took no writes when it was passed stems now, and has taken none since then if it took none before */
-	static void missed(final Channel stream, final long now) {
-		watch(stream);
+	/* The stream took no writes when it was passed stems now, and has taken none since then if it took none before.
+	   Once it takes writes again, what waits for it is handed to it. */
+	static void missed(final Channel stream, final long now, final Consumer<Channel> writable) {
+		watch(stream, writable);
 		stream.attr(SINCE).setIfAbsent(now);
 	}
 
@@ -54,12 +56,17 @@ final class StemStalls {
 
 	/* A change of writability either way ends the stall noted: a stream that turned writable takes writes again, and
 	   one that turned unwritable anew is noted again at the next stem it does not take */
-	private static void watch(final Channel stream) {
+	private static void watch(final Channel stream, final Consumer<Channel> writable) {
 		if (stream.attr(WATCHED).setIfAbsent(Boolean.TRUE) == null) {
 			stream.pipeline().addFirst(new ChannelInboundHandlerAdapter() {
 				@Override
 				public void channelWritabilityChanged(final ChannelHandlerContext context) throws Exception {
 					context.channel().attr(SINCE).set(null);
+
+					if (context.channel().isWritable()) {
+						writable.accept(context.channel());
+					}
+
 					super.channelWritabilityChanged(context);
 				}
 			});

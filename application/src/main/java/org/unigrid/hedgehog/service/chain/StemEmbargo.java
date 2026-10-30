@@ -46,12 +46,22 @@ final class StemEmbargo {
 
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
-	private record Held(boolean own, long since, long until, Channel source, List<Channel> sentTo) {
-		/* Whether the entry is of a writer of this member, since when and until when it waits to come back, the
-		   stream it came in on, none for one of this member's own, and the successors it was passed to, the first
-		   MAX_SENT_TO of them */
-		private Held waitsAgain(final long now, final long deadline) {
-			return new Held(own, now, deadline, source, sentTo);
+	record Waiting(Channel route, long since, int missed, boolean skipped) {
+		/* The route an entry that never left was last tried on, since when it was tried there, how many deadlines it
+		   missed there since, and whether the route took no writes when it was last tried */
+	}
+
+	private record Held(boolean own, long until, Channel source, List<Channel> sentTo, boolean bySource,
+		Waiting waiting) {
+
+		/* Whether the entry is of a writer of this member, until when it waits, the stream it came in on, none for
+		   one of this member's own, and the successors it was passed to, the first MAX_SENT_TO of them; whether it
+		   waits because its route is the stream it came in on, and where it waits to leave while it never left */
+		private Held waitsAgain(final long deadline) {
+			final Waiting missed = waiting == null || !sentTo.isEmpty() ? waiting
+				: new Waiting(waiting.route(), waiting.since(), waiting.missed() + 1, waiting.skipped());
+
+			return new Held(own, deadline, source, sentTo, bySource, missed);
 		}
 
 		private Held sent(final Channel successor) {
@@ -62,12 +72,26 @@ final class StemEmbargo {
 			final List<Channel> more = new ArrayList<>(sentTo);
 
 			more.add(successor);
-			return new Held(own, since, until, source, List.copyOf(more));
+			return new Held(own, until, source, List.copyOf(more), bySource, waiting);
+		}
+
+		private Held tried(final Channel route, final long now, final boolean missed) {
+			final Waiting tried = waiting != null && waiting.route() == route
+				? new Waiting(route, waiting.since(), waiting.missed(), missed)
+				: new Waiting(route, now, 0, missed);
+
+			return new Held(own, until, source, sentTo, bySource, tried);
+		}
+
+		private boolean isUnsent() {
+			return sentTo.isEmpty() && !bySource;
 		}
 	}
 
-	record Due(Entry entry, long since) {
-		/* An entry that waited out its deadline, and since when it waited */
+	record Due(Entry entry, boolean own, boolean sent, boolean bySource, Waiting waiting) {
+		/* An entry that waited out its deadline: whether it is of a writer of this member, whether it was passed to
+		   a successor or waits because its route is the stream it came in on, and where it waits to leave
+		   otherwise */
 	}
 
 	private final RandomGenerator random;
@@ -91,7 +115,7 @@ final class StemEmbargo {
 			return false;
 		}
 
-		held.put(entry, new Held(own, now, deadline(own, now), source, List.of()));
+		held.put(entry, new Held(own, deadline(own, now), source, List.of(), false, null));
 		writers.merge(entry.header().writer(), 1, Integer::sum);
 		count(own, entry.size());
 		return true;
@@ -117,6 +141,24 @@ final class StemEmbargo {
 	/* Notes a successor a held entry was passed to, besides those it was passed to before */
 	synchronized void sent(final Entry entry, final Channel successor) {
 		held.computeIfPresent(entry, (key, waiting) -> waiting.sent(successor));
+	}
+
+	/* Notes that a held entry was tried on a route, which took no writes if it missed it */
+	synchronized void tried(final Entry entry, final Channel route, final long now, final boolean missed) {
+		held.computeIfPresent(entry, (key, waiting) -> waiting.tried(route, now, missed));
+	}
+
+	/* Notes that a held entry waits because its route is the stream it came in on, which it never goes back to */
+	synchronized void heldForSource(final Entry entry) {
+		held.computeIfPresent(entry, (key, waiting) -> new Held(waiting.own(), waiting.until(), waiting.source(),
+			waiting.sentTo(), true, waiting.waiting()));
+	}
+
+	/* The held entries that never left as the stream took no writes when they were tried on it, in order */
+	synchronized List<Entry> waitingFor(final Channel stream) {
+		return held.entrySet().stream().filter(waiting -> waiting.getValue().isUnsent()
+			&& waiting.getValue().waiting() != null && waiting.getValue().waiting().route() == stream
+			&& waiting.getValue().waiting().skipped()).map(Map.Entry::getKey).toList();
 	}
 
 	/* Whether a held entry was ever passed to any successor */
@@ -160,8 +202,9 @@ final class StemEmbargo {
 		return waited(now).stream().map(Due::entry).toList();
 	}
 
-	/* The same, each with since when it waited. Those the member relays are let go, and its own wait again until
-	   they come back. */
+	/* The same, with what each waited for. What the member relays and passed on, or holds as its route is the stream
+	   it came in on, is let go, to be flooded. The rest waits again, with one more deadline missed where it was last
+	   tried while it never left: its own until they come back, and what never left until it leaves. */
 	synchronized List<Due> waited(final long now) {
 		final List<Due> due = new ArrayList<>();
 
@@ -169,10 +212,13 @@ final class StemEmbargo {
 			final Held entry = waiting.getValue();
 
 			if (entry.until() <= now) {
-				due.add(new Due(waiting.getKey(), entry.since()));
+				final Held again = entry.waitsAgain(deadline(entry.own(), now));
 
-				if (entry.own()) {
-					held.put(waiting.getKey(), entry.waitsAgain(now, deadline(true, now)));
+				due.add(new Due(waiting.getKey(), entry.own(), !entry.sentTo().isEmpty(), entry.bySource(),
+					again.waiting()));
+
+				if (entry.own() || entry.isUnsent()) {
+					held.put(waiting.getKey(), again);
 				} else {
 					release(waiting.getKey());
 				}
