@@ -2516,7 +2516,7 @@ public class ChainExitTest {
 
 	/* The only other member the exit holds a stream to is the one the client's entries came in from, so it has nowhere
 	   to stem an answer and stays silent; the client's timeout moves it to another exit. With another member back, an
-	   opening is answered once the period of the stem turned. */
+	   opening is answered. */
 	@Example
 	public void answersNoOpeningWithoutASuccessorBesidesTheMemberOfItsClient() {
 		final Rig rig = new Rig();
@@ -2531,7 +2531,6 @@ public class ChainExitTest {
 
 		rig.fleet.online("gn-2");
 		rig.fleet.host(EXIT).refresh();
-		rig.fleet.clock.addAndGet(StemRouter.PERIOD_MILLIS);
 		rig.caller(2).open();
 
 		assertThat(rig.accepts(), is(1));

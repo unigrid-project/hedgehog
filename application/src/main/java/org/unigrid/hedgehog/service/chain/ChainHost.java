@@ -141,7 +141,6 @@ public class ChainHost implements ChainService {
 	private final Executor deliveryExecutor;
 
 	private final RandomGenerator stemRandom;
-	private final StemRouter router;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final Listeners<ChainDrain> drains = new Listeners<>();
@@ -205,8 +204,6 @@ public class ChainHost implements ChainService {
 		this.deliveryExecutor = deliveryExecutor;
 		this.budgets = new StreamBudgets(clock);
 		this.stemRandom = draws.stem();
-		this.router = new StemRouter(stemRandom, id -> hosting.find(id).map(HostedChain::getMemberStreams)
-			.orElse(List.of()));
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
@@ -367,8 +364,7 @@ public class ChainHost implements ChainService {
 	}
 
 	private HostedChain hostedChain(final ChainId id, final ChainLimits limits, final Epoch epoch) {
-		return new HostedChain(new Chain(id, limits, clock), epoch, HostedChain.MAX_WRITERS,
-			new StemEmbargo(stemRandom));
+		return new HostedChain(new Chain(id, limits, clock), epoch, HostedChain.MAX_WRITERS, stemRandom);
 	}
 
 	private Hosting rebuilt(final Hosting.Basis basis, final long now, final Hosting previous) {
@@ -621,7 +617,7 @@ public class ChainHost implements ChainService {
 	/* Entries a member passes on before any member floods them. Only a member of the group of a chain this node hosts
 	   is heard, as a client passes nothing on, and only for as many entries as its stream has left of its second,
 	   counted as those of a flood are. Each entry is checked as a flood would be, and only one the chain would take, or
-	   hold for a gap before it, goes on: in a period this member diffuses, it is flooded, and in one it relays, it
+	   hold for a gap before it, goes on: of a writer this member diffuses, it is flooded, and of one it relays, it
 	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
 	   the embargo holds already has come round the stem, and is flooded at once, which ends the round and tells
 	   nothing of the exit, as a member that relayed it is never its author; its author leaves it to the shorter timers
@@ -653,38 +649,54 @@ public class ChainHost implements ChainService {
 		return packet.stream().filter(full::contains).map(entry -> EntryRefused.of(entry, Admission.FULL)).toList();
 	}
 
-	/* Answers the entries the chain had no room for. The mode is read once for the packet, which a period turning
-	   in between would otherwise split. */
+	/* What one packet passed on to this node comes to: the draw of each of its writers, read once for the packet, the
+	   entries the chain had no room for, those this node floods and those it relays, and those that came round */
+	private record PassedOn(Map<WriterId, StemRouter.Draw> draws, List<Entry> full, List<Entry> diffused,
+		List<Entry> relayed, List<Entry> cameRound) {
+
+		private PassedOn() {
+			this(new HashMap<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+		}
+	}
+
+	/* Answers the entries the chain had no room for */
 	private List<Entry> passOn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final long now = clock.getAsLong();
-		final boolean diffuses = router.diffuses(hosted.getChain().id(), now);
-		final List<Entry> full = new ArrayList<>();
-		final List<Entry> taken = new ArrayList<>();
-		final List<Entry> cameRound = new ArrayList<>();
+		final PassedOn packet = new PassedOn();
 
 		for (final Entry entry : entries) {
 			final StemEmbargo embargo = hosted.getEmbargo();
 
 			if (embargo.holds(entry)) {
-				cameRound.addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry) : List.of());
+				packet.cameRound().addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry)
+					: List.of());
 			} else {
-				final Optional<Admission> admission = diffuses
-					? hosted.checkToDiffuse(entry, taken.stream().mapToLong(Entry::size).sum())
-					: hosted.holdRelayed(entry, peer, now);
-
-				sortOut(admission, entry, full, taken);
+				take(hosted, peer, entry, packet, now);
 			}
 		}
 
-		diffuse(hosted, cameRound);
+		diffuse(hosted, packet.cameRound());
+		diffuse(hosted, packet.diffused());
+		relay(hosted, peer, packet.relayed());
+		return packet.full();
+	}
 
-		if (diffuses) {
-			diffuse(hosted, taken);
-		} else {
-			relay(hosted, peer, taken, now);
+	/* Takes an entry into the stem as the draw of its writer has it: one of a writer this node diffuses is weighed
+	   with what it floods of the packet besides, and one of a writer it relays is held in the embargo. The draw of a
+	   writer is kept once an entry of it was taken. */
+	private static void take(final HostedChain hosted, final Channel peer, final Entry entry, final PassedOn packet,
+		final long now) {
+
+		final WriterId writer = entry.header().writer();
+		final StemRouter.Draw draw = packet.draws().computeIfAbsent(writer,
+			key -> hosted.getRouter().drawFor(key, peer));
+		final Optional<Admission> admission = draw.diffuses()
+			? hosted.checkToDiffuse(entry, packet.diffused().stream().mapToLong(Entry::size).sum())
+			: hosted.holdRelayed(entry, peer, now);
+
+		if (sortOut(admission, entry, packet.full(), draw.diffuses() ? packet.diffused() : packet.relayed())) {
+			hosted.getRouter().keep(writer, draw);
 		}
-
-		return full;
 	}
 
 	/* An entry that came round is flooded at once by a member that relayed it, but its author leaves it to the shorter
@@ -695,14 +707,18 @@ public class ChainHost implements ChainService {
 		return !embargo.holdsOwn(entry) && !embargo.wasSentTo(entry, peer);
 	}
 
-	private static void sortOut(final Optional<Admission> admission, final Entry entry, final List<Entry> full,
+	/* Answers whether the entry was taken */
+	private static boolean sortOut(final Optional<Admission> admission, final Entry entry, final List<Entry> full,
 		final List<Entry> taken) {
 
 		if (admission.filter(Admission.FULL::equals).isPresent()) {
 			full.add(entry);
 		} else if (admission.filter(PASSES_ON::contains).isPresent()) {
 			taken.add(entry);
+			return true;
 		}
+
+		return false;
 	}
 
 	private void diffuse(final HostedChain hosted, final List<Entry> entries) {
@@ -712,12 +728,11 @@ public class ChainHost implements ChainService {
 	}
 
 	/* The entries are held in the embargo already, and one without a successor waits there, which floods it in time */
-	private void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries, final long now) {
-		final ChainId chainId = hosted.getChain().id();
+	private static void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
 
 		for (final Entry entry : entries) {
-			router.successor(chainId, entry.header().writer(), Set.of(peer), now)
+			hosted.getRouter().successor(entry.header().writer(), Set.of(peer))
 				.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
 				.ifPresent(batch -> batch.add(entry));
 		}
@@ -864,7 +879,7 @@ public class ChainHost implements ChainService {
 	/* An entry of this node's own that is stemmed rather than flooded, as an exit does with every entry of its
 	   sessions. It is checked against the replica as an offer would be, counting what waits in the stem, and held in
 	   the embargo until it comes back by flood: only then does the chain append it, report it in its heads and serve it
-	   to a fetch. It goes to the successor of its writer for the period, never to one of the streams to avoid, and
+	   to a fetch. It goes to the successor drawn for its writer, never to one of the streams to avoid, and
 	   waits in the embargo while there is none. A writer the chain takes no more of is told FULL, as by post. */
 	public Admission postStem(final ChainId chainId, final Entry entry, final Set<Channel> avoid) {
 		return postStem(chainId, entry, () -> avoid);
@@ -882,8 +897,8 @@ public class ChainHost implements ChainService {
 
 	/* Whether an entry posted to the stem now would find a successor outside the streams to avoid */
 	public boolean canStem(final ChainId chainId, final Set<Channel> avoid) {
-		return chainId != null && hosting.find(chainId).isPresent()
-			&& router.hasSuccessor(chainId, avoid, clock.getAsLong());
+		return chainId != null && hosting.find(chainId).filter(hosted -> hosted.getRouter().hasSuccessor(avoid))
+			.isPresent();
 	}
 
 	private Admission postStem(final HostedChain hosted, final Entry entry, final Supplier<Set<Channel>> avoid) {
@@ -892,17 +907,16 @@ public class ChainHost implements ChainService {
 
 		if (PASSES_ON.contains(admission)) {
 			hosted.avoidFor(entry.header().writer(), avoid);
-			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid.get(), now);
+			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid.get());
 		}
 
 		return admission;
 	}
 
-	private void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
-		final Set<Channel> avoid, final long now) {
+	private static void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
+		final Set<Channel> avoid) {
 
-		router.successor(hosted.getChain().id(), writer, avoid, now)
-			.ifPresent(next -> stemTo(hosted, next, entries));
+		hosted.getRouter().ownSuccessor(writer, avoid).ifPresent(next -> stemTo(hosted, next, entries));
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
@@ -946,7 +960,6 @@ public class ChainHost implements ChainService {
 	   gaps stall the sessions of a client all the same and whose writers come and go as much. */
 	public void maintain() {
 		Stream.concat(hosting.all(), followed.all()).forEach(this::upkeep);
-		router.forgetBefore(clock.getAsLong());
 	}
 
 	/* One chain that fails is logged by the class of the failure and does not keep the others from being kept up */
@@ -1180,8 +1193,8 @@ public class ChainHost implements ChainService {
 	/* Only a full chain asks the writer to wait, and only a member of that chain's group is believed, on a retired
 	   chain as on a current one since both still take entries, and on a followed chain a member it is followed
 	   through. A refusal does not say whether the writer is one of this node's, so whatever owns a writer looks its
-	   pause up here. A member that refused an entry of a writer stemmed to it gets nothing more of the writer for the
-	   period, and what the embargo holds of the writer from the refused entry on, of what went to that member, goes to
+	   pause up here. A member that refused an entry of a writer stemmed to it gets nothing more of the writer, and
+	   what the embargo holds of the writer from the refused entry on, of what went to that member, goes to
 	   the other successor at once, unless that is a member one of those entries came from: an author and a relay do so
 	   alike, as both hold what they passed on, and neither ever passes an entry back to where it came from. */
 	@Override
@@ -1202,9 +1215,9 @@ public class ChainHost implements ChainService {
 			hosted.avoidOf(refusal.getWriter()).stream()).collect(Collectors.toSet());
 
 		/* A refusal of nothing that went to the member through the stem, as of a copy of a flood or one sent
-		   unasked, neither bars it nor spends the move of the period */
+		   unasked, neither bars it nor spends the move of the writer */
 		if (!refused.isEmpty()) {
-			router.refused(refusal.getChainId(), refusal.getWriter(), refuser, avoid, clock.getAsLong())
+			hosted.getRouter().refused(refusal.getWriter(), refuser, avoid)
 				.ifPresent(next -> stemTo(hosted, next, refused));
 		}
 	}
@@ -1231,9 +1244,9 @@ public class ChainHost implements ChainService {
 		pauses.resume(chainId, writer);
 	}
 
-	/* The successors this node drew for a chain in the period, for a test */
-	List<Channel> stemSuccessors(final ChainId chainId) {
-		return router.drawn(chainId, clock.getAsLong());
+	/* The successors this node drew for a writer on a chain, for a test */
+	List<Channel> stemSuccessors(final ChainId chainId, final WriterId writer) {
+		return hosting.find(chainId).map(hosted -> hosted.getRouter().drawn(writer)).orElse(List.of());
 	}
 
 	/* The chain holds the entries already, so they are queued without an offer, and go out like a post: in the order

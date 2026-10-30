@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Supplier;
+import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
@@ -89,6 +90,9 @@ final class HostedChain {
 
 	/* The entries of the stem this node holds until they come back to it by flood */
 	@Getter private final StemEmbargo embargo;
+
+	/* Where this node passes the entries of the stem on, drawn for each writer */
+	@Getter private final StemRouter router;
 	private final Map<WriterId, Channel> clients = new ConcurrentHashMap<>();
 	private final Set<WriterId> writers = ConcurrentHashMap.newKeySet();
 
@@ -123,14 +127,17 @@ final class HostedChain {
 	}
 
 	HostedChain(final Chain chain, final Epoch epoch, final int maxWriters) {
-		this(chain, epoch, maxWriters, new StemEmbargo(new SecureRandom()));
+		this(chain, epoch, maxWriters, new SecureRandom());
 	}
 
-	HostedChain(final Chain chain, final Epoch epoch, final int maxWriters, final StemEmbargo embargo) {
+	/* The stem draws the deadlines of the embargo and the modes and successors of the writers from the given
+	   generator, and the router keeps a draw for as many writers as the chain takes */
+	HostedChain(final Chain chain, final Epoch epoch, final int maxWriters, final RandomGenerator stem) {
 		this.chain = chain;
 		this.epoch = epoch;
 		this.maxWriters = maxWriters;
-		this.embargo = embargo;
+		this.embargo = new StemEmbargo(stem);
+		this.router = new StemRouter(stem, () -> memberStreams, maxWriters);
 	}
 
 	synchronized void addMemberStream(final Channel stream) {

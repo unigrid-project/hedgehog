@@ -73,6 +73,7 @@ public class ChainHostStemTest {
 	private static final String RELAY = "gn-0";
 	private static final List<String> OTHERS = List.of("gn-1", "gn-2", "gn-3");
 	private static final int MAX_ROUNDS = 25;
+	private static final long MINUTE = 60_000;
 
 	/* What a stemmed entry is answered: the first of a writer is taken, the later ones wait for it past a gap */
 	private static final Map<Boolean, Admission> PASSED_ON = Map.of(true, Admission.ACCEPTED, false, Admission.AHEAD);
@@ -433,7 +434,7 @@ public class ChainHostStemTest {
 		final ChainId chainId = new ChainId(new byte[ChainId.SIZE]);
 		final ProxySettings smallest = new ProxySettings(8, 3600, 4, 16, 4L * largest, 30, largest, 300, 3);
 		final HostedChain hosted = new HostedChain(new Chain(chainId, smallest.chainLimits(), () -> NOW),
-			new Epoch(0), 1, new StemEmbargo(new Random(1)));
+			new Epoch(0), 1, new Random(1));
 		final Entry entry = new FeedWriter(ChainFleet.key(1), chainId).write(NOW, ChainFleet.TAG,
 			new byte[largest - Entry.OVERHEAD]);
 
@@ -446,7 +447,7 @@ public class ChainHostStemTest {
 	public void aWriterInTheStemHoldsAPlace() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final HostedChain hosted = new HostedChain(new Chain(fleet.chain(), ProxySettings.DEFAULTS.chainLimits(),
-			fleet.clock::get), new Epoch(0), 1, new StemEmbargo(new Random(1)));
+			fleet.clock::get), new Epoch(0), 1, new Random(1));
 
 		assertThat(hosted.holdOwn(entries(fleet, 1, 1).get(0), NOW), is(Admission.ACCEPTED));
 		assertThat(hosted.takesNewWriters(), is(false));
@@ -454,16 +455,16 @@ public class ChainHostStemTest {
 		assertThat(hosted.getEmbargo().holdsAnyOf(ChainFleet.writer(2)), is(false));
 	}
 
-	/* The members a member drew as its successors for the period */
-	private static Set<String> drawnBy(final ChainFleet fleet, final String member) {
-		final List<Channel> drawn = fleet.host(member).stemSuccessors(fleet.chain());
+	/* The members a member drew as the successors of a writer */
+	private static Set<String> drawnBy(final ChainFleet fleet, final String member, final int writer) {
+		final List<Channel> drawn = fleet.host(member).stemSuccessors(fleet.chain(), ChainFleet.writer(writer));
 
 		return fleet.activeIds().stream().filter(peer -> drawn.contains(fleet.stream(member, peer)))
 			.collect(Collectors.toSet());
 	}
 
 	/* What a member refused is stemmed again when the refusal comes, from the refused entry on and as far as it is not
-	   back yet, to the other successor drawn for the period and never to the member that refused it. What came back
+	   back yet, to the other successor drawn for the writer and never to the member that refused it. What came back
 	   already is left to reconcile, and the writer goes on at the next tick. */
 	@Example
 	public void stemsWhatItStillHoldsToTheOtherSuccessorWhenTheRefusalComes() {
@@ -484,7 +485,7 @@ public class ChainHostStemTest {
 
 		assertThat(again.get(successor), is(empty()));
 		assertThat(other.getValue(), equalTo(List.of(new ChainStem(own.subList(1, 3)))));
-		assertThat(Set.of(successor, other.getKey()), is(drawnBy(fleet, EXIT)));
+		assertThat(Set.of(successor, other.getKey()), is(drawnBy(fleet, EXIT, 1)));
 		assertThat(exit.pauses().isPaused(fleet.chain(), ChainFleet.writer(1)), is(true));
 
 		exit.resume(fleet.chain(), ChainFleet.writer(1));
@@ -493,13 +494,13 @@ public class ChainHostStemTest {
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 	}
 
-	/* The exit posts two entries of its own and a relay is passed two of another writer, by a member it did not draw;
-	   the successor each went to refuses the first. Answers the other successor each stemmed them to. */
+	/* The exit posts two entries of its own, writer 1, and a relay is passed two of writer 2 by gn-3, which it draws
+	   no successor of the writer among; the successor each went to refuses the first. Answers the other successor each
+	   stemmed them to. */
 	private static Map<String, String> refuseOnce(final ChainFleet fleet, final List<Entry> own,
 		final List<Entry> relayed) {
 
-		final String sender = fleet.activeIds().stream().filter(id -> !id.equals(RELAY)
-			&& !drawnBy(fleet, RELAY).contains(id)).findFirst().orElseThrow();
+		final String sender = "gn-3";
 
 		own.forEach(entry -> postStem(fleet, entry));
 		stem(fleet, RELAY, sender, relayed);
@@ -515,8 +516,8 @@ public class ChainHostStemTest {
 
 		assertThat(exitAgain.getValue(), equalTo(List.of(new ChainStem(own))));
 		assertThat(relayAgain.getValue(), equalTo(List.of(new ChainStem(relayed))));
-		assertThat(Set.of(fromExit, exitAgain.getKey()), is(drawnBy(fleet, EXIT)));
-		assertThat(Set.of(fromRelay, relayAgain.getKey()), is(drawnBy(fleet, RELAY)));
+		assertThat(Set.of(fromExit, exitAgain.getKey()), is(drawnBy(fleet, EXIT, 1)));
+		assertThat(Set.of(fromRelay, relayAgain.getKey()), is(drawnBy(fleet, RELAY, 2)));
 		return Map.of(EXIT, exitAgain.getKey(), RELAY, relayAgain.getKey());
 	}
 
@@ -529,7 +530,7 @@ public class ChainHostStemTest {
 		refuseOnce(fleet, entries(fleet, 1, 2), entries(fleet, 2, 2));
 	}
 
-	/* A second refusal for the same writer in the period moves its stem no further, at the author and at a relay */
+	/* A second refusal for the same writer moves its stem no further, at the author and at a relay */
 	@Example
 	public void aSecondRefusalOfAWriterReroutesNoMore() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -551,16 +552,17 @@ public class ChainHostStemTest {
 		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(again.get(RELAY)));
 	}
 
-	/* Once both drawn successors refused, no member outside the draw of the period gets anything of the writer */
+	/* Once both drawn successors refused, no member outside the draw of the writer gets anything of it */
 	@Example
 	public void noMemberOutsideTheDrawGetsAWriterBothItsSuccessorsRefused() {
 		final ChainFleet fleet = ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3),
 			ChainFleet.everyMember(false));
 		final List<Entry> own = entries(fleet, 1, 4);
-		final Set<String> drawn = drawnBy(fleet, EXIT);
 		final Set<String> stemmed = new HashSet<>();
 
 		postStem(fleet, own.get(0));
+
+		final Set<String> drawn = drawnBy(fleet, EXIT, 1);
 
 		for (final Entry refused : own.subList(0, 2)) {
 			final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
@@ -578,10 +580,10 @@ public class ChainHostStemTest {
 		assertThat(drawn.containsAll(stemmed), is(true));
 	}
 
-	/* The member that refused an entry of a writer for want of room gets nothing more of that writer for the rest of
-	   the period, whether its predecessor wrote the entry or relayed it */
+	/* The member that refused an entry of a writer for want of room gets nothing more of that writer, whether its
+	   predecessor wrote the entry or relayed it */
 	@Example
-	public void theMemberThatRefusedGetsNothingMoreOfTheWriterForThePeriod() {
+	public void theMemberThatRefusedGetsNothingMoreOfTheWriter() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> own = entries(fleet, 1, 4);
 		final List<Entry> relayed = entries(fleet, 2, 4);
@@ -624,9 +626,9 @@ public class ChainHostStemTest {
 		/* How many entries of the exit went out, and how many of them a member flooded */
 	}
 
-	/* A group of the given size in which gn-1 writes the given number of entries for each of the writers, a few of them
-	   in each of several periods of the stem, avoiding what the function gives for a writer. Nothing ticks, so no
-	   embargo fires, and every packet is handed over before the next entry goes out. */
+	/* A group of the given size in which gn-1 writes two entries for each of the writers, a few of them in each of
+	   several minutes, avoiding what the function gives for a writer. Nothing ticks, so no embargo fires, and every
+	   packet is handed over before the next entry goes out. */
 	private static Reach stemThrough(final ChainFleet fleet, final int writers,
 		final Function<Integer, Set<Channel>> avoid) {
 
@@ -634,7 +636,7 @@ public class ChainHostStemTest {
 
 		for (int writer = 0; writer < writers; writer++) {
 			if (writer % 5 == 0) {
-				fleet.clock.addAndGet(StemRouter.PERIOD_MILLIS);
+				fleet.clock.addAndGet(MINUTE);
 			}
 
 			for (final Entry entry : ChainFleet.entries(ChainFleet.key(100 + writer), fleet.chain(), 2,
@@ -647,14 +649,21 @@ public class ChainHostStemTest {
 			}
 		}
 
+		final Map<Entry, String> firstFlooder = firstFlooders(fleet);
+
+		assertThat(posted.stream().map(firstFlooder::get).filter(EXIT::equals).toList(), is(empty()));
+		return new Reach(posted.size(), posted.stream().filter(firstFlooder::containsKey).count());
+	}
+
+	/* The member that flooded each entry first, as the fleet handed the floods over */
+	private static Map<Entry, String> firstFlooders(final ChainFleet fleet) {
 		final Map<Entry, String> firstFlooder = new LinkedHashMap<>();
 
 		fleet.deliveries.stream().filter(delivery -> delivery.packet() instanceof ChainEntry)
 			.forEach(delivery -> ((ChainEntry) delivery.packet()).getEntries()
 				.forEach(entry -> firstFlooder.putIfAbsent(entry, delivery.from())));
 
-		assertThat(posted.stream().map(firstFlooder::get).filter(EXIT::equals).toList(), is(empty()));
-		return new Reach(posted.size(), posted.stream().filter(firstFlooder::containsKey).count());
+		return firstFlooder;
 	}
 
 	/* Whatever the modes and successors of the members, the exit is never the first to flood an entry of its own while
@@ -749,12 +758,10 @@ public class ChainHostStemTest {
 	public void aRelayNeverStemsARefusedEntryBackToTheMemberItCameFrom() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> relayed = entries(fleet, 2, 2);
-		final Set<String> drawn = drawnBy(fleet, RELAY);
-		final String outsider = fleet.activeIds().stream().filter(id -> !id.equals(RELAY) && !drawn.contains(id))
-			.findFirst().orElseThrow();
 
-		stem(fleet, RELAY, outsider, relayed.subList(0, 1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
 
+		final Set<String> drawn = drawnBy(fleet, RELAY, 2);
 		final String successor = stemmedTo(writtenBy(fleet, RELAY)).getKey();
 		final String other = drawn.stream().filter(id -> !id.equals(successor)).findFirst().orElseThrow();
 
@@ -798,7 +805,7 @@ public class ChainHostStemTest {
 		fleet.host(EXIT).postStem(fleet.chain(), own.get(0), avoid::get);
 
 		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
-		final String other = drawnBy(fleet, EXIT).stream().filter(id -> !id.equals(successor)).findFirst()
+		final String other = drawnBy(fleet, EXIT, 1).stream().filter(id -> !id.equals(successor)).findFirst()
 			.orElseThrow();
 
 		avoid.set(Set.of(fleet.stream(EXIT, other)));
@@ -880,11 +887,9 @@ public class ChainHostStemTest {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> own = entries(fleet, 1, 1);
 		final List<Entry> relayed = entries(fleet, 2, 1);
-		final String outsider = fleet.activeIds().stream().filter(id -> !id.equals(RELAY)
-			&& !drawnBy(fleet, RELAY).contains(id)).findFirst().orElseThrow();
 
 		postStem(fleet, own.get(0));
-		stem(fleet, RELAY, outsider, relayed);
+		stem(fleet, RELAY, "gn-3", relayed);
 
 		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
 		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
@@ -903,7 +908,7 @@ public class ChainHostStemTest {
 	}
 
 	/* A refusal of an entry that the refusing member was never passed through the stem, as one of a copy of a flood or
-	   one sent unasked, neither bars that member nor spends the move of the period */
+	   one sent unasked, neither bars that member nor spends the move of the writer */
 	@Example
 	public void aRefusalOfWhatWentElsewhereMovesNothing() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -913,7 +918,7 @@ public class ChainHostStemTest {
 		postStem(fleet, own.get(0));
 
 		final String successor = stemmedTo(writtenBy(fleet, EXIT)).getKey();
-		final String other = drawnBy(fleet, EXIT).stream().filter(id -> !id.equals(successor)).findFirst()
+		final String other = drawnBy(fleet, EXIT, 1).stream().filter(id -> !id.equals(successor)).findFirst()
 			.orElseThrow();
 
 		exit.receive(fleet.stream(EXIT, other), new ChainEntry(own.subList(0, 1)));
