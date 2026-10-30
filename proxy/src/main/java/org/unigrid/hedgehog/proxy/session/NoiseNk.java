@@ -170,6 +170,28 @@ public final class NoiseNk {
 		}
 	}
 
+	/* The static key of an exit made ready once for the openings it tries: the private key in the form the key
+	   agreement takes, and its public half, which the handshake hash mixes in and which would otherwise cost one
+	   more scalar multiplication for every entry tried. Neither half is ever handed out. */
+	public static final class StaticKey {
+		private final X25519PrivateKeyParameters privateKey;
+		private final byte[] publicKey;
+
+		private StaticKey(X25519PrivateKeyParameters privateKey) {
+			this.privateKey = privateKey;
+			publicKey = privateKey.generatePublicKey().getEncoded();
+		}
+
+		public static StaticKey of(byte[] privateKey) {
+			return new StaticKey(NoiseNk.privateKey(privateKey));
+		}
+
+		@Override
+		public String toString() {
+			return "StaticKey[held]";
+		}
+	}
+
 	/* The client's side between its opening and the answer */
 	public static final class Initiator {
 		private final SymmetricState state;
@@ -289,9 +311,17 @@ public final class NoiseNk {
 			return Optional.empty();
 		}
 
-		final X25519PrivateKeyParameters key = privateKey(staticPrivate);
+		return respond(StaticKey.of(staticPrivate), prologue, message);
+	}
+
+	/* The same under a key made ready once, as an exit tries every entry it cannot place */
+	public static Optional<Responder> respond(StaticKey key, byte[] prologue, byte[] message) {
+		if (message.length < MESSAGE_SIZE) {
+			return Optional.empty();
+		}
+
 		final byte[] initiatorEphemeral = Arrays.copyOf(message, KEY_SIZE);
-		final Optional<byte[]> secret = agree(key, initiatorEphemeral);
+		final Optional<byte[]> secret = agree(key.privateKey, initiatorEphemeral);
 
 		if (secret.isEmpty()) {
 			return Optional.empty();
@@ -299,7 +329,7 @@ public final class NoiseNk {
 
 		final SymmetricState state = SymmetricState.initialize(prologue);
 
-		state.mixHash(key.generatePublicKey().getEncoded());
+		state.mixHash(key.publicKey);
 		state.mixHash(initiatorEphemeral);
 		state.mixKey(secret.get());
 

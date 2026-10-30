@@ -38,6 +38,7 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiation;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.Responder;
 import org.unigrid.hedgehog.proxy.session.NoiseNk.SessionSecrets;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
@@ -150,6 +151,49 @@ public class NoiseNkTest {
 		assertThat(HEX.formatHex(responder.answerTagKey()), equalTo(ANSWER_TAG_KEY));
 		assertThat(HEX.formatHex(secrets.clientTags()), equalTo(CLIENT_TAGS));
 		assertThat(HEX.formatHex(secrets.exitTags()), equalTo(EXIT_TAGS));
+	}
+
+	/* The key an exit makes ready once opens the opening of the vector to the same answer and answer tag key */
+	@Example
+	public void matchesTheCacophonyVectorUnderAStaticKeyMadeReadyOnce() throws Exception {
+		final NoiseNk.StaticKey key = NoiseNk.StaticKey.of(HEX.parseHex(RESPONDER_STATIC));
+		final Responder responder = NoiseNk.respond(key, HEX.parseHex(PROLOGUE), HEX.parseHex(OPENING))
+			.orElseThrow();
+		final Answered answered = responder.answer(new FixedRandom(RESPONDER_EPHEMERAL),
+			HEX.parseHex(ANSWER_PAYLOAD));
+
+		assertThat(HEX.formatHex(answered.message()), equalTo(ANSWER));
+		assertThat(HEX.formatHex(answered.secrets().binding()), equalTo(HANDSHAKE_HASH));
+		assertThat(HEX.formatHex(responder.answerTagKey()), equalTo(ANSWER_TAG_KEY));
+	}
+
+	/* One key made ready serves every trial, and opens exactly what the bytes it was made from open */
+	@Property(tries = 50)
+	public void aStaticKeyMadeReadyOnceOpensWhatItsBytesOpen(@ForAll @Size(max = 64) byte[] prologue,
+		@ForAll @IntRange(min = -1, max = NoiseNk.MESSAGE_SIZE - 1) int flipped) throws HandshakeException {
+
+		final SecureRandom random = new SecureRandom();
+		final KeyPair exit = KeyPair.generate(random);
+		final NoiseNk.StaticKey key = NoiseNk.StaticKey.of(exit.privateKey());
+
+		for (int trial = 0; trial < 2; trial++) {
+			final Initiation initiation = NoiseNk.initiate(exit.publicKey(), prologue, random);
+			final byte[] opening = flipped < 0 ? initiation.message() : flipped(initiation.message(), flipped);
+
+			assertThat(NoiseNk.respond(key, prologue, opening).map(Responder::answerTagKey).map(HEX::formatHex),
+				equalTo(NoiseNk.respond(exit.privateKey(), prologue, opening).map(Responder::answerTagKey)
+				.map(HEX::formatHex)));
+			assertThat(NoiseNk.respond(key, prologue, opening).isPresent(), is(flipped < 0));
+		}
+	}
+
+	@Example
+	public void aStaticKeyIsExactlyTheSizeOfAnX25519KeyAndShowsNothing() {
+		final byte[] bytes = KeyPair.generate(new SecureRandom()).privateKey();
+
+		Expect.assertThrows(IllegalArgumentException.class, () -> NoiseNk.StaticKey.of(new byte[NoiseNk.KEY_SIZE - 1]));
+		Expect.assertThrows(IllegalArgumentException.class, () -> NoiseNk.StaticKey.of(new byte[NoiseNk.KEY_SIZE + 1]));
+		assertThat(NoiseNk.StaticKey.of(bytes).toString(), not(containsString(HEX.formatHex(bytes))));
 	}
 
 	@Example
