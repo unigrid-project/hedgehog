@@ -381,7 +381,7 @@ public class ChainExit implements ChainDrain {
 				OPENING_MAX_AGE_MILLIS + CLOCK_SKEW_MILLIS));
 
 			if (!answered.containsKey(opening)) {
-				sealingKey.privateKey().ifPresent(key -> host.chain(chainId)
+				sealingKey.staticKey().ifPresent(key -> host.chain(chainId)
 					.ifPresent(chain -> answer(chain, entry, opening, key, proxy.get())));
 			}
 		}
@@ -479,7 +479,7 @@ public class ChainExit implements ChainDrain {
 	/* The session writes as the spare writer, which goes back for the next trial when the entry opens nothing. The
 	   relay hears whether the chain takes what it sends before it hears the client. The tick hands the outbox's level
 	   to the relay right after the outbox ticked, which is where it would tell a change, so it tells nobody. */
-	private void answer(final Chain chain, final Entry entry, final Opening opening, final byte[] key,
+	private void answer(final Chain chain, final Entry entry, final Opening opening, final NoiseNk.StaticKey key,
 		final ProxySettings proxy) {
 
 		final WriterKey taken = takeSpare();

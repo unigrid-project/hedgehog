@@ -18,9 +18,12 @@
 
 package org.unigrid.hedgehog.model.gridnode;
 
+import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.Optional;
 import net.jqwik.api.Example;
+import org.unigrid.hedgehog.proxy.session.HandshakeException;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
@@ -40,6 +43,19 @@ public class SealingKeyTest {
 	public void shouldHoldNeitherHalfWhenThereIsNone() {
 		assertThat(SealingKey.none().privateKey(), is(Optional.empty()));
 		assertThat(SealingKey.none().publicKey(), is(Optional.empty()));
+		assertThat(SealingKey.none().staticKey(), is(Optional.empty()));
+	}
+
+	/* The exit tries every entry it cannot place as an opening, so the key it opens them under is made ready once
+	   and handed out as it is, with no copy of the bytes */
+	@Example
+	public void shouldMakeItsStaticKeyReadyOnceForTheOpeningsSealedToIt() throws HandshakeException {
+		final SealingKey key = SealingKey.of(PRIVATE);
+		final byte[] opening = NoiseNk.initiate(key.publicKey().orElseThrow(), new byte[0], new SecureRandom())
+			.message();
+
+		assertThat(key.staticKey().orElseThrow(), is(sameInstance(key.staticKey().orElseThrow())));
+		assertThat(NoiseNk.respond(key.staticKey().orElseThrow(), new byte[0], opening).isPresent(), is(true));
 	}
 
 	@Example

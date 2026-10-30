@@ -94,6 +94,11 @@ public final class Session {
 	   exit's own writer, so a copy of the answer under another writer completes nothing at the client. Whatever
 	   does not open is not for this exit, and nothing of it is kept. */
 	public static Optional<Session> tryAccept(SessionContext context, Entry entry, byte[] sealingPrivate) {
+		return tryAccept(context, entry, NoiseNk.StaticKey.of(sealingPrivate));
+	}
+
+	/* The same under the sealing key made ready once, as an exit tries every entry it cannot place */
+	public static Optional<Session> tryAccept(SessionContext context, Entry entry, NoiseNk.StaticKey sealingKey) {
 		final EntryHeader header = entry.header();
 
 		if (!header.chainId().equals(context.writer().chainId())
@@ -101,7 +106,7 @@ public final class Session {
 			return Optional.empty();
 		}
 
-		final Optional<Responder> responder = NoiseNk.respond(sealingPrivate, prologue(header.chainId(),
+		final Optional<Responder> responder = NoiseNk.respond(sealingKey, prologue(header.chainId(),
 			header.writer()), Arrays.copyOf(entry.payload(), NoiseNk.MESSAGE_SIZE));
 
 		if (responder.isEmpty()) {

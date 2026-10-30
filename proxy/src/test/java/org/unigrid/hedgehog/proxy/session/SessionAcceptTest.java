@@ -110,6 +110,24 @@ public class SessionAcceptTest {
 		assertThat(session.isOpen(), is(true));
 	}
 
+	/* An exit tries every entry under one key made ready once, which answers as its bytes do */
+	@Example
+	public void shouldAnswerAnOpeningUnderAStaticKeyMadeReadyOnce() throws HandshakeException {
+		final Ends ends = new Ends();
+		final NoiseNk.StaticKey key = NoiseNk.StaticKey.of(EXIT_KEY);
+		final NoiseNk.StaticKey other = NoiseNk.StaticKey.of(SessionFixtures.sealingPrivate("gn-other"));
+		final Initiation initiation = ends.open(SessionFixtures.sealingPublic(EXIT_ID));
+
+		assertThat(Session.tryAccept(ends.exit, ends.opening(), other), equalTo(Optional.empty()));
+		assertThat(ends.fromExit, hasSize(0));
+
+		final Session session = Session.tryAccept(ends.exit, ends.opening(), key).orElseThrow();
+
+		assertThat(ends.fromExit, hasSize(1));
+		assertThat(ends.fromExit.get(0).header().tag(), equalTo(answerTag(initiation)));
+		assertThat(session.peer(), equalTo(ends.client.writer().writer()));
+	}
+
 	@Example
 	public void shouldAgreeOnTheKeysWithTheClient() throws HandshakeException {
 		final Ends ends = new Ends();

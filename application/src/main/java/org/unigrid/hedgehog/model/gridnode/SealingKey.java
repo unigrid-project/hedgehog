@@ -19,18 +19,21 @@
 package org.unigrid.hedgehog.model.gridnode;
 
 import java.util.Optional;
+import org.unigrid.hedgehog.proxy.session.NoiseNk;
 
 /* The X25519 sealing key of this gridnode: clients seal their sessions to the public half it announces, and its
    exit opens them with the private half. A node that is no gridnode has none. Neither half is ever shown. */
 public final class SealingKey {
-	private static final SealingKey NONE = new SealingKey(null, null);
+	private static final SealingKey NONE = new SealingKey(null, null, null);
 
 	private final byte[] privateKey;
 	private final byte[] publicKey;
+	private final NoiseNk.StaticKey staticKey;
 
-	private SealingKey(byte[] privateKey, byte[] publicKey) {
+	private SealingKey(byte[] privateKey, byte[] publicKey, NoiseNk.StaticKey staticKey) {
 		this.privateKey = privateKey;
 		this.publicKey = publicKey;
+		this.staticKey = staticKey;
 	}
 
 	public static SealingKey none() {
@@ -41,7 +44,7 @@ public final class SealingKey {
 	public static SealingKey of(byte[] privateKey) {
 		final byte[] own = privateKey.clone();
 
-		return new SealingKey(own, SealingKeyFile.publicKey(own));
+		return new SealingKey(own, SealingKeyFile.publicKey(own), NoiseNk.StaticKey.of(own));
 	}
 
 	public Optional<byte[]> privateKey() {
@@ -50,6 +53,12 @@ public final class SealingKey {
 
 	public Optional<byte[]> publicKey() {
 		return Optional.ofNullable(publicKey).map(byte[]::clone);
+	}
+
+	/* The private half made ready once for the openings the exit tries, which hands out none of its bytes, so a
+	   trial neither copies the key nor derives its public half again */
+	public Optional<NoiseNk.StaticKey> staticKey() {
+		return Optional.ofNullable(staticKey);
 	}
 
 	@Override
