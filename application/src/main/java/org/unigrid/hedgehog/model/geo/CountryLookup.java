@@ -32,31 +32,6 @@ public interface CountryLookup {
 	/* The country of the host part of a host name with or without its port, and only when that part is an IP
 	   literal: a name is never resolved, as its lookup would tell a resolver which gridnodes this node weighs */
 	default Optional<String> countryOfHost(String hostName) {
-		return hostOf(hostName).flatMap(CountryLookup::literal).flatMap(this::countryOf);
-	}
-
-	/* An IPv6 literal with a port is in brackets, which are no part of it */
-	private static Optional<String> hostOf(String hostName) {
-		if (hostName == null) {
-			return Optional.empty();
-		}
-
-		if (hostName.startsWith("[")) {
-			final int end = hostName.indexOf(']');
-
-			return end < 0 ? Optional.empty() : Optional.of(hostName.substring(1, end));
-		}
-
-		final int port = hostName.lastIndexOf(':');
-
-		return Optional.of(port < 0 ? hostName : hostName.substring(0, port));
-	}
-
-	private static Optional<InetAddress> literal(String host) {
-		try {
-			return Optional.of(InetAddress.ofLiteral(host));
-		} catch (IllegalArgumentException ex) {
-			return Optional.empty();
-		}
+		return HostLiteral.of(hostName).flatMap(this::countryOf);
 	}
 }
