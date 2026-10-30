@@ -33,4 +33,7 @@ interface StemHost {
 
 	/* Hands the draining of the chain to the delivery executor */
 	void handOver(HostedChain hosted);
+
+	/* Passes on what waits for a member whose stream took no writes, now that it takes writes again */
+	void retry(Channel stream);
 }
