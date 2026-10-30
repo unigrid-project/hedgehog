@@ -146,7 +146,7 @@ public class ExitRelayLoopbackTest {
 	/* The first address of the name is of the other family than the local address, which the exit never dials */
 	@Example
 	public void shouldConnectOverTheFamilyOfTheLocalAddressWhenANameHasBoth() throws Exception {
-		final List<InetAddress> addresses = List.of(InetAddress.ofLiteral("2606:4700:4700::1111"),
+		final List<InetAddress> addresses = List.of(InetAddress.ofLiteral("2606:2800:21f::1"),
 			EchoServer.LOOPBACK);
 
 		try (EchoServer echo = new EchoServer()) {
