@@ -28,6 +28,7 @@ import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import java.io.IOException;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Optional;
@@ -189,6 +190,19 @@ public class NettyUdpConnectorTest {
 			assertThat(heard.first(), equalTo(new byte[] { 1, 2, 3 }));
 			assertThat(heard.sources.get(0), equalTo(new InetSocketAddress(echo.address(), echo.port())));
 		}
+	}
+
+	/* Dropped like any datagram the socket cannot send, and not sent from some other address instead */
+	@Example
+	public void shouldDropDatagramsToAnotherFamilyThanTheLocalAddress() throws Exception {
+		final UdpConnector bound = new NettyUdpConnector(() -> group, Optional.of(EchoServer.loopback(2)));
+		final Heard heard = new Heard();
+
+		bound.open(heard);
+
+		final UdpConnector.Socket socket = heard.socket();
+
+		assertThat(socket.send(InetAddress.ofLiteral("2001:db8::1"), 53, new byte[] { 1 }), is(false));
 	}
 
 	@Example

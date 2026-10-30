@@ -32,6 +32,7 @@ import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import net.jqwik.api.Arbitraries;
@@ -139,6 +140,29 @@ public class ExitRelayLoopbackTest {
 			assertThat(relay.isOpen(), is(false));
 			RecordingTargetListener.await(() -> echo.open() == 0);
 			assertThat(echo.echoed(), is((long) sent.size()));
+		}
+	}
+
+	/* The first address of the name is of the other family than the local address, which the exit never dials */
+	@Example
+	public void shouldConnectOverTheFamilyOfTheLocalAddressWhenANameHasBoth() throws Exception {
+		final List<InetAddress> addresses = List.of(InetAddress.ofLiteral("2606:4700:4700::1111"),
+			EchoServer.LOOPBACK);
+
+		try (EchoServer echo = new EchoServer()) {
+			final SessionPair pair = pairFor(echo.port());
+			final ExitRelay relay = new ExitRelay(pair.exit, new ExitContext(ProxySettings.DEFAULTS,
+				DestinationPolicy.allowLoopback(), host -> addresses, Runnable::run,
+				new NettyExitConnector(group, PATIENT_MILLIS, Optional.of(EchoServer.loopback(2)))));
+
+			pair.toExit().forEach(relay::handle);
+			awaitAtClient(pair, 1);
+
+			final Connected connected = (Connected) atClient.get(0);
+
+			assertThat(connected.status(), is(Socks5CommandStatus.SUCCESS));
+			assertThat(connected.bound().host(), is("127.0.0.2"));
+			assertThat(echo.peerAddress(), equalTo(EchoServer.loopback(2)));
 		}
 	}
 

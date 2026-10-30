@@ -123,6 +123,37 @@ public class NettyExitConnectorTest {
 		}
 	}
 
+	/* An address of the other family is never dialled from the local address, nor from any other: the destination
+	   would then see an address the client did not choose by */
+	@Example
+	public void shouldRefuseAnAddressOfAnotherFamilyThanTheLocalAddress() throws Exception {
+		final ExitConnector bound = new NettyExitConnector(group, 2000, Optional.of(EchoServer.loopback(2)));
+		final RecordingTargetListener listener = new RecordingTargetListener();
+
+		bound.connect(List.of(InetAddress.ofLiteral("2001:db8::1")), 80, listener);
+		assertThat(listener.failed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
+			is(Socks5CommandStatus.HOST_UNREACHABLE));
+		assertThat(listener.events(), equalTo(List.of("failed " + Socks5CommandStatus.HOST_UNREACHABLE)));
+	}
+
+	/* The addresses of the other family are left out before the limit counts, so they cost no attempt */
+	@Example
+	public void shouldConnectOverTheFamilyOfTheLocalAddress() throws Exception {
+		final ExitConnector bound = new NettyExitConnector(group, 2000, Optional.of(EchoServer.loopback(2)));
+		final List<InetAddress> addresses = new ArrayList<>(IntStream.rangeClosed(1, NettyExitConnector.MAX_ADDRESSES)
+			.mapToObj(i -> InetAddress.ofLiteral("2001:db8::" + i)).toList());
+
+		addresses.add(EchoServer.LOOPBACK);
+
+		try (EchoServer echo = new EchoServer()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+
+			bound.connect(addresses, echo.port(), listener);
+			assertThat(listener.target().localAddress().getAddress(), equalTo(EchoServer.loopback(2)));
+			assertThat(echo.peerAddress(), equalTo(EchoServer.loopback(2)));
+		}
+	}
+
 	@Example
 	public void shouldReachTheFirstAddressThatAcceptsAfterRefusedOnes() throws Exception {
 		try (EchoServer echo = new EchoServer()) {

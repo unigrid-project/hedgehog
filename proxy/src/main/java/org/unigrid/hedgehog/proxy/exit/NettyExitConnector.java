@@ -46,6 +46,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 /* Connects over TCP with Netty on an NIO event loop group, trying the admitted addresses one after another. Given a
    local address, every connection leaves from it, so the destination sees the address it was given. */
@@ -61,6 +62,7 @@ public final class NettyExitConnector implements ExitConnector {
 	private final EventLoopGroup group;
 	private final int closeGraceMillis;
 	private final Bootstrap bootstrap;
+	private final Predicate<InetAddress> reachable;
 
 	public NettyExitConnector(EventLoopGroup group, int connectTimeoutMillis) {
 		this(group, connectTimeoutMillis, Optional.empty());
@@ -88,14 +90,16 @@ public final class NettyExitConnector implements ExitConnector {
 			.option(ChannelOption.AUTO_READ, false).option(ChannelOption.TCP_NODELAY, true);
 
 		Objects.requireNonNull(local, "local").ifPresent(address -> bootstrap.localAddress(address, 0));
+		reachable = AddressFamily.reachableFrom(local);
 	}
 
 	/* The list is copied because the attempts go on after this call, on the event loop, while the caller may
-	   reuse it. A null list or element is the caller's fault and throws before any listener call. */
+	   reuse it. A null list or element is the caller's fault and throws before any listener call. Given a local
+	   address, only the addresses of its family are tried, and only they count towards the limit. */
 	@Override
 	public Attempt connect(List<InetAddress> addresses, int port, TargetListener listener) {
-		final Dialing dialing = new Dialing(List.copyOf(addresses).stream().limit(MAX_ADDRESSES).iterator(), port,
-			listener);
+		final Dialing dialing = new Dialing(List.copyOf(addresses).stream().filter(reachable).limit(MAX_ADDRESSES)
+			.iterator(), port, listener);
 
 		dialing.next(Socks5CommandStatus.HOST_UNREACHABLE);
 		return dialing;
