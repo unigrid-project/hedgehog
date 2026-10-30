@@ -1090,7 +1090,7 @@ public class ChainHost implements ChainService {
 
 	/* The successors this node drew for a writer on a chain, for a test */
 	List<Channel> stemSuccessors(final ChainId chainId, final WriterId writer) {
-		return hosting.find(chainId).map(hosted -> hosted.getRouter().drawn(writer)).orElse(List.of());
+		return stems.successors(chainId, writer);
 	}
 
 	/* The chain holds the entries already, so they are queued without an offer, and go out like a post: in the order

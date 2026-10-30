@@ -245,6 +245,10 @@ final class Stem {
 			.filter(hosted -> hosted.getRouter().hasSuccessor(avoid)).isPresent();
 	}
 
+	List<Channel> successors(final ChainId chainId, final WriterId writer) {
+		return hosting.get().find(chainId).map(hosted -> hosted.getRouter().drawn(writer)).orElse(List.of());
+	}
+
 	private Admission postStem(final HostedChain hosted, final Entry entry, final Supplier<Set<Channel>> avoid) {
 		final long now = clock.getAsLong();
 		final Admission admission = hosted.holdOwn(entry, now);
