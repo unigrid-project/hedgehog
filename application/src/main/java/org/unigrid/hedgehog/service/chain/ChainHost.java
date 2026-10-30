@@ -805,6 +805,8 @@ public class ChainHost implements ChainService {
 		if (success) {
 			batch.getEntries().forEach(entry -> hosted.getEmbargo().sent(entry, successor));
 			StemStalls.took(successor);
+		} else {
+			batch.getEntries().forEach(entry -> hosted.getEmbargo().failed(entry, successor));
 		}
 	}
 
@@ -1085,7 +1087,8 @@ public class ChainHost implements ChainService {
 	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
 	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
 	   entry tried on it when it took no writes since the entry first missed it, or when the entry has now missed
-	   MISSED_DEADLINES deadlines on it. Nothing moves a writer a relay routes by the hash, so it has no successor
+	   MISSED_DEADLINES deadlines on it. An entry whose write to the route it stays on is still on its way waits on,
+	   and is not written there again. Nothing moves a writer a relay routes by the hash, so it has no successor
 	   while its route takes no writes. */
 	private List<Entry> passLate(final HostedChain hosted, final Lane lane, final List<StemEmbargo.Due> unsent,
 		final long now) {
@@ -1096,7 +1099,7 @@ public class ChainHost implements ChainService {
 			current -> stalls(current, unsent)).filter(current -> !hashed || current.isWritable());
 
 		if (route.isPresent()) {
-			pass(hosted, route.get(), entries, now);
+			passAgain(hosted, route.get(), unsent, now);
 			return List.of();
 		}
 
@@ -1106,6 +1109,18 @@ public class ChainHost implements ChainService {
 		}
 
 		return entries;
+	}
+
+	/* Passes on what is due, but for what was written to the route already and is on its way, which waits on */
+	private void passAgain(final HostedChain hosted, final Channel route, final List<StemEmbargo.Due> unsent,
+		final long now) {
+
+		final List<Entry> again = unsent.stream().filter(held -> held.waiting() == null
+			|| !held.waiting().isPending(route)).map(StemEmbargo.Due::entry).toList();
+
+		if (!again.isEmpty()) {
+			pass(hosted, route, again, now);
+		}
 	}
 
 	private static boolean stalls(final Channel route, final List<StemEmbargo.Due> unsent) {

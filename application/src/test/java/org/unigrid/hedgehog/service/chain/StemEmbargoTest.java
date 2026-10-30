@@ -89,7 +89,7 @@ public class StemEmbargoTest {
 
 		assertThat(embargo.waitingFor(SUCCESSOR), is(List.of(entry)));
 		assertThat(embargo.waited(LONG_AFTER).get(0).waiting(), equalTo(new StemEmbargo.Waiting(SUCCESSOR, NOW, 1,
-			true)));
+			StemEmbargo.Try.MISSED)));
 		assertThat(embargo.waited(LONG_AFTER * 2).get(0).waiting().missed(), is(2));
 		assertThat(embargo.holds(entry), is(true));
 

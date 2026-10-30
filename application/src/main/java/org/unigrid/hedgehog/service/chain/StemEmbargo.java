@@ -50,9 +50,16 @@ final class StemEmbargo {
 
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
-	record Waiting(Channel route, long since, int missed, boolean skipped) {
+	/* How the last try of an entry that never left went: the route took no writes, the write is on its way, or the
+	   write failed */
+	enum Try { MISSED, PENDING, FAILED }
+
+	record Waiting(Channel route, long since, int missed, Try last) {
 		/* The route an entry that never left was last tried on, since when it was tried there, how many deadlines it
-		   missed there since, and whether the route took no writes when it was last tried */
+		   missed there since, and how the last try went */
+		boolean isPending(final Channel stream) {
+			return route == stream && last == Try.PENDING;
+		}
 	}
 
 	private record Held(boolean own, long until, Channel source, List<Channel> sentTo, boolean bySource,
@@ -63,7 +70,7 @@ final class StemEmbargo {
 		   waits because its route is the stream it came in on, and where it waits to leave while it never left */
 		private Held waitsAgain(final long deadline) {
 			final Waiting missed = waiting == null || !sentTo.isEmpty() ? waiting
-				: new Waiting(waiting.route(), waiting.since(), waiting.missed() + 1, waiting.skipped());
+				: new Waiting(waiting.route(), waiting.since(), waiting.missed() + 1, waiting.last());
 
 			return new Held(own, deadline, source, sentTo, bySource, missed);
 		}
@@ -79,10 +86,10 @@ final class StemEmbargo {
 			return new Held(own, until, source, List.copyOf(more), bySource, waiting);
 		}
 
-		private Held tried(final Channel route, final long now, final boolean missed) {
+		private Held tried(final Channel route, final long now, final Try last) {
 			final Waiting tried = waiting != null && waiting.route() == route
-				? new Waiting(route, waiting.since(), waiting.missed(), missed)
-				: new Waiting(route, now, 0, missed);
+				? new Waiting(route, waiting.since(), waiting.missed(), last)
+				: new Waiting(route, now, 0, last);
 
 			return new Held(own, until, source, sentTo, bySource, tried);
 		}
@@ -147,9 +154,18 @@ final class StemEmbargo {
 		held.computeIfPresent(entry, (key, waiting) -> waiting.sent(successor));
 	}
 
-	/* Notes that a held entry was tried on a route, which took no writes if it missed it */
+	/* Notes that a held entry was tried on a route, which took no writes if it missed it, and was written to it
+	   otherwise */
 	synchronized void tried(final Entry entry, final Channel route, final long now, final boolean missed) {
-		held.computeIfPresent(entry, (key, waiting) -> waiting.tried(route, now, missed));
+		final Try last = missed ? Try.MISSED : Try.PENDING;
+
+		held.computeIfPresent(entry, (key, waiting) -> waiting.tried(route, now, last));
+	}
+
+	/* Notes that a write of a held entry to a route failed, so that it is tried there again */
+	synchronized void failed(final Entry entry, final Channel route) {
+		held.computeIfPresent(entry, (key, waiting) -> waiting.waiting() != null
+			&& waiting.waiting().isPending(route) ? waiting.tried(route, 0, Try.FAILED) : waiting);
 	}
 
 	/* Notes that a held entry waits because its route is the stream it came in on, which it never goes back to */
@@ -162,7 +178,7 @@ final class StemEmbargo {
 	synchronized List<Entry> waitingFor(final Channel stream) {
 		return held.entrySet().stream().filter(waiting -> waiting.getValue().isUnsent()
 			&& waiting.getValue().waiting() != null && waiting.getValue().waiting().route() == stream
-			&& waiting.getValue().waiting().skipped()).map(Map.Entry::getKey).toList();
+			&& waiting.getValue().waiting().last() == Try.MISSED).map(Map.Entry::getKey).toList();
 	}
 
 	/* Whether a held entry was ever passed to any successor */

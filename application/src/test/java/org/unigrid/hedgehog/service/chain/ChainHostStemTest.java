@@ -40,6 +40,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
@@ -607,16 +608,65 @@ public class ChainHostStemTest {
 	}
 
 	/* Takes every stem written to the stream and never sends it on, as a member whose stream accepts what it is handed
-	   and then stops reading */
-	private static void holdStems(final EmbeddedChannel stream) {
+	   and then stops reading. Answers what it took. */
+	private static List<ChainStem> holdStems(final EmbeddedChannel stream) {
+		final List<ChainStem> held = new CopyOnWriteArrayList<>();
+
 		stream.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
 			@Override
 			public void write(final ChannelHandlerContext context, final Object packet, final ChannelPromise promise) {
-				if (!(packet instanceof ChainStem)) {
+				if (packet instanceof ChainStem stem) {
+					held.add(stem);
+				} else {
 					context.write(packet, promise);
 				}
 			}
 		});
+
+		return held;
+	}
+
+	private static long holding(final List<ChainStem> held, final Entry entry) {
+		return held.stream().filter(stem -> stem.getEntries().contains(entry)).count();
+	}
+
+	/* An entry whose write to its route is still on its way is not written there again at a deadline: it waits on, at
+	   the author and at a relay alike, until the route took it or the writer moved off the route */
+	@Example
+	public void writesNothingAgainToARouteThatHasNotGotTheLastWriteOut() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> relayed = entries(fleet, 2, 2);
+		Optional<String> exitMoved = Optional.empty();
+		Optional<String> relayMoved = Optional.empty();
+		int rounds = 0;
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final List<ChainStem> exitHeld = holdStems(fleet.stream(EXIT, stemmedTo(writtenBy(fleet, EXIT)).getKey()));
+		final List<ChainStem> relayHeld = holdStems(fleet.stream(RELAY, stemmedTo(writtenBy(fleet, RELAY))
+			.getKey()));
+
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		while ((exitMoved.isEmpty() || relayMoved.isEmpty()) && rounds < 3 * MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			fleet.host(RELAY).maintain();
+
+			final Map<String, List<Object>> fromExit = writtenBy(fleet, EXIT);
+			final Map<String, List<Object>> fromRelay = writtenBy(fleet, RELAY);
+
+			exitMoved = exitMoved.or(() -> stemmedWith(fromExit, own.get(1)));
+			relayMoved = relayMoved.or(() -> stemmedWith(fromRelay, relayed.get(1)));
+			rounds++;
+		}
+
+		assertThat(exitMoved.isPresent() && relayMoved.isPresent(), is(true));
+		assertThat(holding(exitHeld, own.get(1)), is(1L));
+		assertThat(holding(relayHeld, relayed.get(1)), is(1L));
 	}
 
 	/* A route that seems to take writes but never gets one out does not stall without a break, so it is moved off
