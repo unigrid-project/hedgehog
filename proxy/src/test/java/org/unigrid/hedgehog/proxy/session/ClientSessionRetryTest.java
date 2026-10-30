@@ -28,11 +28,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Tag;
+import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -103,8 +105,19 @@ public class ClientSessionRetryTest {
 
 	/* The answer of the member's key to an opening, taken off the wire before anyone else sees it */
 	private static Entry answerTo(SessionWire wire, Entry opening, String exitId) {
-		Session.tryAccept(wire.exitContext, opening, SessionFixtures.sealingPrivate(exitId)).orElseThrow();
-		return wire.posted.pollLast();
+		return answerTo(wire, wire.exitContext, opening, exitId).answer();
+	}
+
+	/* The same, written as the exit writer of the context, with the session it opened at the exit */
+	private static Answered answerTo(SessionWire wire, SessionContext exit, Entry opening, String exitId) {
+		final Session session = Session.tryAccept(exit, opening, SessionFixtures.sealingPrivate(exitId))
+			.orElseThrow();
+
+		return new Answered(wire.posted.pollLast(), session);
+	}
+
+	private record Answered(Entry answer, Session session) {
+		/* An answer and the exit's end of the session it opened */
 	}
 
 	private static boolean holdsNoKeyOfAnyAttempt(ClientSession client, int attempts) throws IllegalAccessException {
@@ -193,19 +206,25 @@ public class ClientSessionRetryTest {
 		assertThat(client.state(), is(SessionState.CLOSED));
 	}
 
+	/* A stall in the stem can bring the answer of the first exit after the timeout: the session takes it all the
+	   same, from the exit that answered */
 	@Example
-	public void shouldIgnoreTheLateAnswerOfAnEarlierAttempt() {
+	public void shouldTakeTheLateAnswerOfAnEarlierAttempt() {
 		final SessionWire wire = new SessionWire("gn-a");
 		final ClientSession client = wire.client(inOrder("gn-a", "gn-b"), CONNECT);
 
 		client.open();
 		timeOut(wire);
 		client.tick();
+		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
 		wire.pump();
 		assertThat(wire.exits.size(), is(1));
-		assertThat(wire.atExit, equalTo(List.of()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
+		assertThat(wire.atExit, equalTo(List.of(CONNECT)));
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(client.exit(), equalTo(Optional.of("gn-a")));
+		timeOut(wire);
+		assertThat(client.tick(), equalTo(Optional.empty()));
+		assertThat(wire.posted.isEmpty(), is(true));
 	}
 
 	@Example
@@ -480,8 +499,10 @@ public class ClientSessionRetryTest {
 		assertThat(client.state(), is(SessionState.OPEN));
 	}
 
+	/* Whichever exit answers first carries the session, and the other, answering after it, is told to close as an
+	   ended session is, so it lets its relay go at once and not when the Connect would have come */
 	@Example
-	public void shouldIgnoreTheAnswerToAnEarlierAttemptAndTakeTheAnswerToTheLatest() {
+	public void shouldTakeTheFirstAnswerOfAnyAttemptAndCloseTheSessionOfTheOther() {
 		final SessionWire wire = new SessionWire("gn-z");
 		final ClientSession client = wire.client(inOrder("gn-a", "gn-b"), CONNECT);
 
@@ -491,19 +512,55 @@ public class ClientSessionRetryTest {
 
 		final Entry first = wire.posted.poll();
 		final Entry second = wire.posted.poll();
-		final Entry late = answerTo(wire, first, "gn-a");
+		final Answered late = answerTo(wire, wire.exitContext, first, "gn-a");
+		final Answered other = answerTo(wire, wire.context(3), second, "gn-b");
 
-		assertThat(client.receive(late), equalTo(Optional.empty()));
-		assertThat(client.state(), is(SessionState.OPENING));
-		assertThat(client.exit(), equalTo(Optional.of("gn-b")));
-		assertThat(wire.posted.isEmpty(), is(true));
-		assertThat(client.receive(answerTo(wire, second, "gn-b")), equalTo(Optional.empty()));
+		assertThat(client.receive(late.answer()), equalTo(Optional.empty()));
 		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(client.exit(), equalTo(Optional.of("gn-a")));
+		assertThat(late.session().receive(wire.posted.poll()), equalTo(Optional.of(CONNECT)));
+		assertThat(client.receive(other.answer()), equalTo(Optional.empty()));
+		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(client.exit(), equalTo(Optional.of("gn-a")));
 		assertThat(wire.posted.size(), is(1));
+		assertThat(other.session().receive(wire.posted.poll()), equalTo(Optional.of(new Close(CloseReason.DONE))));
+		assertThat(wire.posted.poll().header().writer(), equalTo(wire.context(3).writer().writer()));
+		assertThat(client.receive(other.answer()), equalTo(Optional.empty()));
+		assertThat(wire.posted.isEmpty(), is(true));
 	}
 
+	/* The opening of the last attempt is answered after the earlier one completed the session, and a copy of that
+	   answer under another tag does not take its place: only the answer that completes the handshake closes it */
 	@Example
-	public void shouldForgetThePrivateKeyOfAnAttemptThatTimedOutAndKeepOnlyTheNewOne() throws IllegalAccessException {
+	public void shouldKeepWaitingForTheOtherAnswerPastAForgedOne() {
+		final SessionWire wire = new SessionWire("gn-z");
+		final ClientSession client = wire.client(inOrder("gn-a", "gn-b"), CONNECT);
+
+		client.open();
+		timeOut(wire);
+		client.tick();
+
+		final Entry first = wire.posted.poll();
+		final Entry second = wire.posted.poll();
+		final Answered other = answerTo(wire, wire.context(3), second, "gn-b");
+		final byte[] forged = other.answer().payload();
+
+		forged[NoiseNk.KEY_SIZE] ^= 1;
+		client.receive(answerTo(wire, first, "gn-a"));
+
+		final Entry copy = wire.context(4).post(other.answer().header().tag(), forged);
+
+		wire.posted.clear();
+		assertThat(client.receive(copy), equalTo(Optional.empty()));
+		assertThat(wire.posted.isEmpty(), is(true));
+		assertThat(client.receive(other.answer()), equalTo(Optional.empty()));
+		assertThat(other.session().receive(wire.posted.poll()), equalTo(Optional.of(new Close(CloseReason.DONE))));
+	}
+
+	/* An attempt that timed out may still be answered, so its key stays until the session ends, and no more of them
+	   than the attempts of the session */
+	@Example
+	public void shouldKeepThePrivateKeyOfEveryAttemptThatMayStillBeAnswered() throws IllegalAccessException {
 		final SessionWire wire = new SessionWire("gn-z");
 		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b", "gn-c"));
 
@@ -511,12 +568,14 @@ public class ClientSessionRetryTest {
 		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(0)), is(true));
 		timeOut(wire);
 		client.tick();
-		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(0)), is(false));
+		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(0)), is(true));
 		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(1)), is(true));
 		timeOut(wire);
 		client.tick();
-		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(1)), is(false));
-		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(2)), is(true));
+
+		for (int attempt = 0; attempt < ClientSession.MAX_ATTEMPTS; attempt++) {
+			assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(attempt)), is(true));
+		}
 	}
 
 	@Example
@@ -597,8 +656,10 @@ public class ClientSessionRetryTest {
 		assertThat(wire.posted.isEmpty(), is(true));
 	}
 
+	/* Once a retried handshake is done the session holds the key of no attempt that completed, and of one that may
+	   still be answered only until that answer comes or the session ends */
 	@Example
-	public void shouldHoldNoPrivateKeyOnceARetriedHandshakeIsDone() throws IllegalAccessException {
+	public void shouldHoldNoPrivateKeyOfAnAnsweredAttemptOnceARetriedHandshakeIsDone() throws IllegalAccessException {
 		final SessionWire wire = new SessionWire("gn-b");
 		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b"));
 
@@ -608,6 +669,55 @@ public class ClientSessionRetryTest {
 		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(1)), is(true));
 		wire.pump();
 		assertThat(client.state(), is(SessionState.OPEN));
+		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(1)), is(false));
+		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(0)), is(true));
+		client.close(CloseReason.DONE);
 		assertThat(holdsNoKeyOfAnyAttempt(client, 2), is(true));
+	}
+
+	/* The other exit answered after the session was done with it, so the key of its attempt goes with that answer */
+	@Example
+	public void shouldForgetThePrivateKeyOfALateAnswerOnceItsExitWasToldToClose() throws IllegalAccessException {
+		final SessionWire wire = new SessionWire("gn-z");
+		final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b"));
+
+		client.open();
+		timeOut(wire);
+		client.tick();
+
+		final Entry first = wire.posted.poll();
+		final Entry second = wire.posted.poll();
+
+		client.receive(answerTo(wire, first, "gn-a"));
+		assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(1)), is(true));
+		client.receive(answerTo(wire, wire.context(3), second, "gn-b").answer());
+		assertThat(holdsNoKeyOfAnyAttempt(client, 2), is(true));
+		assertThat(client.state(), is(SessionState.OPEN));
+	}
+
+	/* The session ends however it ends, and an attempt still waiting for its answer ends with it */
+	@Example
+	public void shouldForgetThePrivateKeysOfTheWaitingAttemptsWhenTheSessionEnds() throws IllegalAccessException {
+		for (Consumer<SessionWire> ending : List.<Consumer<SessionWire>>of(wire -> wire.client.close(CloseReason.DONE),
+			wire -> wire.client.send(new Close(CloseReason.DONE)), wire -> {
+				wire.clock.addAndGet(ProxySettings.DEFAULTS.sessionIdleMillis());
+				wire.client.tick();
+			}, wire -> {
+				wire.exitSession().send(new Close(CloseReason.DONE));
+				wire.pump();
+			})) {
+
+			final SessionWire wire = new SessionWire("gn-b");
+			final ClientSession client = clientOf(wire, new CountedRandom(0), inOrder("gn-a", "gn-b"));
+
+			client.open();
+			timeOut(wire);
+			client.tick();
+			wire.pump();
+			assertThat(ClientSessionTest.holds(client, privateKeyOfAttempt(0)), is(true));
+			ending.accept(wire);
+			assertThat(client.state(), is(SessionState.CLOSED));
+			assertThat(holdsNoKeyOfAnyAttempt(client, 2), is(true));
+		}
 	}
 }

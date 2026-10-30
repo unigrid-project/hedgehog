@@ -38,8 +38,8 @@ import org.unigrid.hedgehog.proxy.session.NoiseNk.Initiator;
 /* The client's side of a session: posts an opening sealed to the sealing key of the exit it chose, completes the
    handshake on the answer that carries the answer tag of that opening and sends its Connect at once. Nothing of
    the opening names the exit: it is the exit's key that opens it, padded to the smallest class under a random tag.
-   An opening that nobody answers in time is replaced by one towards another exit. From then on it relays to and
-   from a Session. */
+   An opening that nobody answers in time is followed by one towards another exit, and whichever exit answers
+   first carries the session. From then on it relays to and from a Session. */
 public final class ClientSession {
 	public static final long ACCEPT_TIMEOUT_MILLIS = 5000;
 	public static final int MAX_ATTEMPTS = 3;
@@ -50,13 +50,17 @@ public final class ClientSession {
 	private final ExitSelector exits;
 	private final Connect connect;
 	private final List<String> tried = new ArrayList<>();
-	private Attempt attempt;
+
+	/* The attempts whose answer may still come, at most one for each exit tried. A stall on the way can bring an
+	   answer past the timeout, so an attempt that timed out stays until its answer came or the session ended. */
+	private final List<Attempt> waiting = new ArrayList<>();
+	private String exit;
+	private long startedAt;
 	private Session session;
 	private boolean closed;
 
-	private record Attempt(Initiator initiator, Tag answerTag, String exit, long startedAt) {
-		/* One opening, when it was posted, the tag of its answer and the state that finishes it, which is null once
-		   the attempt has ended */
+	private record Attempt(Initiator initiator, Tag answerTag, String exit) {
+		/* One opening, the tag of its answer and the state that finishes it */
 	}
 
 	public ClientSession(SessionContext context, ExitSelector exits, Connect connect) {
@@ -88,30 +92,30 @@ public final class ClientSession {
 			return SessionState.CLOSED;
 		}
 
-		return attempt == null ? SessionState.NEW : SessionState.OPENING;
+		return exit == null ? SessionState.NEW : SessionState.OPENING;
 	}
 
+	/* The exit of the latest opening, and once one answered, the exit that did */
 	public synchronized Optional<String> exit() {
-		return Optional.ofNullable(attempt).map(Attempt::exit);
+		return Optional.ofNullable(exit);
 	}
 
-	/* Whether the entry is the next one this session waits for: the answer while it opens, then the exit's next
-	   message */
+	/* Whether the entry is the next one this session waits for: an answer to one of its openings, and once the
+	   session is open the exit's next message too */
 	public synchronized boolean expects(Entry entry) {
-		if (session != null) {
-			return session.expects(entry);
-		}
-
-		return isAnswer(entry);
+		return answered(entry).isPresent() || session != null && session.expects(entry);
 	}
 
-	/* Takes any entry of the chain: the answer that completes the handshake, then the exit's sealed messages */
+	/* Takes any entry of the chain: the answer that completes the handshake, then the exit's sealed messages. An
+	   answer that comes once another completed the session is completed too, and its exit told to close. */
 	public synchronized Optional<SealedMessage> receive(Entry entry) {
-		if (session != null) {
-			return session.receive(entry);
+		final Optional<Attempt> answered = answered(entry);
+
+		if (answered.isPresent()) {
+			return session == null ? establish(answered.get(), entry) : release(answered.get(), entry);
 		}
 
-		return isAnswer(entry) ? establish(entry) : Optional.empty();
+		return session == null ? Optional.empty() : settled(session.receive(entry));
 	}
 
 	/* Whether the chain gave up on entries of the exit that belong to this session */
@@ -124,15 +128,19 @@ public final class ClientSession {
 			throw new IllegalStateException("The session has no exit yet");
 		}
 
-		session.send(message);
+		try {
+			session.send(message);
+		} finally {
+			settled(Optional.empty());
+		}
 	}
 
-	/* Called on the host's schedule. The opening of an attempt that no answer completed in time is replaced, until
+	/* Called on the host's schedule. When the latest opening went unanswered for the timeout another follows, until
 	   the attempts or the exits are used up and the session is closed as unreachable. An established session
 	   closes when it has been idle for too long. */
 	public synchronized Optional<Close> tick() {
 		if (session != null) {
-			return session.tick();
+			return settled(session.tick());
 		}
 
 		return isUnanswered() ? retry() : Optional.empty();
@@ -142,7 +150,7 @@ public final class ClientSession {
 	   answer finds the session closed. */
 	public synchronized Optional<Close> close(CloseReason reason) {
 		if (session != null) {
-			return session.close(reason);
+			return settled(session.close(reason));
 		}
 
 		if (closed) {
@@ -154,7 +162,7 @@ public final class ClientSession {
 	}
 
 	private boolean isUnanswered() {
-		return state() == SessionState.OPENING && context.now() - attempt.startedAt() >= ACCEPT_TIMEOUT_MILLIS;
+		return state() == SessionState.OPENING && context.now() - startedAt >= ACCEPT_TIMEOUT_MILLIS;
 	}
 
 	private Optional<Close> retry() {
@@ -172,14 +180,14 @@ public final class ClientSession {
 	private boolean attempt() {
 		final Set<String> passedOver = new HashSet<>(tried);
 
-		for (Optional<ExitCandidate> exit = exits.exit(passedOver); exit.isPresent();
-			exit = exits.exit(passedOver)) {
+		for (Optional<ExitCandidate> candidate = exits.exit(passedOver); candidate.isPresent();
+			candidate = exits.exit(passedOver)) {
 
-			if (attempt(exit.get())) {
+			if (attempt(candidate.get())) {
 				return true;
 			}
 
-			if (!passedOver.add(exit.get().id())) {
+			if (!passedOver.add(candidate.get().id())) {
 				return false;
 			}
 		}
@@ -187,11 +195,11 @@ public final class ClientSession {
 		return false;
 	}
 
-	private boolean attempt(ExitCandidate exit) {
+	private boolean attempt(ExitCandidate candidate) {
 		final Initiation initiation;
 
 		try {
-			initiation = NoiseNk.initiate(exit.sealingKey(), Session.prologue(context.writer().chainId(),
+			initiation = NoiseNk.initiate(candidate.sealingKey(), Session.prologue(context.writer().chainId(),
 				context.writer().writer()), context.random());
 		} catch (HandshakeException ex) {
 			return false;
@@ -200,42 +208,35 @@ public final class ClientSession {
 		final byte[] payload = context.padded(initiation.message());
 		final Tag answerTag = Tags.of(initiation.state().answerTagKey(), Direction.EXIT_TO_CLIENT, 0);
 
-		tried.add(exit.id());
-		attempt = new Attempt(initiation.state(), answerTag, exit.id(), context.now());
+		tried.add(candidate.id());
+		waiting.add(new Attempt(initiation.state(), answerTag, candidate.id()));
+		exit = candidate.id();
+		startedAt = context.now();
 		context.post(Tag.random(context.random()), payload);
 		return true;
 	}
 
-	/* The answer of the current attempt on the chain of this session, while the attempt still waits for it */
-	private boolean isAnswer(Entry entry) {
-		return state() == SessionState.OPENING && attempt.initiator() != null
-			&& entry.header().chainId().equals(context.writer().chainId())
-			&& MessageDigest.isEqual(entry.header().tag().bytes(), attempt.answerTag().bytes());
+	/* The attempt an entry of the chain of this session answers, while the session is not closed */
+	private Optional<Attempt> answered(Entry entry) {
+		if (state() == SessionState.CLOSED || !entry.header().chainId().equals(context.writer().chainId())) {
+			return Optional.empty();
+		}
+
+		return waiting.stream().filter(attempt -> MessageDigest.isEqual(entry.header().tag().bytes(),
+			attempt.answerTag().bytes())).findFirst();
 	}
 
-	private Optional<SealedMessage> establish(Entry answer) {
-		final byte[] payload = answer.payload();
-
+	private Optional<SealedMessage> establish(Attempt answered, Entry answer) {
 		try {
-			final Completed completed = attempt.initiator().complete(Arrays.copyOf(payload,
-				Math.min(payload.length, Session.ANSWER_SIZE)));
+			final Optional<Session> established = complete(answered, answer);
 
-			/* The answer names the writer of the exit under the handshake, so a copy that another writer
-			   posted, which would take the exit's feed for that writer's, is passed over */
-			if (!MessageDigest.isEqual(completed.payload(), answer.header().writer().bytes())) {
-				return Optional.empty();
+			if (established.isPresent()) {
+				established.get().send(connect);
+				session = established.get();
+				exit = answered.exit();
+				waiting.remove(answered);
 			}
 
-			final Session established = new Session(context, answer.header().writer(),
-				Direction.CLIENT_TO_EXIT, completed.secrets());
-
-			established.send(connect);
-			session = established;
-			forgetKey();
-			return Optional.empty();
-		} catch (HandshakeException ex) {
-			/* Whoever saw the answer can post its tag again on other bytes. Those do not complete this
-			   handshake and are passed over, so that the exit's own answer can still complete it. */
 			return Optional.empty();
 		} catch (RuntimeException ex) {
 			/* A failure of the derivation, the cipher or the post, not of the answer, ends the attempt rather
@@ -248,17 +249,60 @@ public final class ClientSession {
 		}
 	}
 
-	/* Every way for the session to close goes through here, so that none can leave the key behind */
-	private void end() {
-		closed = true;
-		forgetKey();
+	/* An exit that answered after another one completed the session holds a relay that nobody will use, so it is
+	   told to close as an ended session is, and lets the relay go at once. Nothing of it reaches the session. */
+	private Optional<SealedMessage> release(Attempt late, Entry answer) {
+		try {
+			complete(late, answer).ifPresent(other -> {
+				waiting.remove(late);
+				other.close(CloseReason.DONE);
+			});
+		} catch (RuntimeException ex) {
+			/* The exit lets the relay go on its own once no Connect came, so only the class is logged */
+			LOG.warn("Leaving the relay of a late answer to its exit after an unexpected {}",
+				ex.getClass().getName());
+			waiting.remove(late);
+		}
+
+		return Optional.empty();
 	}
 
-	/* The ephemeral key in the handshake state has no use once the handshake is over or given up, and no attempt
-	   exists before the first opening */
-	private void forgetKey() {
-		if (attempt != null) {
-			attempt = new Attempt(null, attempt.answerTag(), attempt.exit(), attempt.startedAt());
+	/* The session that an answer completes under its attempt, and none for bytes that do not */
+	private Optional<Session> complete(Attempt answered, Entry answer) {
+		final byte[] payload = answer.payload();
+
+		try {
+			final Completed completed = answered.initiator().complete(Arrays.copyOf(payload,
+				Math.min(payload.length, Session.ANSWER_SIZE)));
+
+			/* The answer names the writer of the exit under the handshake, so a copy that another writer
+			   posted, which would take the exit's feed for that writer's, is passed over */
+			if (!MessageDigest.isEqual(completed.payload(), answer.header().writer().bytes())) {
+				return Optional.empty();
+			}
+
+			return Optional.of(new Session(context, answer.header().writer(), Direction.CLIENT_TO_EXIT,
+				completed.secrets()));
+		} catch (HandshakeException ex) {
+			/* Whoever saw the answer can post its tag again on other bytes. Those do not complete this
+			   handshake and are passed over, so that the exit's own answer can still complete it. */
+			return Optional.empty();
 		}
+	}
+
+	/* What the session produced, once the attempts still waiting are let go of if it closed with it */
+	private <T> Optional<T> settled(Optional<T> produced) {
+		if (!session.isOpen()) {
+			waiting.clear();
+		}
+
+		return produced;
+	}
+
+	/* Every way for the session to close before an exit answered goes through here, so that none can leave a key
+	   behind */
+	private void end() {
+		closed = true;
+		waiting.clear();
 	}
 }

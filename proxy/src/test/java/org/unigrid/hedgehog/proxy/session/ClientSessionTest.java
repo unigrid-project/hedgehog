@@ -28,6 +28,7 @@ import java.security.SecureRandom;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HexFormat;
@@ -147,8 +148,16 @@ public class ClientSessionTest {
 			|| type.getName().startsWith("org.bouncycastle."));
 	}
 
+	/* The fields of this project's classes and of BouncyCastle's, and what a collection or an array of objects holds,
+	   so that a key kept in a list is found too */
 	private static List<Object> referencedBy(Object object) throws IllegalAccessException {
 		final List<Object> referenced = new ArrayList<>();
+
+		if (object instanceof Collection<?> collection) {
+			referenced.addAll(collection);
+		} else if (object instanceof Object[] array) {
+			referenced.addAll(Arrays.asList(array));
+		}
 
 		for (Class<?> type = object.getClass(); isWalked(type); type = type.getSuperclass()) {
 			for (Field field : type.getDeclaredFields()) {
