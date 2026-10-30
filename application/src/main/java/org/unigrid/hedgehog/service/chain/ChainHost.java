@@ -663,7 +663,7 @@ public class ChainHost implements ChainService, StemHost {
 			.mapToObj(entries::get).toList();
 	}
 
-	private static boolean isFull(final Optional<Offer> offer) {
+	static boolean isFull(final Optional<Offer> offer) {
 		return offer.isPresent() && offer.get().admission() == Admission.FULL;
 	}
 
@@ -846,83 +846,10 @@ public class ChainHost implements ChainService, StemHost {
 			chain.trim();
 			chain.expireGaps().forEach(gap -> gapListeners.tell(listener -> listener.gapped(chain.id(), gap)));
 			hosted.forgetEnded(clock.getAsLong() - chain.limits().retentionMillis());
-			floodDue(hosted);
+			stems.floodDue(hosted);
 		} catch (RuntimeException ex) {
 			log.warn("The upkeep of a chain failed with {}", ex.getClass().getName());
 		}
-	}
-
-	/* What the embargo held past its deadline, passed on and not back, or held as its route is the stream it came in
-	   on, is flooded as if it came in now, and told to the listeners like any entry the chain appends: those of this
-	   node's own writers they know as such. An entry of this node's own that the chain has no room for stays in the
-	   embargo and is flooded again at its next deadline; one the chain will never take goes. What never left is
-	   flooded by neither the author nor a relay: it goes to the route of its writer now, once the writer was moved
-	   off a route that stalled, and waits on otherwise. Only with no successor left does a relay flood it, while the
-	   author drops it and the session of the writer ends, as the first to flood it would be its author. */
-	private void floodDue(final HostedChain hosted) {
-		final long now = clock.getAsLong();
-		final List<StemEmbargo.Due> waited = hosted.getEmbargo().waited(now);
-		final List<Entry> due = new ArrayList<>(waited.stream().filter(held -> held.sent() || held.bySource())
-			.map(StemEmbargo.Due::entry).toList());
-
-		waited.stream().filter(held -> !held.sent() && !held.bySource())
-			.collect(Collectors.groupingBy(held -> Stem.laneOf(hosted, held.entry()), LinkedHashMap::new,
-				Collectors.toList()))
-			.forEach((lane, unsent) -> due.addAll(passLate(hosted, lane, unsent, now)));
-
-		if (!due.isEmpty()) {
-			final List<Optional<Offer>> offers = offerAndQueue(hosted, due, null, true);
-
-			IntStream.range(0, due.size()).filter(place -> !isFull(offers.get(place)))
-				.forEach(place -> hosted.getEmbargo().release(due.get(place)));
-			handOver(hosted);
-		}
-	}
-
-	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
-	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
-	   entry tried on it when it took no writes since the entry first missed it, or when the entry has now missed
-	   MISSED_DEADLINES deadlines on it, its write there on its way or not. An entry whose write to the route it stays
-	   on is still on its way waits on, and is not written there again. Nothing moves a writer a relay routes by the
-	   hash, so it has no successor once its route stalled or takes no writes, and the relay floods what waits. */
-	private List<Entry> passLate(final HostedChain hosted, final Stem.Lane lane, final List<StemEmbargo.Due> unsent,
-		final long now) {
-
-		final List<Entry> entries = unsent.stream().map(StemEmbargo.Due::entry).toList();
-		final boolean hashed = lane.isHashed(hosted);
-		final Optional<Channel> route = lane.isLost(hosted) ? Optional.empty() : hosted.getRouter()
-			.moveIfStalled(lane.writer(), lane.avoid(hosted), current -> stalls(current, unsent))
-			.filter(current -> !hashed || current.isWritable() && !stalls(current, unsent));
-
-		if (route.isPresent()) {
-			passAgain(hosted, route.get(), unsent, now);
-			return List.of();
-		}
-
-		if (unsent.get(0).own()) {
-			entries.forEach(hosted.getEmbargo()::release);
-			return List.of();
-		}
-
-		return entries;
-	}
-
-	/* Passes on what is due, but for what was written to the route already and is on its way, which waits on */
-	private void passAgain(final HostedChain hosted, final Channel route, final List<StemEmbargo.Due> unsent,
-		final long now) {
-
-		final List<Entry> again = unsent.stream().filter(held -> held.waiting() == null
-			|| !held.waiting().isPending(route)).map(StemEmbargo.Due::entry).toList();
-
-		if (!again.isEmpty()) {
-			stems.pass(hosted, route, again, now);
-		}
-	}
-
-	private static boolean stalls(final Channel route, final List<StemEmbargo.Due> unsent) {
-		return unsent.stream().map(StemEmbargo.Due::waiting).filter(Objects::nonNull)
-			.anyMatch(waiting -> waiting.route() == route && (StemStalls.since(route, waiting.since())
-				|| waiting.missed() >= StemEmbargo.MISSED_DEADLINES));
 	}
 
 	/* Drops the retired chains that are done, by the spork as it reads now. While it is on, a chain goes once its
