@@ -19,16 +19,16 @@
 package org.unigrid.hedgehog.service.chain;
 
 import io.netty.channel.Channel;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
+import java.util.stream.IntStream;
 import org.unigrid.hedgehog.proxy.chain.FnvJ64;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
@@ -38,34 +38,43 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
    entries flooded, or relayed, with even odds, and one of its own is always relayed. A relayed writer has two
    successors drawn among the streams to the other members of the group, never a client's, outside what the writer
    avoids, and every entry of it goes to the first of them. Drawing once per writer, and not once in a while, keeps a
-   member that watches who floods the entries of a writer first from ruling members out over time. A successor that
-   closes or leaves the group is passed over for the other one. A writer for which each drawn successor is avoided or
-   gone is routed to another member instead, which it keeps. A successor that refused an entry of a writer counts as
-   gone for the writer but is never replaced that way, so refusals cannot walk the stem of a writer to members outside
-   the draw. */
+   member that watches who floods the entries of a writer first from ruling members out over time.
+
+   A refusal or a round of the stem moves a writer to its second successor once for its life, and the one it moved
+   off is never drawn for the writer again, so neither can walk the stem of a writer to members outside its draw. A
+   successor that closes or leaves the group, or that a writer of this member's own comes to avoid, is replaced in
+   its place by a member drawn outside the draw, the one a writer moved off included, and that does not count as the
+   move. */
 final class StemRouter {
 	static final int SUCCESSORS = 2;
 
-	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, the successors
-	   it passes the others on to, the first of them the route, and for a writer past the most it keeps, the hash that
-	   stands in for the draw. The route is the successor the entries go to now, the barred one is the route the writer
-	   moved off and gets none of it any more, and moved is set once a refusal or a round moved the writer. */
+	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, and for a writer
+	   past the most it keeps, the hash that stands in for the draw. The successors are in their places, the route
+	   first; a place is empty while no member could be drawn for it, and closed once the writer moved off it. Every
+	   member a place held is noted, as no other place is ever given one of them, and moved is set once a refusal or a
+	   round moved the writer. */
 	static final class Draw {
+		private final boolean own;
 		private final boolean diffuses;
-		private final List<Channel> successors;
 		private final Optional<Long> hash;
-		private Channel route;
-		private Channel barred;
+		private final Channel[] places = new Channel[SUCCESSORS];
+		private final boolean[] closed = new boolean[SUCCESSORS];
+		private final Set<Channel> drawn = new HashSet<>();
 		private boolean moved;
 
-		private Draw(final boolean diffuses, final List<Channel> successors, final Optional<Long> hash) {
+		private Draw(final boolean own, final boolean diffuses, final Optional<Long> hash) {
+			this.own = own;
 			this.diffuses = diffuses;
-			this.successors = successors;
 			this.hash = hash;
 		}
 
 		boolean diffuses() {
 			return diffuses;
+		}
+
+		/* The places that are not closed and hold a successor, in order */
+		private IntStream open() {
+			return IntStream.range(0, SUCCESSORS).filter(place -> !closed[place] && places[place] != null);
 		}
 	}
 
@@ -75,8 +84,8 @@ final class StemRouter {
 
 	/* The most writers the member keeps a draw for, as many as the chain takes. A writer past them goes by a hash of
 	   its id under a key drawn once for the chain, which keeps its mode and its successor as well, and a stream that
-	   floods the stem with fresh writers makes the router hold no more. A refusal moves such a writer nowhere, as
-	   there is no draw of it to move. */
+	   floods the stem with fresh writers makes the router hold no more. Nothing moves such a writer, as there is no
+	   draw of it to move. */
 	private final int maxDraws;
 	private final long key;
 
@@ -102,9 +111,13 @@ final class StemRouter {
 			return hashed(writer);
 		}
 
-		final boolean diffuses = random.nextBoolean();
+		final Draw drawn = new Draw(false, random.nextBoolean(), Optional.empty());
 
-		return new Draw(diffuses, diffuses ? List.of() : drawn(Set.of(source)), Optional.empty());
+		if (!drawn.diffuses) {
+			refresh(drawn, Set.of(source));
+		}
+
+		return drawn;
 	}
 
 	/* Keeps the draw of a writer an entry of which was taken into the stem, unless it stands for one past the most
@@ -115,9 +128,8 @@ final class StemRouter {
 		}
 	}
 
-	/* The successor the entries of a writer this member relays go to, or the other one while that one is avoided or
-	   gone, and another member while both are avoided; none while both are gone. What is avoided is checked on every
-	   call, whatever the writer was routed to before. */
+	/* The successor the entries of a writer this member relays go to: its route, or the next successor while the route
+	   is avoided or takes no writes; none while neither will do */
 	synchronized Optional<Channel> successor(final WriterId writer, final Set<Channel> avoid) {
 		return successor(Optional.ofNullable(draws.get(writer)).orElseGet(() -> hashed(writer)), avoid);
 	}
@@ -128,59 +140,48 @@ final class StemRouter {
 		Draw draw = draws.get(writer);
 
 		if (draw == null && draws.size() < maxDraws) {
-			draw = new Draw(false, drawn(avoid), Optional.empty());
+			draw = new Draw(true, false, Optional.empty());
 			draws.put(writer, draw);
 		}
 
 		return successor(draw == null ? hashed(writer) : draw, avoid);
 	}
 
-	/* The successor a writer moves to when the one it is routed to refused an entry of it for want of room: the
-	   other drawn successor, if it is there and not among what the caller avoids now, and the one that refused gets
-	   nothing more of the writer. An author and a relay move alike, once for each writer, whether a refusal or a
-	   round moves it, so a second one moves nothing, and a refusal from a stream the writer is not routed to moves
-	   nothing either. Without another successor nothing moves, and the writer stays on its route. */
+	/* The successor a writer moves to when its route refused an entry of it for want of room: the second, and the
+	   one that refused gets nothing more of the writer. An author and a relay move alike, once for each writer,
+	   whether a refusal or a round moves it, so a second one moves nothing, and a refusal from a stream that is not
+	   the route moves nothing either. Without a second successor nothing moves. None is answered while the second is
+	   among what the caller avoids, though the writer moved. */
 	synchronized Optional<Channel> refused(final WriterId writer, final Channel successor, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
-		if (draw == null || draw.moved || draw.route != successor) {
+		if (draw == null || draw.moved) {
 			return Optional.empty();
 		}
 
-		return move(draw, avoid);
+		refresh(draw, avoid);
+
+		return route(draw).filter(successor::equals).flatMap(route -> move(draw))
+			.filter(next -> !avoid.contains(next));
 	}
 
-	/* Moves a writer an entry of which came round the stem, from a member it was not passed to, to its other
+	/* Moves a writer an entry of which came round the stem, from a member it was not passed to, to its second
 	   successor, as a refusal does and with the same one move: the route took the entry round, and the entries after
 	   it would follow. The author and a relay move alike, though only a relay floods what came round. */
 	synchronized void cameRound(final WriterId writer, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
-		if (draw != null && !draw.moved && draw.route != null) {
-			move(draw, avoid);
+		if (draw != null && !draw.moved) {
+			refresh(draw, avoid);
+			move(draw);
 		}
-	}
-
-	private Optional<Channel> move(final Draw draw, final Set<Channel> avoid) {
-		draw.barred = draw.route;
-
-		final List<Channel> open = open(draw, avoid);
-
-		if (open.isEmpty()) {
-			draw.barred = null;
-			return Optional.empty();
-		}
-
-		draw.moved = true;
-		draw.route = open.get(0);
-		return Optional.of(draw.route);
 	}
 
 	/* Whether a writer drawn now would find a successor outside what is avoided */
 	synchronized boolean hasSuccessor(final Set<Channel> avoid) {
 		final List<Channel> current = members.get();
 
-		return current.stream().anyMatch(member -> isOpen(current, member, avoid, null));
+		return current.stream().anyMatch(member -> isOpen(current, member) && !avoid.contains(member));
 	}
 
 	/* Lets go of the draws of the writers the chain forgot */
@@ -188,9 +189,10 @@ final class StemRouter {
 		draws.keySet().removeAll(writers);
 	}
 
-	/* The successors drawn for a writer, for a test */
+	/* The successors of a writer as they stand, the route first, for a test */
 	synchronized List<Channel> drawn(final WriterId writer) {
-		return Optional.ofNullable(draws.get(writer)).map(draw -> draw.successors).orElse(List.of());
+		return Optional.ofNullable(draws.get(writer)).map(draw -> draw.open().mapToObj(place -> draw.places[place])
+			.toList()).orElse(List.of());
 	}
 
 	/* How many writers the member keeps a draw for, for a test */
@@ -199,58 +201,86 @@ final class StemRouter {
 	}
 
 	private Optional<Channel> successor(final Draw draw, final Set<Channel> avoid) {
-		final List<Channel> open = open(draw, avoid);
+		final List<Channel> current = members.get();
 
-		if (open.isEmpty()) {
+		if (draw.hash.isPresent()) {
+			final List<Channel> open = current.stream().filter(member -> isOpen(current, member)
+				&& !avoid.contains(member)).distinct().toList();
+
+			return open.isEmpty() ? Optional.empty()
+				: Optional.of(open.get((int) Long.remainderUnsigned(draw.hash.get() >>> 1, open.size())));
+		}
+
+		refresh(draw, avoid);
+
+		return draw.open().mapToObj(place -> draw.places[place])
+			.filter(successor -> successor.isWritable() && !avoid.contains(successor)).findFirst();
+	}
+
+	private static Optional<Channel> route(final Draw draw) {
+		return draw.open().mapToObj(place -> draw.places[place]).findFirst();
+	}
+
+	/* Closes the place of the route and answers the successor in the next place, or moves nothing without one */
+	private static Optional<Channel> move(final Draw draw) {
+		final int[] open = draw.open().toArray();
+
+		if (open.length < 2) {
 			return Optional.empty();
 		}
 
-		if (draw.hash.isPresent()) {
-			return Optional.of(open.get((int) Long.remainderUnsigned(draw.hash.get() >>> 1, open.size())));
-		}
-
-		if (draw.route == null || !open.contains(draw.route)) {
-			final boolean drawn = draw.successors.contains(open.get(0));
-
-			draw.route = drawn ? open.get(0) : open.get(random.nextInt(open.size()));
-		}
-
-		return Optional.of(draw.route);
+		draw.closed[open[0]] = true;
+		draw.moved = true;
+		return Optional.of(draw.places[open[1]]);
 	}
 
-	/* The successors of the writer that are still there and neither avoided nor barred, or while none of them is
-	   barred and each is avoided or gone, the members outside the draw that are not avoided. A writer past the most
-	   the member keeps has every member that is not avoided. */
-	private List<Channel> open(final Draw draw, final Set<Channel> avoid) {
+	/* Replaces a successor that closed or left the group, or that a writer of this member's own avoids now, and fills
+	   a place that is empty, each with a member drawn outside the draw and outside what the writer avoids. A place
+	   the writer moved off stays closed. */
+	private void refresh(final Draw draw, final Set<Channel> avoid) {
 		final List<Channel> current = members.get();
-		final List<Channel> open = draw.successors.stream()
-			.filter(successor -> isOpen(current, successor, avoid, draw.barred)).toList();
 
-		if (!open.isEmpty() || draw.barred != null) {
-			return open;
+		draw.drawn.removeIf(member -> !member.isActive());
+		IntStream.range(0, SUCCESSORS).filter(place -> !draw.closed[place])
+			.forEach(place -> refill(draw, place, current, avoid));
+	}
+
+	private void refill(final Draw draw, final int place, final List<Channel> current, final Set<Channel> avoid) {
+		if (draw.places[place] == null || isLost(draw, draw.places[place], current, avoid)) {
+			draw.places[place] = drawn(current, draw, avoid);
+		}
+	}
+
+	/* A successor is lost once it closed or left the group, and for a writer of this member's own once it avoids it */
+	private static boolean isLost(final Draw draw, final Channel successor, final List<Channel> current,
+		final Set<Channel> avoid) {
+
+		return !isThere(current, successor) || draw.own && avoid.contains(successor);
+	}
+
+	/* A member drawn among those that are there and take writes, outside the draw and what is avoided, or none */
+	private Channel drawn(final List<Channel> current, final Draw draw, final Set<Channel> avoid) {
+		final List<Channel> candidates = current.stream().filter(member -> isOpen(current, member)
+			&& !avoid.contains(member) && !draw.drawn.contains(member)).distinct().toList();
+
+		if (candidates.isEmpty()) {
+			return null;
 		}
 
-		return current.stream().filter(member -> isOpen(current, member, avoid, null)
-			&& !draw.successors.contains(member)).distinct().toList();
+		final Channel drawn = candidates.get(random.nextInt(candidates.size()));
+
+		draw.drawn.add(drawn);
+		return drawn;
 	}
 
-	/* A stream that takes no writes is passed over while it does not, as what it was handed would pile up in memory,
-	   so an exit whose only successor stopped reading answers no opening */
-	private static boolean isOpen(final List<Channel> current, final Channel stream, final Set<Channel> avoid,
-		final Channel barred) {
-
-		return current.contains(stream) && stream.isActive() && stream.isWritable() && !avoid.contains(stream)
-			&& stream != barred;
+	private static boolean isThere(final List<Channel> current, final Channel stream) {
+		return current.contains(stream) && stream.isActive();
 	}
 
-	/* The successors of a writer drawn now, among the members it does not avoid */
-	private List<Channel> drawn(final Set<Channel> avoid) {
-		final List<Channel> current = members.get();
-		final List<Channel> candidates = new ArrayList<>(current.stream()
-			.filter(member -> isOpen(current, member, avoid, null)).distinct().toList());
-
-		Collections.shuffle(candidates, random);
-		return List.copyOf(candidates.subList(0, Math.min(SUCCESSORS, candidates.size())));
+	/* A stream that takes no writes is no member to draw while it does not, as what it was handed would pile up in
+	   memory, so an exit whose only successor stopped reading answers no opening */
+	private static boolean isOpen(final List<Channel> current, final Channel stream) {
+		return isThere(current, stream) && stream.isWritable();
 	}
 
 	/* The draw of a writer past the most the member keeps: the lowest bit of the hash is its mode, and the others pick
@@ -258,7 +288,7 @@ final class StemRouter {
 	private Draw hashed(final WriterId writer) {
 		final long hash = keyed(key, writer);
 
-		return new Draw((hash & 1) == 1, List.of(), Optional.of(hash));
+		return new Draw(false, (hash & 1) == 1, Optional.of(hash));
 	}
 
 	/* A hash of the id of a writer under the key, mixed as SplitMix64 mixes its state */

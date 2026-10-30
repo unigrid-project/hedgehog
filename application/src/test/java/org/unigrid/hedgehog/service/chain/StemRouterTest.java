@@ -34,6 +34,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.in;
@@ -186,39 +187,42 @@ public class StemRouterTest {
 		assertThat(router.hasSuccessor(avoid), is(router.ownSuccessor(writer, avoid).isPresent()));
 	}
 
-	/* With a successor left outside what is avoided, a writer always has somewhere to go */
+	/* With no member to replace an avoided route by, a writer goes to its other successor while that one is there */
 	@Property(tries = 20)
 	public void avoidsOneSuccessorByTakingTheOther(@ForAll long seed) {
 		final List<Channel> members = streams(2);
 		final StemRouter router = router(seed, members);
+		final Channel route = router.ownSuccessor(ChainFleet.writer(1), Set.of()).orElseThrow();
 
-		router.ownSuccessor(ChainFleet.writer(1), Set.of());
-
-		for (final Channel avoided : members) {
-			assertThat(router.ownSuccessor(ChainFleet.writer(1), Set.of(avoided)).orElseThrow(), is(not(avoided)));
-		}
-
+		assertThat(router.ownSuccessor(ChainFleet.writer(1), Set.of(route)).orElseThrow(), is(not(route)));
 		assertThat(router.ownSuccessor(ChainFleet.writer(1), Set.copyOf(members)), is(Optional.empty()));
 		assertThat(router.hasSuccessor(Set.copyOf(members)), is(false));
 	}
 
-	/* A stream that closed or that is no longer one of the members is no successor, and nothing is drawn in its place
-	   while the other is there; once both went, a writer is routed to another member */
+	/* A stream that closed or that is no longer one of the members is replaced in its place by a member outside the
+	   draw. While there is none, the writer goes to its other successor, and the place is filled once a member joins. */
 	@Example
-	public void passesOverASuccessorThatWentAwayAndReplacesBothOnceBothWent() {
-		final List<Channel> members = new ArrayList<>(streams(2));
+	public void replacesASuccessorThatWentAwayInItsPlace() {
+		final List<Channel> members = new ArrayList<>(streams(3));
 		final StemRouter router = new StemRouter(new SplittableRandom(3), () -> List.copyOf(members),
 			HostedChain.MAX_WRITERS);
 		final WriterId writer = ChainFleet.writer(1);
 		final Channel first = router.ownSuccessor(writer, Set.of()).orElseThrow();
-		final Channel other = members.get(0) == first ? members.get(1) : members.get(0);
+		final Channel second = router.drawn(writer).get(1);
+		final Channel third = members.stream().filter(member -> member != first && member != second).findFirst()
+			.orElseThrow();
 		final Channel joined = new EmbeddedChannel();
 
 		first.close();
-		assertThat(router.ownSuccessor(writer, Set.of()).orElseThrow(), is(other));
-		members.remove(other);
+		assertThat(router.ownSuccessor(writer, Set.of()), is(Optional.of(third)));
+		assertThat(router.drawn(writer), equalTo(List.of(third, second)));
+
+		members.remove(third);
+		assertThat(router.ownSuccessor(writer, Set.of()), is(Optional.of(second)));
+
 		members.add(joined);
 		assertThat(router.ownSuccessor(writer, Set.of()), is(Optional.of(joined)));
+		assertThat(router.drawn(writer), equalTo(List.of(joined, second)));
 	}
 
 	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, so
@@ -258,21 +262,26 @@ public class StemRouterTest {
 
 		router.ownSuccessor(first, Set.of());
 		router.ownSuccessor(second, Set.of());
+
+		final List<Channel> firstDrew = router.drawn(first);
+		final List<Channel> secondDrew = router.drawn(second);
+
 		router.cameRound(first, Set.of());
 
-		assertThat(router.ownSuccessor(first, Set.of()), is(Optional.of(router.drawn(first).get(1))));
-		assertThat(router.refused(first, router.drawn(first).get(1), Set.of()), is(Optional.empty()));
+		assertThat(router.ownSuccessor(first, Set.of()), is(Optional.of(firstDrew.get(1))));
+		assertThat(router.refused(first, firstDrew.get(1), Set.of()), is(Optional.empty()));
 
-		router.refused(second, router.drawn(second).get(0), Set.of());
+		router.refused(second, secondDrew.get(0), Set.of());
 		router.cameRound(second, Set.of());
 
-		assertThat(router.ownSuccessor(second, Set.of()), is(Optional.of(router.drawn(second).get(1))));
+		assertThat(router.ownSuccessor(second, Set.of()), is(Optional.of(secondDrew.get(1))));
 	}
 
 	/* An exit avoids both members its client attached through, which may come to be both successors of its writer:
-	   the writer is then routed to another member, and has none only when every member is avoided */
+	   each is then replaced in its place by a member outside the draw, and the writer has none only when every member
+	   is avoided */
 	@Property(tries = 20)
-	public void routesAWriterWhoseSuccessorsAreBothAvoidedToAnotherMember(@ForAll long seed) {
+	public void replacesBothSuccessorsOfAWriterOnceItAvoidsThem(@ForAll long seed) {
 		final List<Channel> members = streams(4);
 		final StemRouter router = router(seed, members);
 		final WriterId writer = ChainFleet.writer(1);
@@ -284,6 +293,8 @@ public class StemRouterTest {
 
 		assertThat(successors, hasSize(StemRouter.SUCCESSORS));
 		assertThat(other, is(not(in(successors))));
+		assertThat(Set.copyOf(router.drawn(writer)), is(Set.copyOf(members.stream()
+			.filter(member -> !successors.contains(member)).toList())));
 		assertThat(router.ownSuccessor(writer, successors), is(Optional.of(other)));
 		assertThat(router.hasSuccessor(successors), is(true));
 		assertThat(router.ownSuccessor(writer, Set.copyOf(members)), is(Optional.empty()));
