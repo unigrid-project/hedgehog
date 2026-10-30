@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.SplittableRandom;
@@ -76,6 +77,9 @@ public class ChainHostStemTest {
 	private static final List<String> OTHERS = List.of("gn-1", "gn-2", "gn-3");
 	private static final int MAX_ROUNDS = 25;
 	private static final long MINUTE = 60_000;
+
+	/* The members a writer may be stemmed to in its life: the two drawn first and those drawn in their place */
+	private static final int SUCCESSORS_AND_REPLACEMENTS = StemRouter.SUCCESSORS + StemRouter.REPLACEMENTS;
 
 	/* What a stemmed entry is answered: the first of a writer is taken, the later ones wait for it past a gap */
 	private static final Map<Boolean, Admission> PASSED_ON = Map.of(true, Admission.ACCEPTED, false, Admission.AHEAD);
@@ -449,6 +453,50 @@ public class ChainHostStemTest {
 		}
 
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(false));
+	}
+
+	/* A successor that stops reading never makes the exit flood an entry of its own that never left: once such an
+	   entry waited out its deadline, the route counts as gone and the entry goes to the other successor, then to one
+	   drawn in place of both, and once none is left the writer has no successor and the entry is dropped */
+	@Example
+	public void aSuccessorThatStopsReadingNeverMakesTheExitFloodItsOwn() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2 + SUCCESSORS_AND_REPLACEMENTS);
+		final ChainHost exit = fleet.host(EXIT);
+		final Set<String> stalled = new HashSet<>();
+
+		postStem(fleet, own.get(0));
+
+		String route = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+
+		for (final Entry unsent : own.subList(1, own.size())) {
+			Optional<String> moved = Optional.empty();
+			int rounds = 0;
+
+			ChainFleet.unwritable(fleet.stream(EXIT, route));
+			stalled.add(route);
+			postStem(fleet, unsent);
+
+			while (moved.isEmpty() && hosted(fleet, EXIT).getEmbargo().holds(unsent) && rounds < MAX_ROUNDS) {
+				fleet.clock.addAndGet(1000);
+				exit.maintain();
+
+				final Map<String, List<Object>> written = writtenBy(fleet, EXIT);
+
+				assertThat(floodsOf(written, unsent), is(empty()));
+				moved = written.entrySet().stream().filter(sent -> sent.getValue()
+					.contains(new ChainStem(List.of(unsent)))).map(Map.Entry::getKey).findFirst();
+				rounds++;
+			}
+
+			assertThat(rounds, is(lessThan(MAX_ROUNDS)));
+			moved.ifPresent(next -> assertThat(next, is(not(in(stalled)))));
+			route = moved.orElse(route);
+		}
+
+		assertThat(stalled, hasSize(SUCCESSORS_AND_REPLACEMENTS));
+		assertThat(exit.isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(own.size() - 1)), is(false));
 	}
 
 	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */
