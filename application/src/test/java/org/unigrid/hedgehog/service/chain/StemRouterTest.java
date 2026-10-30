@@ -23,6 +23,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SplittableRandom;
@@ -254,6 +255,30 @@ public class StemRouterTest {
 		}
 
 		assertThat(rounds, is(1 + StemRouter.REPLACEMENTS));
+	}
+
+	/* A writer this member relays avoids the members its entries came in from by who they are, so a member that comes
+	   back on a new stream is drawn for it no more than before */
+	@Example
+	public void avoidsTheMembersAWriterCameFromWhicheverStreamTheyComeBackOn() {
+		final Channel source = new EmbeddedChannel();
+		final Channel returned = new EmbeddedChannel();
+		final List<Channel> others = streams(2);
+		final List<Channel> members = new ArrayList<>(List.of(source, others.get(0), others.get(1)));
+		final Map<Channel, Object> ids = Map.of(source, "gn-3", returned, "gn-3");
+		final StemRouter router = new StemRouter(ChainFleet.everyMember(false).apply("gn-0"),
+			() -> List.copyOf(members), stream -> ids.containsKey(stream) ? ids.get(stream) : stream,
+			HostedChain.MAX_WRITERS);
+		final WriterId writer = ChainFleet.writer(1);
+
+		router.keep(writer, router.drawFor(writer, source), source);
+		assertThat(Set.copyOf(router.drawn(writer)), is(Set.copyOf(others)));
+
+		members.set(0, returned);
+		source.close();
+		others.forEach(Channel::close);
+
+		assertThat(router.successor(writer, Set.of()), is(Optional.empty()));
 	}
 
 	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, and a

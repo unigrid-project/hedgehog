@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.unigrid.hedgehog.proxy.chain.FnvJ64;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
@@ -60,14 +61,15 @@ final class StemRouter {
 	   past the most it keeps, the hash that stands in for the draw. The successors that are left come route first.
 	   Every member drawn for the writer is noted by its identity, as none of them is drawn again on any stream, and so
 	   is how often one was drawn in place of the others, how many went away since then, and whether a refusal or a
-	   round moved the writer. A writer this member relays avoids the streams its entries came in on. */
+	   round moved the writer. A writer this member relays avoids the members its entries came in from, by who they
+	   are. */
 	static final class Draw {
 		private final boolean own;
 		private final boolean diffuses;
 		private final Optional<Long> hash;
 		private final List<Channel> successors = new ArrayList<>();
 		private final Set<Object> drawn = new HashSet<>();
-		private final Set<Channel> sources = new HashSet<>();
+		private final Set<Object> sources = new HashSet<>();
 		private int replacements;
 		private int departed;
 		private boolean moved;
@@ -128,10 +130,10 @@ final class StemRouter {
 
 		final Draw drawn = new Draw(false, random.nextBoolean(), Optional.empty());
 
-		drawn.sources.add(source);
+		drawn.sources.add(identity.apply(source));
 
 		if (!drawn.diffuses) {
-			drawFirst(drawn, drawn.sources);
+			drawFirst(drawn, members.get(), drawn.sources);
 		}
 
 		return drawn;
@@ -145,7 +147,7 @@ final class StemRouter {
 			draws.putIfAbsent(writer, draw);
 		}
 
-		Optional.ofNullable(draws.get(writer)).ifPresent(held -> held.sources.add(source));
+		Optional.ofNullable(draws.get(writer)).ifPresent(held -> held.sources.add(identity.apply(source)));
 	}
 
 	/* The route of a writer this member relays. It stays the route while it takes no writes, and while it is the stream
@@ -162,7 +164,7 @@ final class StemRouter {
 
 		if (draw == null && draws.size() < maxDraws) {
 			draw = new Draw(true, false, Optional.empty());
-			drawFirst(draw, avoid);
+			drawFirst(draw, members.get(), identities(avoid));
 			draws.put(writer, draw);
 		}
 
@@ -296,11 +298,7 @@ final class StemRouter {
 	}
 
 	/* The successors a writer is drawn with the first time, as many as there are members to draw */
-	private void drawFirst(final Draw draw, final Set<Channel> avoid) {
-		drawFirst(draw, members.get(), avoid);
-	}
-
-	private void drawFirst(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
+	private void drawFirst(final Draw draw, final List<Channel> current, final Set<Object> avoid) {
 		IntStream.range(0, SUCCESSORS).mapToObj(successor -> drawn(current, draw, avoid)).filter(Objects::nonNull)
 			.forEach(draw.successors::add);
 	}
@@ -311,20 +309,24 @@ final class StemRouter {
 	   relays the streams its entries came in on. A writer left without one by refusals alone has none drawn. */
 	private void refresh(final Draw draw, final Set<Channel> avoid) {
 		final List<Channel> current = members.get();
+		final Set<Object> avoided = draw.own ? identities(avoid) : draw.sources;
 		final int before = draw.successors.size();
 
-		draw.sources.removeIf(member -> !member.isActive());
-		draw.successors.removeIf(successor -> isLost(draw, successor, current, avoid));
+		draw.successors.removeIf(successor -> isLost(draw, successor, current, avoided));
 		draw.departed += before - draw.successors.size();
 
 		if (draw.successors.isEmpty()) {
-			fill(draw, current, draw.own ? avoid : draw.sources);
+			fill(draw, current, avoided);
 		}
+	}
+
+	private Set<Object> identities(final Set<Channel> streams) {
+		return streams.stream().map(identity).collect(Collectors.toSet());
 	}
 
 	/* A writer that never had a successor, as no member was there when it was drawn, is drawn its first ones now, which
 	   spends none of its replacements; one whose successors went away gets one in their place while it has any left */
-	private void fill(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
+	private void fill(final Draw draw, final List<Channel> current, final Set<Object> avoid) {
 		if (draw.drawn.isEmpty()) {
 			drawFirst(draw, current, avoid);
 		} else if (draw.departed > 0 && draw.replacements < REPLACEMENTS) {
@@ -333,7 +335,7 @@ final class StemRouter {
 	}
 
 	/* The member drawn stands in for every successor that went away */
-	private void replace(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
+	private void replace(final Draw draw, final List<Channel> current, final Set<Object> avoid) {
 		final Channel replacement = drawn(current, draw, avoid);
 
 		if (replacement != null) {
@@ -344,16 +346,17 @@ final class StemRouter {
 	}
 
 	/* A successor is lost once it closed or left the group, and for a writer of this member's own once it avoids it */
-	private static boolean isLost(final Draw draw, final Channel successor, final List<Channel> current,
-		final Set<Channel> avoid) {
+	private boolean isLost(final Draw draw, final Channel successor, final List<Channel> current,
+		final Set<Object> avoid) {
 
-		return !isThere(current, successor) || draw.own && avoid.contains(successor);
+		return !isThere(current, successor) || draw.own && avoid.contains(identity.apply(successor));
 	}
 
 	/* A member drawn among those that are there and take writes, outside the draw and what is avoided, or none */
-	private Channel drawn(final List<Channel> current, final Draw draw, final Set<Channel> avoid) {
+	private Channel drawn(final List<Channel> current, final Draw draw, final Set<Object> avoid) {
 		final List<Channel> candidates = current.stream().filter(member -> isOpen(current, member)
-			&& !avoid.contains(member) && !draw.drawn.contains(identity.apply(member))).distinct().toList();
+			&& !avoid.contains(identity.apply(member)) && !draw.drawn.contains(identity.apply(member)))
+			.distinct().toList();
 
 		if (candidates.isEmpty()) {
 			return null;
