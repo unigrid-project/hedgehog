@@ -38,7 +38,8 @@ import org.unigrid.hedgehog.proxy.chain.WriterId;
    entries flooded, or relayed, with even odds, and one of its own is always relayed. A relayed writer has two
    successors drawn among the streams to the other members of the group, never a client's, outside what the writer
    avoids, and every entry of it goes to the first of them. Drawing once per writer, and not once in a while, keeps a
-   member that watches who floods the entries of a writer first from ruling members out over time.
+   member that watches who floods the entries of a writer first from ruling members out over time. A successor that
+   takes no writes for a while is skipped for what comes meanwhile and stays where it is.
 
    A refusal or a round of the stem moves a writer to its second successor once for its life, and the one it moved
    off is never drawn for the writer again, so neither can walk the stem of a writer to members outside its draw. A
@@ -129,7 +130,8 @@ final class StemRouter {
 	}
 
 	/* The successor the entries of a writer this member relays go to: its route, or the next successor while the route
-	   is avoided or takes no writes; none while neither will do */
+	   is avoided; none while neither will do. A route that takes no writes stays the route, and the caller skips it
+	   for what it would send now, which waits in the embargo. */
 	synchronized Optional<Channel> successor(final WriterId writer, final Set<Channel> avoid) {
 		return successor(Optional.ofNullable(draws.get(writer)).orElseGet(() -> hashed(writer)), avoid);
 	}
@@ -204,7 +206,7 @@ final class StemRouter {
 		final List<Channel> current = members.get();
 
 		if (draw.hash.isPresent()) {
-			final List<Channel> open = current.stream().filter(member -> isOpen(current, member)
+			final List<Channel> open = current.stream().filter(member -> isThere(current, member)
 				&& !avoid.contains(member)).distinct().toList();
 
 			return open.isEmpty() ? Optional.empty()
@@ -213,8 +215,8 @@ final class StemRouter {
 
 		refresh(draw, avoid);
 
-		return draw.open().mapToObj(place -> draw.places[place])
-			.filter(successor -> successor.isWritable() && !avoid.contains(successor)).findFirst();
+		return draw.open().mapToObj(place -> draw.places[place]).filter(successor -> !avoid.contains(successor))
+			.findFirst();
 	}
 
 	private static Optional<Channel> route(final Draw draw) {

@@ -904,6 +904,41 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
 	}
 
+	/* A route that takes no writes for a while is skipped for what comes meanwhile, which waits in the embargo, and the
+	   writer stays on it: once it takes writes again the next entry goes there, at the author and at a relay alike */
+	@Example
+	public void skipsARouteThatTakesNoWritesAndKeepsIt() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 3);
+		final List<Entry> relayed = entries(fleet, 2, 3);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		ChainFleet.unwritable(fleet.stream(EXIT, fromExit));
+		ChainFleet.unwritable(fleet.stream(RELAY, fromRelay));
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(true));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(1)), is(true));
+
+		fleet.stream(EXIT, fromExit).flush();
+		fleet.stream(RELAY, fromRelay).flush();
+		writtenBy(fleet, EXIT);
+		writtenBy(fleet, RELAY);
+		postStem(fleet, own.get(2));
+		stem(fleet, RELAY, "gn-3", relayed.subList(2, 3));
+
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(fromExit));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(fromRelay));
+	}
+
 	/* An honest member never passes an entry back to the one it came from, so an entry that comes straight back from
 	   the member it was passed to gets the answer of the embargo, at the author and at a relay alike, and nothing
 	   tells the one from the other */
