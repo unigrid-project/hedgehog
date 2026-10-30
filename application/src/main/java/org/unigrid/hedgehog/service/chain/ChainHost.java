@@ -975,14 +975,27 @@ public class ChainHost implements ChainService {
 	private void retry(final Channel stream) {
 		final long now = clock.getAsLong();
 
-		hosting.all().forEach(hosted -> byWriter(hosted.getEmbargo().waitingFor(stream))
-			.forEach((writer, entries) -> hosted.getRouter().successor(writer, hosted.avoidOf(writer))
+		hosting.all().forEach(hosted -> byLane(hosted, hosted.getEmbargo().waitingFor(stream))
+			.forEach((lane, entries) -> hosted.getRouter().successor(lane.writer(), lane.avoid(hosted))
 				.ifPresent(route -> pass(hosted, route, entries, now))));
 	}
 
-	private static Map<WriterId, List<Entry>> byWriter(final List<Entry> entries) {
-		return entries.stream().collect(Collectors.groupingBy(entry -> entry.header().writer(), LinkedHashMap::new,
+	private record Lane(WriterId writer, Channel source) {
+		/* The entries of one writer that are routed alike: those of a writer of this node's own, without a source,
+		   avoid what the writer avoids, and those of a writer it relays avoid the stream they came in on, which
+		   keeps the route of a writer past the draws the router keeps the same wherever it is asked for */
+		private Set<Channel> avoid(final HostedChain hosted) {
+			return source == null ? hosted.avoidOf(writer) : Set.of(source);
+		}
+	}
+
+	private static Map<Lane, List<Entry>> byLane(final HostedChain hosted, final List<Entry> entries) {
+		return entries.stream().collect(Collectors.groupingBy(entry -> laneOf(hosted, entry), LinkedHashMap::new,
 			Collectors.toList()));
+	}
+
+	private static Lane laneOf(final HostedChain hosted, final Entry entry) {
+		return new Lane(entry.header().writer(), hosted.getEmbargo().sourceOf(entry).orElse(null));
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
@@ -1056,9 +1069,9 @@ public class ChainHost implements ChainService {
 			.map(StemEmbargo.Due::entry).toList());
 
 		waited.stream().filter(held -> !held.sent() && !held.bySource())
-			.collect(Collectors.groupingBy(held -> held.entry().header().writer(), LinkedHashMap::new,
+			.collect(Collectors.groupingBy(held -> laneOf(hosted, held.entry()), LinkedHashMap::new,
 				Collectors.toList()))
-			.forEach((writer, unsent) -> due.addAll(passLate(hosted, writer, unsent, now)));
+			.forEach((lane, unsent) -> due.addAll(passLate(hosted, lane, unsent, now)));
 
 		if (!due.isEmpty()) {
 			final List<Optional<Offer>> offers = offerAndQueue(hosted, due, null, true);
@@ -1072,13 +1085,15 @@ public class ChainHost implements ChainService {
 	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
 	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
 	   entry tried on it when it took no writes since the entry first missed it, or when the entry has now missed
-	   MISSED_DEADLINES deadlines on it. */
-	private List<Entry> passLate(final HostedChain hosted, final WriterId writer, final List<StemEmbargo.Due> unsent,
+	   MISSED_DEADLINES deadlines on it. Nothing moves a writer a relay routes by the hash, so it has no successor
+	   while its route takes no writes. */
+	private List<Entry> passLate(final HostedChain hosted, final Lane lane, final List<StemEmbargo.Due> unsent,
 		final long now) {
 
 		final List<Entry> entries = unsent.stream().map(StemEmbargo.Due::entry).toList();
-		final Optional<Channel> route = hosted.getRouter().moveIfStalled(writer, hosted.avoidOf(writer),
-			current -> stalls(current, unsent));
+		final boolean hashed = lane.source() != null && !hosted.getRouter().keeps(lane.writer());
+		final Optional<Channel> route = hosted.getRouter().moveIfStalled(lane.writer(), lane.avoid(hosted),
+			current -> stalls(current, unsent)).filter(current -> !hashed || current.isWritable());
 
 		if (route.isPresent()) {
 			pass(hosted, route.get(), entries, now);

@@ -44,6 +44,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -727,6 +728,71 @@ public class ChainHostStemTest {
 
 		assertThat(exitMoved, is(Optional.of(exitOther)));
 		assertThat(relayMoved, is(Optional.of(relayOther)));
+	}
+
+	/* Fills the draws a member keeps for its chain with writers of no account, so that every writer after them goes
+	   by the hash */
+	private static void fillTheDraws(final ChainFleet fleet, final String member) {
+		final StemRouter router = hosted(fleet, member).getRouter();
+		final Channel source = fleet.stream(member, "gn-3");
+
+		for (int writer = 10_000; router.draws() < HostedChain.MAX_WRITERS; writer++) {
+			router.keep(ChainFleet.writer(writer), router.drawFor(ChainFleet.writer(writer), source), source);
+		}
+	}
+
+	/* A writer past the draws a relay keeps that it relays, passed on from gn-3, whose route would be another member if
+	   the stream it came in on were not avoided */
+	private static int hashedRelayedWriter(final ChainFleet fleet) {
+		final StemRouter router = hosted(fleet, RELAY).getRouter();
+		final Channel source = fleet.stream(RELAY, "gn-3");
+
+		return IntStream.range(20_000, 30_000).filter(writer -> !router.drawFor(ChainFleet.writer(writer), source)
+			.diffuses() && !router.successor(ChainFleet.writer(writer), Set.of(source))
+			.equals(router.successor(ChainFleet.writer(writer), Set.of()))).findFirst().orElseThrow();
+	}
+
+	/* A writer a relay routes by the hash avoids the stream its entries came in on whenever it is routed: when they are
+	   passed on, when a route that took no writes takes them again, and at the deadline, so its route is the same
+	   each time, and what its route does not take by the deadline is flooded at the timer of the relay, as nothing
+	   moves such a writer */
+	@Example
+	public void aWriterPastTheDrawsKeepsOneRouteAndIsFloodedWithoutOne() {
+		final ChainFleet fleet = groupOfEight();
+
+		fillTheDraws(fleet, RELAY);
+
+		final int writer = hashedRelayedWriter(fleet);
+		final List<Entry> relayed = entries(fleet, writer, 2);
+		final Channel route = hosted(fleet, RELAY).getRouter().successor(ChainFleet.writer(writer),
+			Set.of(fleet.stream(RELAY, "gn-3"))).orElseThrow();
+		final String routeId = fleet.activeIds().stream().filter(id -> fleet.stream(RELAY, id) == route).findFirst()
+			.orElseThrow();
+		int rounds = 0;
+
+		ChainFleet.unwritable(fleet.stream(RELAY, routeId));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		fleet.stream(RELAY, routeId).flush();
+		assertThat(stemmedWith(writtenBy(fleet, RELAY), relayed.get(0)), is(Optional.of(routeId)));
+
+		ChainFleet.unwritable(fleet.stream(RELAY, routeId));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		final List<Object> floods = new ArrayList<>();
+
+		while (floods.isEmpty() && rounds < MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(RELAY).maintain();
+
+			final Map<String, List<Object>> written = writtenBy(fleet, RELAY);
+
+			assertThat(stemmedWith(written, relayed.get(1)), is(Optional.empty()));
+			floods.addAll(floodsOf(written, relayed.get(1)));
+			rounds++;
+		}
+
+		assertThat(floods, is(not(empty())));
 	}
 
 	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */

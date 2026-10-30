@@ -247,6 +247,11 @@ final class StemRouter {
 		return current.stream().anyMatch(member -> isOpen(current, member) && !avoid.contains(member));
 	}
 
+	/* Whether the member keeps a draw of the writer, which one past the most it keeps goes without, by the hash */
+	synchronized boolean keeps(final WriterId writer) {
+		return draws.containsKey(writer);
+	}
+
 	/* Lets go of the draws of the writers the chain forgot */
 	synchronized void forget(final Collection<WriterId> writers) {
 		draws.keySet().removeAll(writers);
