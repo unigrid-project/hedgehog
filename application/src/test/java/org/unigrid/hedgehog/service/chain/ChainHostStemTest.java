@@ -320,6 +320,40 @@ public class ChainHostStemTest {
 		assertThat(drawnBy(fleet, RELAY, 2), is(Set.of(otherOfRelay)));
 	}
 
+	/* A successor that went away is never drawn for the writer again, though it comes back on a new stream: in a group
+	   of three, both successors of the exit and the one of a relay reconnect, and no member is left to draw, at the
+	   author and at a relay alike */
+	@Example
+	public void aSuccessorThatKeepsReconnectingIsNeverDrawnAgain() {
+		final ChainFleet fleet = ChainFleet.group(3, ChainFleet.settings(3, 4, 16, 30, 3),
+			ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 3);
+		final List<Entry> relayed = entries(fleet, 2, 2);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, EXIT, relayed.subList(0, 1));
+
+		final String route = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String other = otherThan(fleet, EXIT, 1, route);
+		final String relayRoute = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		fleet.reconnect(EXIT, route);
+		fleet.reconnect(RELAY, relayRoute);
+		fleet.refreshAll();
+		postStem(fleet, own.get(1));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(other));
+
+		fleet.reconnect(EXIT, other);
+		fleet.refreshAll();
+		postStem(fleet, own.get(2));
+		stem(fleet, RELAY, EXIT, relayed.subList(1, 2));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(true));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(1)), is(true));
+	}
+
 	/* A route the writer of a session comes to avoid, as the second member its client attached through, leaves the
 	   writer to its other drawn successor, and only once it avoids both is a member outside the draw drawn */
 	@Example

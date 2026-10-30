@@ -111,6 +111,10 @@ final class HostedChain {
 	   the thread that replaced it has just written. */
 	@Getter @Setter private volatile List<Channel> memberStreams = List.of();
 
+	/* The gridnode each stream to a member of the group goes to, by which the stem knows a member that came back on a
+	   new stream */
+	private volatile Map<Channel, String> memberIds = Map.of();
+
 	/* The ids of the other members of the group of a chain this node hosts, as they were while the chain was current,
 	   whose streams each refresh looks up again; none for a chain the node follows */
 	@Getter @Setter private volatile List<String> members = List.of();
@@ -137,7 +141,21 @@ final class HostedChain {
 		this.epoch = epoch;
 		this.maxWriters = maxWriters;
 		this.embargo = new StemEmbargo(stem);
-		this.router = new StemRouter(stem, () -> memberStreams, maxWriters);
+		this.router = new StemRouter(stem, () -> memberStreams, this::memberOf, maxWriters);
+	}
+
+	/* Holds the streams to the members of the group, each with the id of its gridnode, the ids first, so that whoever
+	   reads a stream finds its id */
+	void holdMembers(final Map<Channel, String> streams) {
+		memberIds = Map.copyOf(streams);
+		memberStreams = List.copyOf(streams.keySet());
+	}
+
+	/* The gridnode a stream to a member goes to, or the stream itself where its gridnode is not known */
+	Object memberOf(final Channel stream) {
+		final String id = memberIds.get(stream);
+
+		return id == null ? stream : id;
 	}
 
 	synchronized void addMemberStream(final Channel stream) {

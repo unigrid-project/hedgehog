@@ -426,15 +426,20 @@ public class ChainHost implements ChainService {
 	   streams looked up again too, so that a member that reconnected is a member of it as well, as an exit may still
 	   stem the entries of a session that drains on it. */
 	private void holdStreams(final Hosting next) {
-		final Map<List<String>, List<Channel>> streams = new HashMap<>();
+		final Map<List<String>, Map<Channel, String>> streams = new HashMap<>();
 
 		next.current().values().forEach(hosted -> hosted.setMembers(next.peers()));
-		next.all().filter(hosted -> !hosted.getMembers().isEmpty()).forEach(hosted -> hosted.setMemberStreams(
+		next.all().filter(hosted -> !hosted.getMembers().isEmpty()).forEach(hosted -> hosted.holdMembers(
 			streams.computeIfAbsent(hosted.getMembers(), this::streamsTo)));
 	}
 
-	private List<Channel> streamsTo(final List<String> members) {
-		return members.stream().map(this::lookUp).flatMap(Optional::stream).filter(Channel::isActive).toList();
+	/* The open streams to the members, in their order, each with the id of its gridnode */
+	private Map<Channel, String> streamsTo(final List<String> members) {
+		final Map<Channel, String> streams = new LinkedHashMap<>();
+
+		members.forEach(member -> lookUp(member).filter(Channel::isActive)
+			.ifPresent(stream -> streams.putIfAbsent(stream, member)));
+		return streams;
 	}
 
 	/* One broken lookup leaves that member without a stream, not every member, and the refresh which runs about

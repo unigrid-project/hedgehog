@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.IntStream;
@@ -57,7 +58,8 @@ final class StemRouter {
 
 	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, and for a writer
 	   past the most it keeps, the hash that stands in for the draw. The successors that are left come route first.
-	   Every member drawn for the writer is noted, as none of them is drawn again, and so is how often one was drawn in
+	   Every member drawn for the writer is noted by its identity, as none of them is drawn again on any stream, and so
+	   is how often one was drawn in
 	   place of the others, whether the last went away and none could be drawn yet, and whether a refusal or a round
 	   moved the writer. A writer this member relays avoids the streams its entries came in on. */
 	static final class Draw {
@@ -65,7 +67,7 @@ final class StemRouter {
 		private final boolean diffuses;
 		private final Optional<Long> hash;
 		private final List<Channel> successors = new ArrayList<>();
-		private final Set<Channel> drawn = new HashSet<>();
+		private final Set<Object> drawn = new HashSet<>();
 		private final Set<Channel> sources = new HashSet<>();
 		private int replacements;
 		private boolean wanting;
@@ -84,6 +86,7 @@ final class StemRouter {
 
 	private final RandomGenerator random;
 	private final Supplier<List<Channel>> members;
+	private final Function<Channel, Object> identity;
 	private final Map<WriterId, Draw> draws = new HashMap<>();
 
 	/* The most writers the member keeps a draw for, as many as the chain takes. A writer past them goes by a hash of
@@ -93,12 +96,21 @@ final class StemRouter {
 	private final int maxDraws;
 	private final long key;
 
-	/* The members are the streams of the chain to the other members of its group, as the host holds them now */
-	StemRouter(final RandomGenerator random, final Supplier<List<Channel>> members, final int maxDraws) {
+	/* The members are the streams of the chain to the other members of its group, as the host holds them now, and the
+	   identity of a stream is the member it goes to, which a stream that closed and came back keeps */
+	StemRouter(final RandomGenerator random, final Supplier<List<Channel>> members,
+		final Function<Channel, Object> identity, final int maxDraws) {
+
 		this.random = random;
 		this.members = members;
+		this.identity = identity;
 		this.maxDraws = maxDraws;
 		this.key = random.nextLong();
+	}
+
+	/* A router whose streams are their own identity, for a test */
+	StemRouter(final RandomGenerator random, final Supplier<List<Channel>> members, final int maxDraws) {
+		this(random, members, stream -> stream, maxDraws);
 	}
 
 	/* The draw of a writer this member is passed an entry of, from the given stream, which no successor of it is
@@ -254,7 +266,6 @@ final class StemRouter {
 	private void refresh(final Draw draw, final Set<Channel> avoid) {
 		final List<Channel> current = members.get();
 
-		draw.drawn.removeIf(member -> !member.isActive());
 		draw.sources.removeIf(member -> !member.isActive());
 
 		if (draw.successors.removeIf(successor -> isLost(draw, successor, current, avoid))) {
@@ -286,7 +297,7 @@ final class StemRouter {
 	/* A member drawn among those that are there and take writes, outside the draw and what is avoided, or none */
 	private Channel drawn(final List<Channel> current, final Draw draw, final Set<Channel> avoid) {
 		final List<Channel> candidates = current.stream().filter(member -> isOpen(current, member)
-			&& !avoid.contains(member) && !draw.drawn.contains(member)).distinct().toList();
+			&& !avoid.contains(member) && !draw.drawn.contains(identity.apply(member))).distinct().toList();
 
 		if (candidates.isEmpty()) {
 			return null;
@@ -294,7 +305,7 @@ final class StemRouter {
 
 		final Channel drawn = candidates.get(random.nextInt(candidates.size()));
 
-		draw.drawn.add(drawn);
+		draw.drawn.add(identity.apply(drawn));
 		return drawn;
 	}
 
