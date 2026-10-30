@@ -23,13 +23,17 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.unigrid.hedgehog.model.geo.HostLiteral;
 import org.unigrid.hedgehog.proxy.exit.ExitConnector;
 import org.unigrid.hedgehog.proxy.exit.ExitContext;
 import org.unigrid.hedgehog.proxy.exit.NettyExitConnector;
@@ -74,6 +78,21 @@ final class ExitContexts {
 			resolving.shutdownNow();
 			connector.release();
 		}, new NettyUdpConnector(connector::group));
+	}
+
+	/* The announced address when its host is an IP literal of one of this machine's interfaces, which is what the
+	   exit can bind to. Behind 1:1 NAT the announced address is no interface's own, and the country that clients
+	   choose by is read from a literal only, so a name is never resolved. */
+	static Optional<InetAddress> localAddressOf(final String announced) {
+		return HostLiteral.of(announced).filter(ExitContexts::isOwn);
+	}
+
+	private static boolean isOwn(final InetAddress address) {
+		try {
+			return NetworkInterface.getByInetAddress(address) != null;
+		} catch (SocketException ex) {
+			return false;
+		}
 	}
 
 	/* Only names are looked up here, never an IP literal: one for each stream relay and up to four at once for each

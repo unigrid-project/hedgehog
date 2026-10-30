@@ -23,6 +23,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -261,5 +262,17 @@ public class ExitContextsTest {
 
 		assertThat(opening.failed.getNow(null), is(Socks5CommandStatus.FAILURE));
 		assertThat(connectorThreads(), hasSize(0));
+	}
+
+	/* Only an address of this machine can be bound to: behind 1:1 NAT the announced one is not, and a name is
+	   never resolved to find out */
+	@Example
+	public void bindsOnlyToAnOwnedLiteral() {
+		assertThat(ExitContexts.localAddressOf("127.0.0.1:52883"),
+			is(Optional.of(InetAddress.ofLiteral("127.0.0.1"))));
+		assertThat(ExitContexts.localAddressOf("203.0.113.5:52883"), is(Optional.empty()));
+		assertThat(ExitContexts.localAddressOf("localhost:52883"), is(Optional.empty()));
+		assertThat(ExitContexts.localAddressOf("[2001:db8::5]:52883"), is(Optional.empty()));
+		assertThat(ExitContexts.localAddressOf(null), is(Optional.empty()));
 	}
 }
