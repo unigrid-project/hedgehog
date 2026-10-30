@@ -37,6 +37,10 @@ public record ProxySettings(int groupSize, long reorganizePeriodSeconds, int cha
 	private static final long MIN_ENTRY_BYTES = 1024;
 	private static final long MAX_ENTRY_BYTES = 1024 * 1024;
 
+	/* An exit keeps room for what it relays, at least one of the largest entries, beside its own entries, so a chain
+	   of fewer than four of them can leave it no room for one of its own and stall its sessions */
+	private static final long MIN_LARGEST_ENTRIES = 4;
+
 	public ProxySettings {
 		requireBetween("groupSize", groupSize, 1, MAX_UNSIGNED_SHORT);
 		requireBetween("reorganizePeriodSeconds", reorganizePeriodSeconds, Epoch.MIN_PERIOD_SECONDS,
@@ -44,7 +48,8 @@ public record ProxySettings(int groupSize, long reorganizePeriodSeconds, int cha
 		requireBetween("chainsPerGroup", chainsPerGroup, 1, MAX_UNSIGNED_SHORT);
 		requireBetween("clientsPerChain", clientsPerChain, 1, MAX_UNSIGNED_SHORT);
 		requireBetween("maxEntryBytes", maxEntryBytes, MIN_ENTRY_BYTES, MAX_ENTRY_BYTES);
-		requireBetween("chainCapacityBytes", chainCapacityBytes, maxEntryBytes, MAX_UNSIGNED_INT);
+		requireBetween("chainCapacityBytes", chainCapacityBytes, MIN_LARGEST_ENTRIES * maxEntryBytes,
+			MAX_UNSIGNED_INT);
 		requireBetween("retentionSeconds", retentionSeconds, 1, MAX_UNSIGNED_SHORT);
 		requireBetween("sessionIdleSeconds", sessionIdleSeconds, 1, MAX_UNSIGNED_SHORT);
 

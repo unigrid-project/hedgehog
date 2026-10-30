@@ -169,8 +169,8 @@ final class ChainFleet {
 		return new ProxySettings(8, 3600, 4, 16, 4 * 1024, 30, 1024, 300, 3);
 	}
 
-	/* Chains that hold the given number of entries of 1 KiB, at least two, the last of them in the reserve. That size is
-	   both the smallest class and the largest entry, so that every entry of a session takes the same room. */
+	/* Chains that hold the given number of entries of 1 KiB, at least five, the last of them in the reserve. That size
+	   is both the smallest class and the largest entry, so that every entry of a session takes the same room. */
 	static ProxySettings smallChains(final int entries) {
 		return new ProxySettings(8, 3600, 4, 16, (entries - 1) * 1024L, 30, 1024, 300, 3);
 	}

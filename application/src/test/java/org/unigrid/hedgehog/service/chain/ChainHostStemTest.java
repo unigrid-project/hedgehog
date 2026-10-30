@@ -38,6 +38,9 @@ import java.util.function.Function;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -58,8 +61,10 @@ import org.unigrid.hedgehog.model.network.packet.FetchEntries;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.Chain;
+import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
+import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.group.Epoch;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 
@@ -417,6 +422,23 @@ public class ChainHostStemTest {
 		assertThat(postStem(fleet, own.get(room)), is(Admission.FULL));
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(room)), is(false));
+	}
+
+	/* At the smallest capacity the spork allows, an empty replica keeps the share of what it relays free and still
+	   has room for one of the largest entries of the node's own */
+	@Property(tries = 20)
+	public void anEmptyReplicaTakesALargestEntryOfItsOwnAtTheSmallestCapacity(
+		@ForAll @IntRange(min = 1024, max = 1024 * 1024) int largest) {
+
+		final ChainId chainId = new ChainId(new byte[ChainId.SIZE]);
+		final ProxySettings smallest = new ProxySettings(8, 3600, 4, 16, 4L * largest, 30, largest, 300, 3);
+		final HostedChain hosted = new HostedChain(new Chain(chainId, smallest.chainLimits(), () -> NOW),
+			new Epoch(0), 1, new StemEmbargo(new Random(1)));
+		final Entry entry = new FeedWriter(ChainFleet.key(1), chainId).write(NOW, ChainFleet.TAG,
+			new byte[largest - Entry.OVERHEAD]);
+
+		assertThat(entry.size(), is(largest));
+		assertThat(hosted.holdOwn(entry, NOW), is(Admission.ACCEPTED));
 	}
 
 	/* A writer whose entries are all in the stem has a place on the chain as if they were in it */

@@ -26,6 +26,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.constraints.LongRange;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -38,7 +39,7 @@ public class ProxySettingsTest {
 	private static final long[] DEFAULTS = { 8, 3600, 4, 16, 32L * 1024 * 1024, 30, 16 * 1024, 300, 3 };
 	private static final String[] NAMES = { "groupSize", "reorganizePeriodSeconds", "chainsPerGroup",
 		"clientsPerChain", "chainCapacityBytes", "retentionSeconds", "maxEntryBytes", "sessionIdleSeconds", "flags" };
-	private static final long[] BELOW = { 0, 59, 0, 0, 16 * 1024 - 1, 0, 1023, 0, -1 };
+	private static final long[] BELOW = { 0, 59, 0, 0, 64 * 1024 - 1, 0, 1023, 0, -1 };
 	private static final long[] ABOVE = { 0x1_0000, 0x1_0000_0000L, 0x1_0000, 0x1_0000, 0x1_0000_0000L, 0x1_0000,
 		1024 * 1024 + 1, 0x1_0000, 4 };
 
@@ -75,7 +76,7 @@ public class ProxySettingsTest {
 
 	@Example
 	public void shouldAcceptEveryBoundItself() {
-		final long[] lowest = { 1, 60, 1, 1, 16 * 1024, 1, 1024, 1, 0 };
+		final long[] lowest = { 1, 60, 1, 1, 64 * 1024, 1, 1024, 1, 0 };
 		final long[] highest = { 0xFFFF, 0xFFFF_FFFFL, 0xFFFF, 0xFFFF, 0xFFFF_FFFFL, 0xFFFF, 1024 * 1024, 0xFFFF, 3 };
 
 		for (int field = 0; field < DEFAULTS.length; field++) {
@@ -93,6 +94,20 @@ public class ProxySettingsTest {
 
 		assertThat(below.getMessage(), containsString(NAMES[field]));
 		assertThat(above.getMessage(), containsString(NAMES[field]));
+	}
+
+	/* An exit keeps room for what it relays, at least one of the largest entries, beside its own entries, so a chain
+	   of fewer than four of them can leave it no room for one of its own */
+	@Property(tries = 50)
+	public void shouldTakeAChainOfFourOfTheLargestEntriesAndNoFewer(
+		@ForAll @LongRange(min = 1024, max = 1024 * 1024) long largest) {
+
+		final ProxySettings smallest = new ProxySettings(8, 3600, 4, 16, 4 * largest, 30, largest, 300, 3);
+		final IllegalArgumentException below = Expect.assertThrows(IllegalArgumentException.class,
+			() -> new ProxySettings(8, 3600, 4, 16, 4 * largest - 1, 30, largest, 300, 3));
+
+		assertThat(smallest.chainLimits(), equalTo(new ChainLimits(4 * largest, 30, (int) largest)));
+		assertThat(below.getMessage(), containsString("chainCapacityBytes"));
 	}
 
 	@Example
