@@ -68,6 +68,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.in;
@@ -732,8 +733,32 @@ public class ChainClientTest {
 		paired.subList(2, 4).forEach(fleet::offline);
 		paired.subList(0, 2).forEach(member -> countries.put(member, "SE"));
 
-		assertFailsWith(client.attachment(Optional.of("SE")), "No shard group took this node");
+		assertFailsWith(client.attachment(Optional.of("SE")),
+			"No shard group has a gridnode in the country beside the pair this node would attach through");
 		assertThat(delivered(fleet, JoinChain.class), is(0L));
+	}
+
+	/* The first group drawn refuses the node, and the attach pair holds all of the country in the other, drawn next:
+	   a group that refused is why no group took the node, whatever the check found in the others */
+	@Example
+	public void saysNoGroupTookTheNodeWhenOneRefusedBeforeTheOthersWerePassedOver() {
+		final ChainFleet fleet = twoGroups(16, 4, Set.of(1));
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+		final ChainClient client = clientOf(fleet, fleet.located(countries), fleet.pending(CLIENT), drawing(0, 0));
+		final List<String> refusing = fleet.view().groups().members(0);
+		final List<String> paired = fleet.view().groups().members(1);
+
+		fleet.activeIds().forEach(member -> countries.put(member, "NO"));
+		refusing.subList(0, 3).forEach(member -> countries.put(member, "SE"));
+		paired.subList(2, 4).forEach(fleet::offline);
+		paired.subList(0, 2).forEach(member -> countries.put(member, "SE"));
+
+		final CompletableFuture<ChainAttachment> swedish = client.attachment(Optional.of("SE"));
+
+		fleet.deliver();
+		assertFailsWith(swedish, "No shard group took this node");
+		assertThat(joinsTo(fleet, refusing), greaterThan(0L));
+		assertThat(joinsTo(fleet, paired), is(0L));
 	}
 
 	/* Every member of the last group is in Sweden when the node asks it, and none of them is by the time it took

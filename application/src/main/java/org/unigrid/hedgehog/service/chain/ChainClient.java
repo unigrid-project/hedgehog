@@ -80,6 +80,11 @@ public final class ChainClient {
 	static final int MAX_ATTACHMENTS = 4;
 
 	private static final String NO_GROUP_IN_THE_COUNTRY = "No shard group has a gridnode in the country";
+	private static final String NO_GROUP_TOOK_THE_NODE = "No shard group took this node";
+
+	/* The country is the client's alone, so no message names it */
+	private static final String NO_EXIT_BESIDE_THE_PAIR = "No shard group has a gridnode in the country beside the "
+		+ "pair this node would attach through";
 
 	private final ProxySettingsSource settings;
 	private final GridnodeDirectory directory;
@@ -289,7 +294,7 @@ public final class ChainClient {
 			.flatMapToInt(own -> view.groups().groupOf(own).stream()).boxed(), passedOver.stream())
 			.collect(Collectors.toCollection(HashSet::new)));
 		final int group = draw.next(random).orElseThrow(() -> new IllegalStateException(country.isPresent()
-			? NO_GROUP_IN_THE_COUNTRY : "No shard group took this node"));
+			? NO_GROUP_IN_THE_COUNTRY : NO_GROUP_TOOK_THE_NODE));
 
 		return joined.stream().filter(join -> join.epoch().equals(view.epoch()) && join.joinedGroup() == group)
 			.findFirst().orElseGet(() -> joined.size() < MAX_ATTACHMENTS ? started(draw, group)
@@ -299,7 +304,7 @@ public final class ChainClient {
 	/* Joins the group drawn on the executor, or the next one drawn the same way when it refuses */
 	private Join started(final Draw draw, final int group) {
 		final Join join = new Join(draw.view().epoch(), group, draw.view().groups().members(group),
-			CompletableFuture.supplyAsync(() -> nextGroup(draw, OptionalInt.of(group)), joins)
+			CompletableFuture.supplyAsync(() -> nextGroup(draw, OptionalInt.of(group), false), joins)
 			.thenCompose(Function.identity()).thenApplyAsync(Function.identity(), joins), new AtomicBoolean());
 
 		joined.add(join);
@@ -330,22 +335,29 @@ public final class ChainClient {
 	/* A group that refuses is passed over for another drawn the same way, until one takes the node: one without an
 	   open stream to any member, or with no exit in the country beside the pair it would attach through, at once,
 	   the others once they answered. The next group is looked for on the executor, as an answer arrives on an event
-	   loop or on the timer of the timeouts. */
-	private CompletableFuture<ChainAttachment> nextGroup(final Draw draw, final OptionalInt first) {
+	   loop or on the timer of the timeouts. When the pair held all of the country in every group drawn, and none
+	   refused, the failure says so. */
+	private CompletableFuture<ChainAttachment> nextGroup(final Draw draw, final OptionalInt first,
+		final boolean refused) {
+
+		boolean everyPairHeldTheCountry = !refused && first.isPresent();
+
 		for (OptionalInt group = first; group.isPresent(); group = draw.next(random)) {
 			final List<String> members = draw.view().groups().members(group.getAsInt());
 			final Map<Channel, String> connected = connected(members);
 
 			draw.passedOver().add(group.getAsInt());
 
-			if (!connected.isEmpty() && hasExitBeside(members, connected.values().stream().limit(2).toList(),
-				draw.country())) {
-				return attach(draw.view(), group.getAsInt(), connected)
-					.exceptionallyComposeAsync(refusal -> nextGroup(draw, draw.next(random)), joins);
+			if (connected.isEmpty()) {
+				everyPairHeldTheCountry = false;
+			} else if (hasExitBeside(members, connected.values().stream().limit(2).toList(), draw.country())) {
+				return attach(draw.view(), group.getAsInt(), connected).exceptionallyComposeAsync(refusal ->
+					nextGroup(draw, draw.next(random), true), joins);
 			}
 		}
 
-		return CompletableFuture.failedFuture(new IllegalStateException("No shard group took this node"));
+		return CompletableFuture.failedFuture(new IllegalStateException(everyPairHeldTheCountry
+			? NO_EXIT_BESIDE_THE_PAIR : NO_GROUP_TOOK_THE_NODE));
 	}
 
 	/* The open streams to the members, each with its member, in a random order, so that the member asked first is
