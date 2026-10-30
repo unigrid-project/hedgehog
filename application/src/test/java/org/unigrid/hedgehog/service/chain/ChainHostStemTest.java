@@ -997,4 +997,26 @@ public class ChainHostStemTest {
 		assertThat(seen.size(), is(lessThanOrEqualTo(2)));
 		assertThat(EXIT, is(not(in(seen))));
 	}
+
+	/* A relay keeps what it drew for a writer whatever the clock reads: it floods every entry of a writer it diffuses
+	   and passes every entry of one it relays to the same successor, for half an hour and longer */
+	@Property(tries = 20)
+	public void aRelayKeepsTheModeAndTheRouteOfAWriterForHalfAnHour(@ForAll long seed) {
+		final ChainFleet fleet = group(seeded(seed));
+		final FeedWriter writer = new FeedWriter(ChainFleet.key(2), fleet.chain());
+		final Set<Map<String, Class<?>>> handled = new HashSet<>();
+
+		for (int minute = 0; minute < 40; minute++) {
+			final Map<String, Class<?>> sent = new LinkedHashMap<>();
+
+			assertThat(stem(fleet, RELAY, "gn-1", ChainFleet.write(writer, 1, fleet.clock.get())), is(empty()));
+			writtenBy(fleet, RELAY).forEach((peer, packets) -> packets.forEach(packet -> sent.put(peer,
+				packet.getClass())));
+			handled.add(sent);
+			fleet.clock.addAndGet(MINUTE);
+		}
+
+		assertThat(handled, hasSize(1));
+		assertThat(handled.iterator().next().size(), is(in(List.of(1, OTHERS.size()))));
+	}
 }
