@@ -281,6 +281,25 @@ public class StemRouterTest {
 		assertThat(router.successor(writer, Set.of()), is(Optional.empty()));
 	}
 
+	/* The router asks whether the route of a writer stalled while it holds its own lock, so nothing moves the writer
+	   between the question and the move, and a route that did not stall stays */
+	@Property(tries = 10)
+	public void movesAWriterOffItsRouteOnlyWhenTheRouteStalled(@ForAll long seed) {
+		final List<Channel> members = streams(5);
+		final StemRouter router = router(seed, members);
+		final WriterId writer = ChainFleet.writer(1);
+		final List<Channel> drawn = List.copyOf(Optional.of(router.ownSuccessor(writer, Set.of()))
+			.map(route -> router.drawn(writer)).orElseThrow());
+		final List<Channel> asked = new ArrayList<>();
+
+		assertThat(router.moveIfStalled(writer, Set.of(), route -> asked.add(route) && false),
+			is(Optional.of(drawn.get(0))));
+		assertThat(router.moveIfStalled(writer, Set.of(), route -> asked.add(route) && route == drawn.get(0)),
+			is(Optional.of(drawn.get(1))));
+		assertThat(asked, equalTo(List.of(drawn.get(0), drawn.get(0))));
+		assertThat(router.drawn(writer), equalTo(List.of(drawn.get(1))));
+	}
+
 	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, and a
 	   second leaves it none, so refusals cannot walk the stem of a writer to a member outside its draw */
 	@Property(tries = 20)

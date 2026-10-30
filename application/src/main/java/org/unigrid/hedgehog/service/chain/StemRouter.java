@@ -29,6 +29,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 import java.util.stream.Collectors;
@@ -200,17 +201,28 @@ final class StemRouter {
 		}
 	}
 
-	/* A route that took no writes for as long as an entry of the writer waited counts as gone, at the author and at a
-	   relay alike: the writer goes to its other successor, or to one drawn in place of both while it has replacements
-	   left, and the stalled member is never drawn for it again */
-	synchronized void stalled(final WriterId writer, final Channel successor, final Set<Channel> avoid) {
+	/* The route of a writer, once it is moved off a route the given test finds stalled, which is asked under the lock
+	   of the router so that nothing moves the writer in between. A stalled route counts as gone, at the author and at
+	   a relay alike: the writer goes to its other successor, or to one drawn in place of both while it has
+	   replacements left, and the stalled member is never drawn for it again. */
+	synchronized Optional<Channel> moveIfStalled(final WriterId writer, final Set<Channel> avoid,
+		final Predicate<Channel> stalls) {
+
 		final Draw draw = draws.get(writer);
 
-		if (draw != null && route(draw).filter(successor::equals).isPresent()) {
+		if (draw == null) {
+			return successor(hashed(writer), avoid);
+		}
+
+		refresh(draw, avoid);
+
+		if (route(draw).filter(stalls).isPresent()) {
 			draw.successors.remove(0);
 			draw.departed++;
 			refresh(draw, avoid);
 		}
+
+		return route(draw);
 	}
 
 	/* Whether a writer this member stems has no successor left: each it was given refused, went round or went away,

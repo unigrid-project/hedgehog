@@ -1047,11 +1047,7 @@ public class ChainHost implements ChainService {
 	   gone, and the writer goes to the successor that takes its place. One that took any in between, or turned
 	   writable, moves nothing. */
 	private static void moveOffStalled(final HostedChain hosted, final WriterId writer, final long since) {
-		final StemRouter router = hosted.getRouter();
-		final Set<Channel> avoid = hosted.avoidOf(writer);
-
-		router.successor(writer, avoid).filter(route -> StemStalls.since(route, since))
-			.ifPresent(route -> router.stalled(writer, route, avoid));
+		hosted.getRouter().moveIfStalled(writer, hosted.avoidOf(writer), route -> StemStalls.since(route, since));
 	}
 
 	/* What a writer of this node's own could not pass on for as long as an entry waits in the embargo goes to its
