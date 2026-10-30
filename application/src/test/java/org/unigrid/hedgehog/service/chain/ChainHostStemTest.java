@@ -380,6 +380,60 @@ public class ChainHostStemTest {
 		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(in(Set.of(route, other)))));
 	}
 
+	/* A successor that went away leaves the writer to the other, and when that one refuses, a member is drawn in the
+	   place of the one that went, within the replacements of the writer, and takes what was refused: a refusal after a
+	   departure leaves neither the author nor a relay without a successor */
+	@Example
+	public void aRefusalAfterADepartureDrawsAReplacement() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 1);
+		final List<Entry> relayed = entries(fleet, 2, 1);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed);
+
+		final String exitRoute = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String relayRoute = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final Set<String> exitDrew = drawnBy(fleet, EXIT, 1);
+		final Set<String> relayDrew = drawnBy(fleet, RELAY, 2);
+
+		fleet.stream(EXIT, otherThan(fleet, EXIT, 1, exitRoute)).close();
+		fleet.stream(RELAY, otherThan(fleet, RELAY, 2, relayRoute)).close();
+		fleet.host(EXIT).refused(fleet.stream(EXIT, exitRoute), EntryRefused.of(own.get(0), Admission.FULL));
+		fleet.host(RELAY).refused(fleet.stream(RELAY, relayRoute), EntryRefused.of(relayed.get(0), Admission.FULL));
+
+		final Map.Entry<String, List<Object>> exitAgain = stemmedTo(writtenBy(fleet, EXIT));
+		final Map.Entry<String, List<Object>> relayAgain = stemmedTo(writtenBy(fleet, RELAY));
+
+		assertThat(exitAgain.getKey(), is(not(in(exitDrew))));
+		assertThat(relayAgain.getKey(), is(not(in(relayDrew))));
+		assertThat(exitAgain.getValue(), equalTo(List.of(new ChainStem(own))));
+		assertThat(relayAgain.getValue(), equalTo(List.of(new ChainStem(relayed))));
+		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(false));
+	}
+
+	/* The same when the other successor of a writer of the exit comes to be avoided rather than going away */
+	@Example
+	public void aRefusalAfterTheExitComesToAvoidItsOtherSuccessorDrawsAReplacement() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 1);
+		final AtomicReference<Set<Channel>> avoid = new AtomicReference<>(Set.of());
+
+		fleet.host(EXIT).postStem(fleet.chain(), own.get(0), avoid::get);
+
+		final String route = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String other = otherThan(fleet, EXIT, 1, route);
+
+		avoid.set(Set.of(fleet.stream(EXIT, other)));
+		fleet.host(EXIT).refused(fleet.stream(EXIT, route), EntryRefused.of(own.get(0), Admission.FULL));
+
+		final Map.Entry<String, List<Object>> again = stemmedTo(writtenBy(fleet, EXIT));
+
+		assertThat(again.getKey(), is(not(in(Set.of(route, other)))));
+		assertThat(again.getValue(), equalTo(List.of(new ChainStem(own))));
+		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(false));
+	}
+
 	/* The one move of a writer bars the member it moved off, but a successor that went away after it is still replaced,
 	   by a member outside the draw and never by the barred one, at the author and at a relay alike */
 	@Example
@@ -1286,8 +1340,8 @@ public class ChainHostStemTest {
 	}
 
 	/* What an exit avoids grows once the second member its client attached through shows up, so a refusal moves the
-	   writer on with what it avoids now: never to a member it came to avoid after it was routed, which leaves the
-	   writer with no other successor to move to */
+	   writer on with what it avoids now: never to a member it came to avoid after it was routed, but to the one member
+	   of the group left, drawn in the place of the one it came to avoid */
 	@Example
 	public void aRefusalNeverStemsToAMemberTheWriterCameToAvoid() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -1303,7 +1357,7 @@ public class ChainHostStemTest {
 		avoid.set(Set.of(fleet.stream(EXIT, other)));
 		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
 
-		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(in(Set.of(successor, other)))));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 

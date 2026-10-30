@@ -59,9 +59,8 @@ final class StemRouter {
 	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, and for a writer
 	   past the most it keeps, the hash that stands in for the draw. The successors that are left come route first.
 	   Every member drawn for the writer is noted by its identity, as none of them is drawn again on any stream, and so
-	   is how often one was drawn in place of the others, whether the last went away and none could be drawn yet, and
-	   whether a refusal or a round moved the writer. A writer this member relays avoids the streams its entries came
-	   in on. */
+	   is how often one was drawn in place of the others, how many went away since then, and whether a refusal or a
+	   round moved the writer. A writer this member relays avoids the streams its entries came in on. */
 	static final class Draw {
 		private final boolean own;
 		private final boolean diffuses;
@@ -70,7 +69,7 @@ final class StemRouter {
 		private final Set<Object> drawn = new HashSet<>();
 		private final Set<Channel> sources = new HashSet<>();
 		private int replacements;
-		private boolean wanting;
+		private int departed;
 		private boolean moved;
 
 		private Draw(final boolean own, final boolean diffuses, final Optional<Long> hash) {
@@ -184,7 +183,7 @@ final class StemRouter {
 		}
 
 		refresh(draw, avoid);
-		return route(draw).filter(successor::equals).flatMap(route -> bar(draw));
+		return route(draw).filter(successor::equals).flatMap(route -> bar(draw, avoid));
 	}
 
 	/* Moves a writer an entry of which came round the stem, from a member it was not passed to, to its second
@@ -207,7 +206,7 @@ final class StemRouter {
 
 		if (draw != null && route(draw).filter(successor::equals).isPresent()) {
 			draw.successors.remove(0);
-			draw.wanting = draw.successors.isEmpty();
+			draw.departed++;
 			refresh(draw, avoid);
 		}
 	}
@@ -279,13 +278,21 @@ final class StemRouter {
 		return route(draw);
 	}
 
-	/* Drops the route, which refused, and answers the successor after it if the writer may still move */
-	private static Optional<Channel> bar(final Draw draw) {
+	/* Drops the route, which refused, and answers the successor after it if the writer may still move. Left with none,
+	   the writer has one drawn in the place of a successor that went away before, if one did, as a refusal must not
+	   strand a writer that a departure would not. */
+	private Optional<Channel> bar(final Draw draw, final Set<Channel> avoid) {
 		final boolean moves = !draw.moved && draw.successors.size() >= SUCCESSORS;
 
 		draw.successors.remove(0);
 		draw.moved = true;
-		return moves ? route(draw) : Optional.empty();
+
+		if (moves) {
+			return route(draw);
+		}
+
+		refresh(draw, avoid);
+		return route(draw);
 	}
 
 	/* The successors a writer is drawn with the first time, as many as there are members to draw */
@@ -296,44 +303,43 @@ final class StemRouter {
 	private void drawFirst(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
 		IntStream.range(0, SUCCESSORS).mapToObj(successor -> drawn(current, draw, avoid)).filter(Objects::nonNull)
 			.forEach(draw.successors::add);
-		draw.wanting = draw.successors.isEmpty();
 	}
 
 	/* Drops a successor that closed or left the group, or that a writer of this member's own avoids now, and once none
-	   is left that way, draws one outside the draw and outside what the writer avoids, as long as the writer has had
-	   fewer than REPLACEMENTS drawn so: for a writer of its own what the caller gives, and for one it relays the
-	   streams its entries came in on. A writer left without one by a refusal has none drawn. */
+	   is left while one went away so, draws one outside the draw and outside what the writer avoids, as long as the
+	   writer has had fewer than REPLACEMENTS drawn so: for a writer of its own what the caller gives, and for one it
+	   relays the streams its entries came in on. A writer left without one by refusals alone has none drawn. */
 	private void refresh(final Draw draw, final Set<Channel> avoid) {
 		final List<Channel> current = members.get();
+		final int before = draw.successors.size();
 
 		draw.sources.removeIf(member -> !member.isActive());
+		draw.successors.removeIf(successor -> isLost(draw, successor, current, avoid));
+		draw.departed += before - draw.successors.size();
 
-		if (draw.successors.removeIf(successor -> isLost(draw, successor, current, avoid))) {
-			draw.wanting = draw.successors.isEmpty();
-		}
-
-		if (draw.wanting) {
+		if (draw.successors.isEmpty()) {
 			fill(draw, current, draw.own ? avoid : draw.sources);
 		}
 	}
 
 	/* A writer that never had a successor, as no member was there when it was drawn, is drawn its first ones now, which
-	   spends none of its replacements; one whose successors all went gets one in their place while it has any left */
+	   spends none of its replacements; one whose successors went away gets one in their place while it has any left */
 	private void fill(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
 		if (draw.drawn.isEmpty()) {
 			drawFirst(draw, current, avoid);
-		} else if (draw.replacements < REPLACEMENTS) {
+		} else if (draw.departed > 0 && draw.replacements < REPLACEMENTS) {
 			replace(draw, current, avoid);
 		}
 	}
 
+	/* The member drawn stands in for every successor that went away */
 	private void replace(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
 		final Channel replacement = drawn(current, draw, avoid);
 
 		if (replacement != null) {
 			draw.successors.add(replacement);
 			draw.replacements++;
-			draw.wanting = false;
+			draw.departed = 0;
 		}
 	}
 
