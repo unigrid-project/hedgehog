@@ -185,6 +185,25 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, RELAY).getEmbargo().bytes(), is(0L));
 	}
 
+	/* The member an entry came from may send it again, which is no round: the relay drops it without a flood and keeps
+	   the writer on its route, as an author does, which has no member its own entries came from */
+	@Example
+	public void anEntrySentAgainByTheMemberItCameFromIsNoRound() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> relayed = entries(fleet, 2, 2);
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String successor = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		assertThat(stem(fleet, RELAY, "gn-3", relayed.subList(0, 1)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(successor));
+	}
+
 	/* The author of an entry that came round leaves it to the shorter timers of the relays that hold it */
 	@Example
 	public void theAuthorDropsItsOwnStemThatCameRound() {

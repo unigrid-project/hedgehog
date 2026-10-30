@@ -700,14 +700,16 @@ public class ChainHost implements ChainService {
 	   its author leaves it to the shorter timers of the relays, and both move its writer to the other successor. One
 	   that came straight back from any member it was passed to, the one a refusal moved it away from too, is left to
 	   the timer by the author and a relay alike, and moves nothing: an honest member never passes an entry back to the
-	   one it came from, so such a bounce gets the answer of the author. */
+	   one it came from, so such a bounce gets the answer of the author. One that the member it came from sent again is
+	   no round either and is dropped, or that member could make a relay flood it at once and move the writer as it
+	   pleased; the entries of an author come from no member. */
 	private static void cameRound(final HostedChain hosted, final Channel peer, final Entry entry,
 		final List<Entry> flooded) {
 
 		final StemEmbargo embargo = hosted.getEmbargo();
 		final WriterId writer = entry.header().writer();
 
-		if (!embargo.wasSentTo(entry, peer)) {
+		if (!embargo.wasSentTo(entry, peer) && !embargo.sourceOf(entry).equals(Optional.of(peer))) {
 			hosted.getRouter().cameRound(writer, hosted.avoidOf(writer));
 
 			if (!embargo.holdsOwn(entry)) {
