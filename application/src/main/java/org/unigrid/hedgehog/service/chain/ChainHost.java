@@ -621,8 +621,8 @@ public class ChainHost implements ChainService {
 	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
 	   the embargo holds already has come round the stem, and is flooded at once, which ends the round and tells
 	   nothing of the exit, as a member that relayed it is never its author; its author leaves it to the shorter timers
-	   of the relays that hold it, and so does a relay it came straight back to. What the chain had no room for is
-	   answered as for a flood. */
+	   of the relays that hold it, and so does a relay it came straight back to. A round moves the writer off its
+	   route at the author and at a relay alike. What the chain had no room for is answered as for a flood. */
 	@Override
 	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
 		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
@@ -665,11 +665,8 @@ public class ChainHost implements ChainService {
 		final PassedOn packet = new PassedOn();
 
 		for (final Entry entry : entries) {
-			final StemEmbargo embargo = hosted.getEmbargo();
-
-			if (embargo.holds(entry)) {
-				packet.cameRound().addAll(floodsWhatCameRound(embargo, entry, peer) ? List.of(entry)
-					: List.of());
+			if (hosted.getEmbargo().holds(entry)) {
+				cameRound(hosted, peer, entry, packet.cameRound());
 			} else {
 				take(hosted, peer, entry, packet, now);
 			}
@@ -699,12 +696,24 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* An entry that came round is flooded at once by a member that relayed it, but its author leaves it to the shorter
-	   timers of the relays, and so does a relay it came straight back to from any member it passed it to, the one a
-	   refusal moved it away from too: an honest member never passes an entry back to the one it came from, so such a
-	   bounce gets the answer of the author */
-	private static boolean floodsWhatCameRound(final StemEmbargo embargo, final Entry entry, final Channel peer) {
-		return !embargo.holdsOwn(entry) && !embargo.wasSentTo(entry, peer);
+	/* An entry that came round from a member it was not passed to is flooded at once by a member that relayed it, but
+	   its author leaves it to the shorter timers of the relays, and both move its writer to the other successor. One
+	   that came straight back from any member it was passed to, the one a refusal moved it away from too, is left to
+	   the timer by the author and a relay alike, and moves nothing: an honest member never passes an entry back to the
+	   one it came from, so such a bounce gets the answer of the author. */
+	private static void cameRound(final HostedChain hosted, final Channel peer, final Entry entry,
+		final List<Entry> flooded) {
+
+		final StemEmbargo embargo = hosted.getEmbargo();
+		final WriterId writer = entry.header().writer();
+
+		if (!embargo.wasSentTo(entry, peer)) {
+			hosted.getRouter().cameRound(writer, hosted.avoidOf(writer));
+
+			if (!embargo.holdsOwn(entry)) {
+				flooded.add(entry);
+			}
+		}
 	}
 
 	/* Answers whether the entry was taken */

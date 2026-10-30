@@ -46,8 +46,8 @@ final class StemRouter {
 
 	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, the successors
 	   it passes the others on to, the first of them the route, and for a writer past the most it keeps, the hash that
-	   stands in for the draw. The route is the successor the entries go to now, the barred one refused an entry of the
-	   writer and gets none of it any more, and moved is set once a refusal moved the writer. */
+	   stands in for the draw. The route is the successor the entries go to now, the barred one is the route the writer
+	   moved off and gets none of it any more, and moved is set once a refusal or a round moved the writer. */
 	static final class Draw {
 		private final boolean diffuses;
 		private final List<Channel> successors;
@@ -135,9 +135,9 @@ final class StemRouter {
 
 	/* The successor a writer moves to when the one it is routed to refused an entry of it for want of room: the
 	   other drawn successor, if it is there and not among what the caller avoids now, and the one that refused gets
-	   nothing more of the writer. An author and a relay move alike, once for each writer, so a second refusal moves
-	   nothing, and a refusal from a stream the writer is not routed to moves nothing either. Without another
-	   successor nothing moves, and the writer stays on its route. */
+	   nothing more of the writer. An author and a relay move alike, once for each writer, whether a refusal or a
+	   round moves it, so a second one moves nothing, and a refusal from a stream the writer is not routed to moves
+	   nothing either. Without another successor nothing moves, and the writer stays on its route. */
 	synchronized Optional<Channel> refused(final WriterId writer, final Channel successor, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
@@ -145,7 +145,22 @@ final class StemRouter {
 			return Optional.empty();
 		}
 
-		draw.barred = successor;
+		return move(draw, avoid);
+	}
+
+	/* Moves a writer an entry of which came round the stem, from a member it was not passed to, to its other
+	   successor, as a refusal does and with the same one move: the route took the entry round, and the entries after
+	   it would follow. The author and a relay move alike, though only a relay floods what came round. */
+	synchronized void cameRound(final WriterId writer, final Set<Channel> avoid) {
+		final Draw draw = draws.get(writer);
+
+		if (draw != null && !draw.moved && draw.route != null) {
+			move(draw, avoid);
+		}
+	}
+
+	private Optional<Channel> move(final Draw draw, final Set<Channel> avoid) {
+		draw.barred = draw.route;
 
 		final List<Channel> open = open(draw, avoid);
 

@@ -248,6 +248,27 @@ public class StemRouterTest {
 		}
 	}
 
+	/* A round of the stem moves a writer to its other successor as a refusal does, and spends the same one move */
+	@Property(tries = 20)
+	public void aRoundAndARefusalShareTheOneMoveOfAWriter(@ForAll long seed) {
+		final List<Channel> members = streams(5);
+		final StemRouter router = router(seed, members);
+		final WriterId first = ChainFleet.writer(1);
+		final WriterId second = ChainFleet.writer(2);
+
+		router.ownSuccessor(first, Set.of());
+		router.ownSuccessor(second, Set.of());
+		router.cameRound(first, Set.of());
+
+		assertThat(router.ownSuccessor(first, Set.of()), is(Optional.of(router.drawn(first).get(1))));
+		assertThat(router.refused(first, router.drawn(first).get(1), Set.of()), is(Optional.empty()));
+
+		router.refused(second, router.drawn(second).get(0), Set.of());
+		router.cameRound(second, Set.of());
+
+		assertThat(router.ownSuccessor(second, Set.of()), is(Optional.of(router.drawn(second).get(1))));
+	}
+
 	/* An exit avoids both members its client attached through, which may come to be both successors of its writer:
 	   the writer is then routed to another member, and has none only when every member is avoided */
 	@Property(tries = 20)

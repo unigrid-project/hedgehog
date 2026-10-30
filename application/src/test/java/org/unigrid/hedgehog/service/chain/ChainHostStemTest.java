@@ -200,6 +200,52 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 
+	/* The other successor a member drew for a writer, besides the one it stemmed to */
+	private static String otherThan(final ChainFleet fleet, final String member, final int writer,
+		final String successor) {
+
+		return drawnBy(fleet, member, writer).stream().filter(id -> !id.equals(successor)).findFirst().orElseThrow();
+	}
+
+	/* An entry that comes round to a relay from a member it was not passed to is flooded at once, and one that comes
+	   round to its author is left to the timers of the relays, but both move the writer to its other successor for
+	   the entries that follow, once for its life, so the successor sees an author and a relay move alike */
+	@Example
+	public void aLoopMovesTheWriterOnceAtTheAuthorAndAtARelayAlike() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> own = entries(fleet, 1, 3);
+		final List<Entry> relayed = entries(fleet, 2, 3);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final String exitMovesTo = otherThan(fleet, EXIT, 1, fromExit);
+		final String relayMovesTo = otherThan(fleet, RELAY, 2, fromRelay);
+
+		assertThat(stem(fleet, EXIT, exitMovesTo, own.subList(0, 1)), is(empty()));
+		assertThat(stem(fleet, RELAY, relayMovesTo, relayed.subList(0, 1)), is(empty()));
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(writtenBy(fleet, RELAY).values(), everyItem(equalTo(List.of(new ChainEntry(relayed.subList(0, 1))))));
+
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(exitMovesTo));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(relayMovesTo));
+
+		stem(fleet, EXIT, fromExit, own.subList(1, 2));
+		stem(fleet, RELAY, fromRelay, relayed.subList(1, 2));
+		writtenBy(fleet, EXIT);
+		writtenBy(fleet, RELAY);
+		postStem(fleet, own.get(2));
+		stem(fleet, RELAY, "gn-3", relayed.subList(2, 3));
+
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(exitMovesTo));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(relayMovesTo));
+	}
+
 	/* A client passes nothing on, so a stem from its stream, from a stranger or for a chain this node only follows is
 	   dropped like a fetch from one */
 	@Example
