@@ -402,18 +402,21 @@ public class ChainHostStemTest {
 		assertThat(written.values(), everyItem(equalTo(List.of(new ChainEntry(own)))));
 	}
 
-	/* The replica of the exit has room for two entries, one of them kept for what it relays, and the stem holds the
-	   other, so the next waits */
+	/* The replica of the exit has room for the entries its chain holds but one, kept for what it relays. The stem
+	   holds them, the first as taken and the others as held past it, until they come back, so the next waits. */
 	@Example
 	public void stemsNoEntryTheReplicaWouldHaveNoRoomFor() {
-		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(false));
-		final List<Entry> own = entries(fleet, 1, 2);
+		final ProxySettings settings = ChainFleet.smallChains(5);
+		final ChainFleet fleet = group(settings, ChainFleet.everyMember(false));
+		final int room = ChainFleet.entriesHeld(settings) - 1;
+		final List<Entry> own = entries(fleet, 1, room + 1);
 
 		assertThat(postStem(fleet, own.get(0)), is(Admission.ACCEPTED));
+		own.subList(1, room).forEach(entry -> assertThat(postStem(fleet, entry), is(Admission.AHEAD)));
 		writtenBy(fleet, EXIT);
-		assertThat(postStem(fleet, own.get(1)), is(Admission.FULL));
+		assertThat(postStem(fleet, own.get(room)), is(Admission.FULL));
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
-		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(false));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(room)), is(false));
 	}
 
 	/* A writer whose entries are all in the stem has a place on the chain as if they were in it */
@@ -828,12 +831,14 @@ public class ChainHostStemTest {
 	   are in, so the sender hears of the one it had no room for */
 	@Example
 	public void aDiffuserCountsTheEntriesOfAPacketAsItGoes() {
-		final ChainFleet fleet = group(ChainFleet.smallChains(2), ChainFleet.everyMember(true));
-		final List<Entry> packet = entries(fleet, 1, 3);
+		final ProxySettings settings = ChainFleet.smallChains(5);
+		final ChainFleet fleet = group(settings, ChainFleet.everyMember(true));
+		final int held = ChainFleet.entriesHeld(settings);
+		final List<Entry> packet = entries(fleet, 1, held + 1);
 
-		assertThat(stem(fleet, RELAY, "gn-1", packet), equalTo(List.of(EntryRefused.of(packet.get(2),
+		assertThat(stem(fleet, RELAY, "gn-1", packet), equalTo(List.of(EntryRefused.of(packet.get(held),
 			Admission.FULL))));
-		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(packet.subList(0, 2)));
+		assertThat(hosted(fleet, RELAY).getChain().entries(), equalTo(packet.subList(0, held)));
 	}
 
 	/* A host given one generator draws the stem from another seeded by it, so hosts given different generators do not

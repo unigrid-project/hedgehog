@@ -1155,11 +1155,15 @@ public class ChainExitTest {
 	   feed there and holds no place once its entries would have aged out */
 	@Example
 	public void leavesNoLastingPlaceForAWriterThatNeverReachedItsChain() {
-		/* An entry of a stranger and the opening fill the chain */
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(2)));
+		/* Entries of a stranger and the opening fill the chain */
+		final ProxySettings settings = ChainFleet.smallChains(5);
+		final Rig rig = new Rig(ChainFleet.group(settings));
 		final ChainId chainId = rig.fleet.chain();
 
-		rig.offer(rig.stranger(1, chainId).write(ChainFleet.NOW, ChainFleet.TAG, padded(new byte[1])));
+		for (int filler = 1; filler < ChainFleet.entriesHeld(settings); filler++) {
+			rig.offer(rig.stranger(1, chainId).write(ChainFleet.NOW, ChainFleet.TAG, padded(new byte[1])));
+		}
+
 		rig.caller(1).open();
 		assertThat(rig.exit.heldRelays(), is(1));
 

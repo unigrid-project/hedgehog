@@ -878,13 +878,16 @@ public class ClientSessionsTest {
 	/* The outbox is shared, so a pause is one for every session of the attachment, one opened meanwhile too */
 	@Example
 	public void pausesWhileTheChainHasNoRoomAndGoesOnWhenItHas() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
+		final ProxySettings small = ChainFleet.smallChains(5);
+		final Rig rig = new Rig(ChainFleet.group(small));
 		final Listener listener = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
 
 		final ExitStub exit = rig.answering();
+
+		fillAfterTheHandshake(rig, small);
 
 		rig.fleet.clock.addAndGet(15_000);
 		handle.send(new Data(new byte[300]));
@@ -916,11 +919,13 @@ public class ClientSessionsTest {
 	   and the other as it opened, and the chain takes the post before any tick saw it refused */
 	@Example
 	public void tellsTheOpenersThatReadThatTheChainHadNoRoomWhenItTakesThePostAtTheNextTick() {
-		final Rig rig = new Rig(ChainFleet.group(ChainFleet.smallChains(HANDSHAKE_ENTRIES)));
+		final ProxySettings small = ChainFleet.smallChains(5);
+		final Rig rig = new Rig(ChainFleet.group(small));
 		final Listener listener = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), listener);
 
 		rig.fleet.deliver();
+		fillAfterTheHandshake(rig, small);
 		rig.fleet.clock.addAndGet(15_000);
 		handle.send(new Data(new byte[300]));
 
@@ -944,7 +949,7 @@ public class ClientSessionsTest {
 	   next session joins with a writer of its own and carries on */
 	@Example
 	public void joinsWithANewWriterOnceAnEntryWaitedForRoomLongerThanTheChainKeepsEntries() {
-		final ProxySettings tiny = ChainFleet.smallChains(HANDSHAKE_ENTRIES + 1);
+		final ProxySettings tiny = ChainFleet.smallChains(5);
 		final Rig rig = new Rig(ChainFleet.group(tiny));
 		final Listener stuck = new Listener();
 		final SessionHandle handle = rig.sessions.open(CONNECT, Optional.empty(), stuck);
@@ -953,13 +958,10 @@ public class ClientSessionsTest {
 
 		final ChainAttachment earlier = rig.attachment();
 		final List<Session> answered = rig.exitSessions();
-		final Entry filler = new FeedWriter(ChainFleet.key(400), earlier.chainId()).write(rig.fleet.clock.get(),
-			ChainFleet.TAG, ChainFleet.padded(new byte[0], tiny.chainLimits().maxEntryBytes()));
 
 		/* Another writer takes the room left after the handshake, which the next session's exit needs for its
 		   Connected once both have gone past the retention window */
-		rig.fleet.host(CLIENT).receive(earlier.streams().get(0), ChainEntry.builder().entries(List.of(filler))
-			.build());
+		fillAfterTheHandshake(rig, tiny);
 
 		rig.fleet.clock.addAndGet(15_000);
 		handle.send(new Data(new byte[300]));
@@ -976,6 +978,18 @@ public class ClientSessionsTest {
 
 		rig.after(tiny.sessionIdleMillis());
 		assertThat(stuck.messages, equalTo(List.of(new Close(CloseReason.IDLE))));
+	}
+
+	/* Another writer takes the room the chain has left after one handshake, now, through the first member the client
+	   is attached through */
+	private static void fillAfterTheHandshake(final Rig rig, final ProxySettings settings) {
+		final ChainAttachment attachment = rig.attachment();
+		final FeedWriter filler = new FeedWriter(ChainFleet.key(400), attachment.chainId());
+		final List<Entry> fillers = IntStream.range(HANDSHAKE_ENTRIES, ChainFleet.entriesHeld(settings))
+			.mapToObj(entry -> filler.write(rig.fleet.clock.get(), ChainFleet.TAG,
+			ChainFleet.padded(new byte[0], settings.chainLimits().maxEntryBytes()))).toList();
+
+		rig.fleet.host(CLIENT).receive(attachment.streams().get(0), ChainEntry.builder().entries(fillers).build());
 	}
 
 	/* The client's writer holds the latest time it stamped, so once the clock stepped back further than the chain

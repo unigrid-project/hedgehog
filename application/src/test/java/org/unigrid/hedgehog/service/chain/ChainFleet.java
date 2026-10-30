@@ -68,6 +68,7 @@ import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
+import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.FeedWriter;
 import org.unigrid.hedgehog.proxy.chain.SizeClasses;
@@ -172,6 +173,13 @@ final class ChainFleet {
 	   both the smallest class and the largest entry, so that every entry of a session takes the same room. */
 	static ProxySettings smallChains(final int entries) {
 		return new ProxySettings(8, 3600, 4, 16, (entries - 1) * 1024L, 30, 1024, 300, 3);
+	}
+
+	/* How many entries of the smallest class a chain of the settings holds, its reserve included */
+	static int entriesHeld(final ProxySettings settings) {
+		final ChainLimits limits = settings.chainLimits();
+
+		return Math.toIntExact((limits.capacityBytes() + limits.reserveBytes()) / limits.smallestClassBytes());
 	}
 
 	/* Four gridnodes in one group, so each of them hosts the same chains */
