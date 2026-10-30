@@ -232,8 +232,8 @@ public class StemRouterTest {
 		assertThat(router.hasSuccessor(Set.of()), is(true));
 	}
 
-	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, so
-	   refusals cannot walk the stem of a writer to a member outside its draw */
+	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, and a
+	   second leaves it none, so refusals cannot walk the stem of a writer to a member outside its draw */
 	@Property(tries = 20)
 	public void movesAWriterOnceWhateverItsSuccessorsRefuse(@ForAll long seed) {
 		final List<Channel> members = streams(5);
@@ -249,13 +249,15 @@ public class StemRouterTest {
 			final Channel route = router.successor(writer, Set.of()).orElseThrow();
 
 			assertThat(router.refused(writer, route, Set.of()), is(Optional.of(drawn.get(1))));
+			assertThat(router.successor(writer, Set.of()), is(Optional.of(drawn.get(1))));
+			assertThat(router.refused(writer, drawn.get(1), Set.of()), is(Optional.empty()));
 
 			for (int refusal = 0; refusal < 4; refusal++) {
-				final Channel moved = router.successor(writer, Set.of()).orElseThrow();
-
-				assertThat(moved, is(drawn.get(1)));
-				assertThat(router.refused(writer, moved, Set.of()), is(Optional.empty()));
+				assertThat(router.successor(writer, Set.of()), is(Optional.empty()));
+				members.forEach(member -> assertThat(router.refused(writer, member, Set.of()), is(Optional.empty())));
 			}
+
+			assertThat(router.strands(writer, Set.of()), is(true));
 		}
 	}
 

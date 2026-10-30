@@ -812,13 +812,16 @@ public class ChainHostStemTest {
 		refuseOnce(fleet, entries(fleet, 1, 2), entries(fleet, 2, 2));
 	}
 
-	/* A second refusal for the same writer moves its stem no further, at the author and at a relay */
+	/* A second refusal for the same writer moves its stem no further, at the author and at a relay, and the member
+	   that refused gets nothing more of it either: the writer has no successor left. The exit floods nothing of its
+	   own that went nowhere, and ends the session, while a relay floods what it holds at its timer. */
 	@Example
-	public void aSecondRefusalOfAWriterReroutesNoMore() {
+	public void aSecondRefusalOfAWriterLeavesItNoSuccessor() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
 		final List<Entry> own = entries(fleet, 1, 3);
 		final List<Entry> relayed = entries(fleet, 2, 3);
 		final Map<String, String> again = refuseOnce(fleet, own.subList(0, 2), relayed.subList(0, 2));
+		int rounds = 0;
 
 		fleet.host(EXIT).refused(fleet.stream(EXIT, again.get(EXIT)), EntryRefused.of(own.get(1), Admission.FULL));
 		fleet.host(RELAY).refused(fleet.stream(RELAY, again.get(RELAY)), EntryRefused.of(relayed.get(1),
@@ -826,12 +829,27 @@ public class ChainHostStemTest {
 
 		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
 
 		postStem(fleet, own.get(2));
-		stem(fleet, RELAY, "gn-1".equals(again.get(RELAY)) ? "gn-2" : "gn-1", relayed.subList(2, 3));
+		stem(fleet, RELAY, "gn-3", relayed.subList(2, 3));
 
-		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(again.get(EXIT)));
-		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(again.get(RELAY)));
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+
+		while ((!hosted(fleet, RELAY).getChain().entries().contains(relayed.get(2))
+			|| hosted(fleet, EXIT).getEmbargo().holds(own.get(2))) && rounds < MAX_ROUNDS) {
+
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			fleet.host(RELAY).maintain();
+			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(2)), is(empty()));
+			rounds++;
+		}
+
+		assertThat(rounds, is(lessThan(MAX_ROUNDS)));
+		assertThat(floodsOf(writtenBy(fleet, RELAY), relayed.get(2)), is(not(empty())));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(2)), is(false));
 	}
 
 	/* Once both drawn successors refused, no member outside the draw of the writer gets anything of it */

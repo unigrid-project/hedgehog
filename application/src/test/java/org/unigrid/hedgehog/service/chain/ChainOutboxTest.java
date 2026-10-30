@@ -1045,6 +1045,25 @@ public class ChainOutboxTest {
 		assertThat(host.hosted(fleet.chain()).orElseThrow().getEmbargo().holds(entries.get(1)), is(false));
 	}
 
+	/* Once both successors of a writer of an exit refused, the writer has none left, and its outbox ends */
+	@Example
+	public void anExitsOutboxEndsOnceBothSuccessorsRefused() {
+		final ChainOutbox stems = stemming();
+		final List<Entry> entries = mine(3);
+
+		stems.accept(entries.get(0));
+		host.refused(fleet.stream("gn-1", onlyOneOf(written())), EntryRefused.of(entries.get(0), Admission.FULL));
+		written();
+		stems.tick();
+		stems.accept(entries.get(1));
+		host.refused(fleet.stream("gn-1", onlyOneOf(written())), EntryRefused.of(entries.get(1), Admission.FULL));
+		stems.tick();
+		stems.accept(entries.get(2));
+
+		assertThat(stems.hasEnded(), is(true));
+		assertThat(written().values().stream().allMatch(List::isEmpty), is(true));
+	}
+
 	/* The members an exit avoids are those it knows of when it stems an entry: the second member a client attached
 	   through may become known only after the session began */
 	@Example

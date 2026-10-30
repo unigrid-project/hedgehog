@@ -172,18 +172,19 @@ final class StemRouter {
 
 	/* The successor a writer moves to when its route refused an entry of it for want of room: the second, and the
 	   one that refused gets nothing more of the writer. An author and a relay move alike, once for each writer,
-	   whether a refusal or a round moves it, so a second one moves nothing, and a refusal from a stream that is not
-	   the route moves nothing either. Without a second successor nothing moves. What a writer of this member's own
+	   whether a refusal or a round moves it, so a refusal after that moves nothing, nor does one when there is no
+	   second, but the route that refused is dropped all the same, and nothing is drawn in its place: the writer has no
+	   successor left. A refusal from a stream that is not the route moves nothing. What a writer of this member's own
 	   avoids is given by the caller. */
 	synchronized Optional<Channel> refused(final WriterId writer, final Channel successor, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
-		if (draw == null || draw.moved) {
+		if (draw == null) {
 			return Optional.empty();
 		}
 
 		refresh(draw, avoid);
-		return route(draw).filter(successor::equals).flatMap(route -> move(draw));
+		return route(draw).filter(successor::equals).flatMap(route -> bar(draw));
 	}
 
 	/* Moves a writer an entry of which came round the stem, from a member it was not passed to, to its second
@@ -263,6 +264,15 @@ final class StemRouter {
 		draw.successors.remove(0);
 		draw.moved = true;
 		return route(draw);
+	}
+
+	/* Drops the route, which refused, and answers the successor after it if the writer may still move */
+	private static Optional<Channel> bar(final Draw draw) {
+		final boolean moves = !draw.moved && draw.successors.size() >= SUCCESSORS;
+
+		draw.successors.remove(0);
+		draw.moved = true;
+		return moves ? route(draw) : Optional.empty();
 	}
 
 	/* The successors a writer is drawn with the first time, as many as there are members to draw */
