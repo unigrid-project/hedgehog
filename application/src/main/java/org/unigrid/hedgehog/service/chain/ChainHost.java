@@ -204,7 +204,7 @@ public class ChainHost implements ChainService, StemHost {
 		this.stemRandom = draws.stem();
 
 		/* Last, as the stem calls back into the host */
-		this.stems = new Stem(this, clock);
+		this.stems = new Stem(this, () -> hosting, clock);
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
@@ -779,87 +779,19 @@ public class ChainHost implements ChainService, StemHost {
 	/* The same for a writer whose streams to avoid may grow, as an exit learns of the second member its client
 	   attached through: they are asked again whenever an entry of the writer is stemmed, a refused one too */
 	public Admission postStem(final ChainId chainId, final Entry entry, final Supplier<Set<Channel>> avoid) {
-		if (chainId == null || !chainId.equals(entry.header().chainId())) {
-			return Admission.WRONG_CHAIN;
-		}
-
-		return hosting.find(chainId).map(hosted -> postStem(hosted, entry, avoid)).orElse(Admission.WRONG_CHAIN);
+		return stems.postStem(chainId, entry, avoid);
 	}
 
 	/* Whether a writer whose entries go out through the stem has no successor left on the chain: each it was given
 	   refused, went round or went away, and no member may be drawn in their place. A session of the exit that writes
 	   as one of this node's own ends then, rather than have this node flood what it writes, which would name it. */
 	public boolean isStranded(final ChainId chainId, final WriterId writer) {
-		return chainId != null && hosting.find(chainId)
-			.filter(hosted -> hosted.getRouter().strands(writer, hosted.avoidOf(writer))).isPresent();
+		return stems.isStranded(chainId, writer);
 	}
 
 	/* Whether an entry posted to the stem now would find a successor outside the streams to avoid */
 	public boolean canStem(final ChainId chainId, final Set<Channel> avoid) {
-		return chainId != null && hosting.find(chainId).filter(hosted -> hosted.getRouter().hasSuccessor(avoid))
-			.isPresent();
-	}
-
-	private Admission postStem(final HostedChain hosted, final Entry entry, final Supplier<Set<Channel>> avoid) {
-		final long now = clock.getAsLong();
-		final Admission admission = hosted.holdOwn(entry, now);
-
-		if (Stem.PASSES_ON.contains(admission)) {
-			hosted.avoidFor(entry.header().writer(), avoid);
-			stemOwn(hosted, entry.header().writer(), List.of(entry), avoid.get(), now);
-		}
-
-		return admission;
-	}
-
-	private void stemOwn(final HostedChain hosted, final WriterId writer, final List<Entry> entries,
-		final Set<Channel> avoid, final long now) {
-
-		hosted.getRouter().ownSuccessor(writer, avoid).ifPresent(next -> stems.pass(hosted, next, entries, now));
-	}
-
-	/* What waits for a member whose stream took no writes goes to the route of its writer as soon as that stream takes
-	   writes again, at the author and at a relay alike */
-	@Override
-	public void retry(final Channel stream) {
-		final long now = clock.getAsLong();
-
-		hosting.all().forEach(hosted -> byLane(hosted, hosted.getEmbargo().waitingFor(stream))
-			.forEach((lane, entries) -> lane.route(hosted)
-				.ifPresent(route -> stems.pass(hosted, route, entries, now))));
-	}
-
-	private record Lane(WriterId writer, Channel source) {
-		/* The entries of one writer that are routed alike: those of a writer of this node's own, without a source,
-		   avoid what the writer avoids, and those of a writer it relays avoid the stream they came in on, which
-		   keeps the route of a writer past the draws the router keeps the same wherever it is asked for */
-		private Set<Channel> avoid(final HostedChain hosted) {
-			return source == null ? hosted.avoidOf(writer) : Set.of(source);
-		}
-
-		private Optional<Channel> route(final HostedChain hosted) {
-			return source == null ? hosted.getRouter().ownSuccessor(writer, avoid(hosted))
-				: hosted.getRouter().successor(writer, avoid(hosted));
-		}
-
-		/* A writer a relay routes by the hash, past the draws it keeps, which nothing moves */
-		private boolean isHashed(final HostedChain hosted) {
-			return source != null && !hosted.getRouter().keeps(writer);
-		}
-
-		/* A writer of this node's own is never routed by the hash */
-		private boolean isLost(final HostedChain hosted) {
-			return source == null && !hosted.getRouter().keeps(writer);
-		}
-	}
-
-	private static Map<Lane, List<Entry>> byLane(final HostedChain hosted, final List<Entry> entries) {
-		return entries.stream().collect(Collectors.groupingBy(entry -> laneOf(hosted, entry), LinkedHashMap::new,
-			Collectors.toList()));
-	}
-
-	private static Lane laneOf(final HostedChain hosted, final Entry entry) {
-		return new Lane(entry.header().writer(), hosted.getEmbargo().sourceOf(entry).orElse(null));
+		return stems.canStem(chainId, avoid);
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
@@ -934,7 +866,7 @@ public class ChainHost implements ChainService, StemHost {
 			.map(StemEmbargo.Due::entry).toList());
 
 		waited.stream().filter(held -> !held.sent() && !held.bySource())
-			.collect(Collectors.groupingBy(held -> laneOf(hosted, held.entry()), LinkedHashMap::new,
+			.collect(Collectors.groupingBy(held -> Stem.laneOf(hosted, held.entry()), LinkedHashMap::new,
 				Collectors.toList()))
 			.forEach((lane, unsent) -> due.addAll(passLate(hosted, lane, unsent, now)));
 
@@ -953,7 +885,7 @@ public class ChainHost implements ChainService, StemHost {
 	   MISSED_DEADLINES deadlines on it, its write there on its way or not. An entry whose write to the route it stays
 	   on is still on its way waits on, and is not written there again. Nothing moves a writer a relay routes by the
 	   hash, so it has no successor once its route stalled or takes no writes, and the relay floods what waits. */
-	private List<Entry> passLate(final HostedChain hosted, final Lane lane, final List<StemEmbargo.Due> unsent,
+	private List<Entry> passLate(final HostedChain hosted, final Stem.Lane lane, final List<StemEmbargo.Due> unsent,
 		final long now) {
 
 		final List<Entry> entries = unsent.stream().map(StemEmbargo.Due::entry).toList();
