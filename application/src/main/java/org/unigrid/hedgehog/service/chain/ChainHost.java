@@ -1071,7 +1071,8 @@ public class ChainHost implements ChainService {
 
 	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
 	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
-	   entry tried on it when it took no writes since the entry first missed it. */
+	   entry tried on it when it took no writes since the entry first missed it, or when the entry has now missed
+	   MISSED_DEADLINES deadlines on it. */
 	private List<Entry> passLate(final HostedChain hosted, final WriterId writer, final List<StemEmbargo.Due> unsent,
 		final long now) {
 
@@ -1094,7 +1095,8 @@ public class ChainHost implements ChainService {
 
 	private static boolean stalls(final Channel route, final List<StemEmbargo.Due> unsent) {
 		return unsent.stream().map(StemEmbargo.Due::waiting).filter(Objects::nonNull)
-			.anyMatch(waiting -> waiting.route() == route && StemStalls.since(route, waiting.since()));
+			.anyMatch(waiting -> waiting.route() == route && (StemStalls.since(route, waiting.since())
+				|| waiting.missed() >= StemEmbargo.MISSED_DEADLINES));
 	}
 
 	/* Drops the retired chains that are done, by the spork as it reads now. While it is on, a chain goes once its

@@ -44,6 +44,10 @@ final class StemEmbargo {
 	   to, and one more */
 	static final int MAX_SENT_TO = 3;
 
+	/* How many deadlines an entry that never left may miss on one route before the route counts as stalled, however
+	   it took writes in between, so that a route which only seems to take them still loses the writer */
+	static final int MISSED_DEADLINES = 2;
+
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
 	record Waiting(Channel route, long since, int missed, boolean skipped) {

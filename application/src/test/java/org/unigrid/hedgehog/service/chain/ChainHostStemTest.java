@@ -601,6 +601,61 @@ public class ChainHostStemTest {
 		assertThat(drawnBy(fleet, RELAY, 2), is(relayDrew));
 	}
 
+	/* Takes every stem written to the stream and never sends it on, as a member whose stream accepts what it is handed
+	   and then stops reading */
+	private static void holdStems(final EmbeddedChannel stream) {
+		stream.pipeline().addFirst(new ChannelOutboundHandlerAdapter() {
+			@Override
+			public void write(final ChannelHandlerContext context, final Object packet, final ChannelPromise promise) {
+				if (!(packet instanceof ChainStem)) {
+					context.write(packet, promise);
+				}
+			}
+		});
+	}
+
+	/* A route that seems to take writes but never gets one out does not stall without a break, so it is moved off
+	   once an entry missed MISSED_DEADLINES deadlines on it, at the author and at a relay alike, and the entry goes
+	   late to the other successor without ever being flooded before */
+	@Example
+	public void aRouteThatNeverGetsAWriteOutIsMovedOffAfterTwoMissedDeadlines() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> relayed = entries(fleet, 2, 2);
+		Optional<String> exitMoved = Optional.empty();
+		Optional<String> relayMoved = Optional.empty();
+		int rounds = 0;
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String exitRoute = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String relayRoute = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		holdStems(fleet.stream(EXIT, exitRoute));
+		holdStems(fleet.stream(RELAY, relayRoute));
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		while ((exitMoved.isEmpty() || relayMoved.isEmpty()) && rounds < 3 * MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			fleet.host(RELAY).maintain();
+
+			final Map<String, List<Object>> fromExit = writtenBy(fleet, EXIT);
+			final Map<String, List<Object>> fromRelay = writtenBy(fleet, RELAY);
+
+			assertThat(exitMoved.isEmpty() ? floodsOf(fromExit, own.get(1)) : List.of(), is(empty()));
+			assertThat(relayMoved.isEmpty() ? floodsOf(fromRelay, relayed.get(1)) : List.of(), is(empty()));
+			exitMoved = exitMoved.or(() -> stemmedWith(fromExit, own.get(1)));
+			relayMoved = relayMoved.or(() -> stemmedWith(fromRelay, relayed.get(1)));
+			rounds++;
+		}
+
+		assertThat(exitMoved, is(Optional.of(otherThan(fleet, EXIT, 1, exitRoute))));
+		assertThat(relayMoved, is(Optional.of(otherThan(fleet, RELAY, 2, relayRoute))));
+	}
+
 	/* The member that a stem went to first of the given ones, if any */
 	private static Optional<String> stemmedWith(final Map<String, List<Object>> written, final Entry entry) {
 		return written.entrySet().stream().filter(sent -> sent.getValue().stream().anyMatch(packet -> packet
@@ -1321,7 +1376,8 @@ public class ChainHostStemTest {
 	}
 
 	/* An entry counts as passed to a successor once its stream took it, so one whose write failed, as when the stream
-	   closed before it went out, never left, at the author and at a relay alike, and the exit never floods it */
+	   closed before it went out, never left, at the author and at a relay alike, and the exit never floods it before
+	   it went to another successor */
 	@Example
 	public void anEntryWhoseWriteFailedNeverLeft() {
 		final ChainFleet fleet = groupOfEight();
@@ -1338,11 +1394,19 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, EXIT).getEmbargo().wasSent(own.get(1)), is(false));
 		assertThat(hosted(fleet, RELAY).getEmbargo().wasSent(relayed.get(1)), is(false));
 
-		for (int second = 0; second < MAX_ROUNDS; second++) {
+		Optional<String> moved = Optional.empty();
+
+		for (int second = 0; second < 3 * MAX_ROUNDS && moved.isEmpty(); second++) {
 			fleet.clock.addAndGet(1000);
 			fleet.host(EXIT).maintain();
-			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(1)), is(empty()));
+
+			final Map<String, List<Object>> written = writtenBy(fleet, EXIT);
+
+			assertThat(floodsOf(written, own.get(1)), is(empty()));
+			moved = stemmedWith(written, own.get(1));
 		}
+
+		assertThat(moved.isPresent(), is(true));
 	}
 
 	/* An honest member never passes an entry back to the one it came from, so an entry that comes straight back from
