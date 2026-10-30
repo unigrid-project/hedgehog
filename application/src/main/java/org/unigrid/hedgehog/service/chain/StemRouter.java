@@ -199,14 +199,13 @@ final class StemRouter {
 		}
 	}
 
-	/* A route of a writer of this member's own that took no writes for as long as an entry of the writer waited to
-	   leave counts as gone: the writer goes to its other successor, or to one drawn in place of both while it has
-	   replacements left. Unlike a relay, which floods what it holds at its timer, this member would be the first to
-	   flood what never left, which names it. */
+	/* A route that took no writes for as long as an entry of the writer waited counts as gone, at the author and at a
+	   relay alike: the writer goes to its other successor, or to one drawn in place of both while it has replacements
+	   left, and the stalled member is never drawn for it again */
 	synchronized void stalled(final WriterId writer, final Channel successor, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
-		if (draw != null && draw.own && route(draw).filter(successor::equals).isPresent()) {
+		if (draw != null && route(draw).filter(successor::equals).isPresent()) {
 			draw.successors.remove(0);
 			draw.wanting = draw.successors.isEmpty();
 			refresh(draw, avoid);

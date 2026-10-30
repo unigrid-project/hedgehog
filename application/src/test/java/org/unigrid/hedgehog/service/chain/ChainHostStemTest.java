@@ -499,6 +499,38 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(own.size() - 1)), is(false));
 	}
 
+	/* A relay whose route stopped taking writes moves the writer off it as the exit does, once an entry it could not
+	   pass on waited out its deadline, to its other successor, and floods that entry at its timer as before, so the
+	   member that stopped reading sees author and relay alike */
+	@Example
+	public void aRelayMovesOffARouteThatStoppedReadingAndFloodsAtItsTimer() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> relayed = entries(fleet, 2, 3);
+		int rounds = 0;
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String route = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final String other = otherThan(fleet, RELAY, 2, route);
+
+		ChainFleet.unwritable(fleet.stream(RELAY, route));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+
+		while (!hosted(fleet, RELAY).getChain().entries().contains(relayed.get(1)) && rounds < MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(RELAY).maintain();
+			rounds++;
+		}
+
+		assertThat(rounds, is(lessThan(MAX_ROUNDS)));
+		assertThat(floodsOf(writtenBy(fleet, RELAY), relayed.get(1)), is(not(empty())));
+		assertThat(drawnBy(fleet, RELAY, 2), is(Set.of(other)));
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(2, 3));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(other));
+	}
+
 	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */
 	@Example
 	public void aRelayWithNoSuccessorLeftFloodsAtItsTimer() {

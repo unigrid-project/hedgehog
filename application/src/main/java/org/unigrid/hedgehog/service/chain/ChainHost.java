@@ -1006,9 +1006,15 @@ public class ChainHost implements ChainService {
 	   entry the chain appends: those of this node's own writers they know as such. An entry of this node's own that
 	   the chain has no room for stays in the embargo and is flooded again at its next deadline; one the chain will
 	   never take goes. One of this node's own that never left is never flooded, as this node would be the first to
-	   flood it, which names it as its author: it goes to the successor of its writer now. */
+	   flood it, which names it as its author: it goes to the successor of its writer now. A route that still takes no
+	   writes then counts as gone, at the author and at a relay alike. */
 	private void floodDue(final HostedChain hosted) {
-		final Map<Boolean, List<Entry>> held = hosted.getEmbargo().due(clock.getAsLong()).stream()
+		final List<Entry> waited = hosted.getEmbargo().due(clock.getAsLong());
+
+		waited.stream().map(entry -> entry.header().writer()).distinct()
+			.forEach(writer -> moveOffStalled(hosted, writer));
+
+		final Map<Boolean, List<Entry>> held = waited.stream()
 			.collect(Collectors.partitioningBy(entry -> neverLeft(hosted, entry)));
 		final List<Entry> due = held.get(false);
 
@@ -1028,18 +1034,21 @@ public class ChainHost implements ChainService {
 		return hosted.getEmbargo().holdsOwn(entry) && !hosted.getEmbargo().wasSent(entry);
 	}
 
-	/* What a writer of this node's own could not pass on for as long as an entry waits in the embargo goes to its
-	   successor now. A route that took no writes all that while counts as gone, so they go to the successor that
-	   takes its place, and they wait again while that one takes none. With no successor left they are dropped, and
-	   the session of the writer ends on it. */
-	private static void stemLate(final HostedChain hosted, final WriterId writer, final List<Entry> entries) {
+	/* A route that took no writes for as long as an entry of its writer waited counts as gone, and the writer goes
+	   to the successor that takes its place */
+	private static void moveOffStalled(final HostedChain hosted, final WriterId writer) {
 		final StemRouter router = hosted.getRouter();
 		final Set<Channel> avoid = hosted.avoidOf(writer);
 
-		router.ownSuccessor(writer, avoid).filter(route -> !route.isWritable())
+		router.successor(writer, avoid).filter(route -> !route.isWritable())
 			.ifPresent(route -> router.stalled(writer, route, avoid));
+	}
 
-		final Optional<Channel> next = router.ownSuccessor(writer, avoid);
+	/* What a writer of this node's own could not pass on for as long as an entry waits in the embargo goes to its
+	   successor now, and waits again while that one takes no writes. With no successor left it is dropped, and the
+	   session of the writer ends on it. */
+	private static void stemLate(final HostedChain hosted, final WriterId writer, final List<Entry> entries) {
+		final Optional<Channel> next = hosted.getRouter().ownSuccessor(writer, hosted.avoidOf(writer));
 
 		if (next.isPresent()) {
 			stemTo(hosted, next.get(), entries);
