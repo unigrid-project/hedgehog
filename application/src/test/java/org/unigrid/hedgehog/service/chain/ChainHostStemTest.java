@@ -904,6 +904,26 @@ public class ChainHostStemTest {
 		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(0)), is(true));
 	}
 
+	/* An entry that the route of its writer passes to a relay is never passed back there: it waits in the embargo,
+	   which floods it in time, and the writer stays on its route, as an author's would, whose entries come from no
+	   member */
+	@Example
+	public void aRelayHoldsWhatItsRouteSentItAndKeepsTheRoute() {
+		final ChainFleet fleet = group(ChainFleet.everyMember(false));
+		final List<Entry> relayed = entries(fleet, 2, 3);
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String route = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+
+		assertThat(stem(fleet, RELAY, route, relayed.subList(1, 2)), is(empty()));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(1)), is(true));
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(2, 3));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(route));
+	}
+
 	/* A route that takes no writes for a while is skipped for what comes meanwhile, which waits in the embargo, and the
 	   writer stays on it: once it takes writes again the next entry goes there, at the author and at a relay alike */
 	@Example
@@ -964,8 +984,9 @@ public class ChainHostStemTest {
 	}
 
 	/* A relay is passed two entries of a writer, by a member it did not draw and by its other drawn successor, and
-	   passes both to the same successor, which refuses the first: the other drawn successor sent it the second, so the
-	   relay sends neither there, as an honest relay never passes an entry back to the member it got it from */
+	   passes both to the same successor, which refuses the first: the writer moves to the other drawn successor, which
+	   gets the first again but not the second, which it sent, as an honest relay never passes an entry back to the
+	   member it got it from */
 	@Example
 	public void aRelayNeverStemsARefusedEntryBackToTheMemberItCameFrom() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -981,7 +1002,10 @@ public class ChainHostStemTest {
 		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(successor));
 		fleet.host(RELAY).refused(fleet.stream(RELAY, successor), EntryRefused.of(relayed.get(0), Admission.FULL));
 
-		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+		final Map.Entry<String, List<Object>> again = stemmedTo(writtenBy(fleet, RELAY));
+
+		assertThat(again.getKey(), is(other));
+		assertThat(again.getValue(), equalTo(List.of(new ChainStem(relayed.subList(0, 1)))));
 		relayed.forEach(entry -> assertThat(hosted(fleet, RELAY).getEmbargo().holds(entry), is(true)));
 	}
 

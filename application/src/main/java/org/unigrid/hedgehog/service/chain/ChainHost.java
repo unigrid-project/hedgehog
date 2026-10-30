@@ -692,7 +692,7 @@ public class ChainHost implements ChainService {
 			: hosted.holdRelayed(entry, peer, now);
 
 		if (sortOut(admission, entry, packet.full(), draw.diffuses() ? packet.diffused() : packet.relayed())) {
-			hosted.getRouter().keep(writer, draw);
+			hosted.getRouter().keep(writer, draw, peer);
 		}
 	}
 
@@ -738,12 +738,13 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	/* The entries are held in the embargo already, and one without a successor waits there, which floods it in time */
+	/* The entries are held in the embargo already, and one without a successor waits there, which floods it in time, as
+	   does one whose route is the stream it came in on, as it never goes back there */
 	private static void relay(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final Map<Channel, List<Entry>> relayed = new LinkedHashMap<>();
 
 		for (final Entry entry : entries) {
-			hosted.getRouter().successor(entry.header().writer(), Set.of(peer))
+			hosted.getRouter().successor(entry.header().writer(), Set.of(peer)).filter(next -> next != peer)
 				.map(next -> relayed.computeIfAbsent(next, key -> new ArrayList<>()))
 				.ifPresent(batch -> batch.add(entry));
 		}
@@ -1219,18 +1220,18 @@ public class ChainHost implements ChainService {
 		}
 	}
 
-	private void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser) {
+	private static void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser) {
 		final StemEmbargo embargo = hosted.getEmbargo();
 		final List<Entry> refused = embargo.from(refusal.getWriter(), refusal.getSeq()).stream()
 			.filter(entry -> embargo.wasSentTo(entry, refuser)).toList();
-		final Set<Channel> avoid = Stream.concat(refused.stream().map(embargo::sourceOf).flatMap(Optional::stream),
-			hosted.avoidOf(refusal.getWriter()).stream()).collect(Collectors.toSet());
 
 		/* A refusal of nothing that went to the member through the stem, as of a copy of a flood or one sent
-		   unasked, neither bars it nor spends the move of the writer */
+		   unasked, neither bars it nor spends the move of the writer. Of what moves on, an entry that came from the
+		   successor it moves to waits in the embargo. */
 		if (!refused.isEmpty()) {
-			hosted.getRouter().refused(refusal.getWriter(), refuser, avoid)
-				.ifPresent(next -> stemTo(hosted, next, refused));
+			hosted.getRouter().refused(refusal.getWriter(), refuser, hosted.avoidOf(refusal.getWriter()))
+				.ifPresent(next -> stemTo(hosted, next, refused.stream()
+					.filter(entry -> !embargo.sourceOf(entry).equals(Optional.of(next))).toList()));
 		}
 	}
 

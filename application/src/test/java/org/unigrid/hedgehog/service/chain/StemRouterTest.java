@@ -59,7 +59,7 @@ public class StemRouterTest {
 	private static StemRouter.Draw relayed(final StemRouter router, final WriterId writer, final Channel source) {
 		final StemRouter.Draw draw = router.drawFor(writer, source);
 
-		router.keep(writer, draw);
+		router.keep(writer, draw, source);
 		return draw;
 	}
 
