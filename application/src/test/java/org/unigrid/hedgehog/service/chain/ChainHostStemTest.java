@@ -293,10 +293,10 @@ public class ChainHostStemTest {
 		return ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3), ChainFleet.everyMember(false));
 	}
 
-	/* A route that went away is replaced in its place by a member outside the draw, at the author and at a relay
-	   alike, and the entries that follow go to the replacement */
+	/* When the route of a writer goes away, its other drawn successor takes the route, at the author and at a relay
+	   alike, and nothing is drawn in its place while that one is there */
 	@Example
-	public void replacesARouteThatWentAwayByAMemberOutsideTheDraw() {
+	public void theSurvivingSuccessorTakesTheRouteWhenItsPartnerWentAway() {
 		final ChainFleet fleet = groupOfEight();
 		final List<Entry> own = entries(fleet, 1, 2);
 		final List<Entry> relayed = entries(fleet, 2, 2);
@@ -304,40 +304,42 @@ public class ChainHostStemTest {
 		postStem(fleet, own.get(0));
 		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
 
-		final Set<String> exitDrew = drawnBy(fleet, EXIT, 1);
-		final Set<String> relayDrew = drawnBy(fleet, RELAY, 2);
+		final String fromExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String fromRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final String otherOfExit = otherThan(fleet, EXIT, 1, fromExit);
+		final String otherOfRelay = otherThan(fleet, RELAY, 2, fromRelay);
 
-		fleet.stream(EXIT, stemmedTo(writtenBy(fleet, EXIT)).getKey()).close();
-		fleet.stream(RELAY, stemmedTo(writtenBy(fleet, RELAY)).getKey()).close();
+		fleet.stream(EXIT, fromExit).close();
+		fleet.stream(RELAY, fromRelay).close();
 		postStem(fleet, own.get(1));
 		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
 
-		final String toExit = stemmedTo(writtenBy(fleet, EXIT)).getKey();
-		final String toRelay = stemmedTo(writtenBy(fleet, RELAY)).getKey();
-
-		assertThat(toExit, is(not(in(exitDrew))));
-		assertThat(toRelay, is(not(in(relayDrew))));
-		assertThat(toRelay, is(not("gn-3")));
-		assertThat(drawnBy(fleet, EXIT, 1), hasSize(StemRouter.SUCCESSORS));
-		assertThat(drawnBy(fleet, RELAY, 2), hasSize(StemRouter.SUCCESSORS));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(otherOfExit));
+		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(otherOfRelay));
+		assertThat(drawnBy(fleet, EXIT, 1), is(Set.of(otherOfExit)));
+		assertThat(drawnBy(fleet, RELAY, 2), is(Set.of(otherOfRelay)));
 	}
 
-	/* A route the writer of a session comes to avoid, as the second member its client attached through, is replaced in
-	   its place by a member outside the draw */
+	/* A route the writer of a session comes to avoid, as the second member its client attached through, leaves the
+	   writer to its other drawn successor, and only once it avoids both is a member outside the draw drawn */
 	@Example
-	public void replacesARouteTheExitComesToAvoid() {
+	public void takesTheOtherSuccessorWhenTheExitComesToAvoidItsRoute() {
 		final ChainFleet fleet = groupOfEight();
-		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> own = entries(fleet, 1, 3);
 		final AtomicReference<Set<Channel>> avoid = new AtomicReference<>(Set.of());
 
 		fleet.host(EXIT).postStem(fleet.chain(), own.get(0), avoid::get);
 
-		final Set<String> drew = drawnBy(fleet, EXIT, 1);
+		final String route = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String other = otherThan(fleet, EXIT, 1, route);
 
-		avoid.set(Set.of(fleet.stream(EXIT, stemmedTo(writtenBy(fleet, EXIT)).getKey())));
+		avoid.set(Set.of(fleet.stream(EXIT, route)));
 		fleet.host(EXIT).postStem(fleet.chain(), own.get(1), avoid::get);
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(other));
 
-		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(in(drew))));
+		avoid.set(Set.of(fleet.stream(EXIT, route), fleet.stream(EXIT, other)));
+		fleet.host(EXIT).postStem(fleet.chain(), own.get(2), avoid::get);
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(in(Set.of(route, other)))));
 	}
 
 	/* The one move of a writer bars the member it moved off, but a successor that went away after it is still replaced,
@@ -1031,8 +1033,8 @@ public class ChainHostStemTest {
 	}
 
 	/* What an exit avoids grows once the second member its client attached through shows up, so a refusal moves the
-	   writer on with what it avoids now: never to a member it came to avoid after it was routed, which is replaced by
-	   the one member of the group left */
+	   writer on with what it avoids now: never to a member it came to avoid after it was routed, which leaves the
+	   writer with no other successor to move to */
 	@Example
 	public void aRefusalNeverStemsToAMemberTheWriterCameToAvoid() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -1048,7 +1050,7 @@ public class ChainHostStemTest {
 		avoid.set(Set.of(fleet.stream(EXIT, other)));
 		fleet.host(EXIT).refused(fleet.stream(EXIT, successor), EntryRefused.of(own.get(0), Admission.FULL));
 
-		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getKey(), is(not(in(Set.of(successor, other)))));
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(true));
 	}
 
