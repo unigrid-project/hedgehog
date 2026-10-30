@@ -277,8 +277,10 @@ final class StemRouter {
 
 	/* The successors a writer is drawn with the first time, as many as there are members to draw */
 	private void drawFirst(final Draw draw, final Set<Channel> avoid) {
-		final List<Channel> current = members.get();
+		drawFirst(draw, members.get(), avoid);
+	}
 
+	private void drawFirst(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
 		IntStream.range(0, SUCCESSORS).mapToObj(successor -> drawn(current, draw, avoid)).filter(Objects::nonNull)
 			.forEach(draw.successors::add);
 		draw.wanting = draw.successors.isEmpty();
@@ -297,8 +299,18 @@ final class StemRouter {
 			draw.wanting = draw.successors.isEmpty();
 		}
 
-		if (draw.wanting && draw.replacements < REPLACEMENTS) {
-			replace(draw, current, draw.own ? avoid : draw.sources);
+		if (draw.wanting) {
+			fill(draw, current, draw.own ? avoid : draw.sources);
+		}
+	}
+
+	/* A writer that never had a successor, as no member was there when it was drawn, is drawn its first ones now, which
+	   spends none of its replacements; one whose successors all went gets one in their place while it has any left */
+	private void fill(final Draw draw, final List<Channel> current, final Set<Channel> avoid) {
+		if (draw.drawn.isEmpty()) {
+			drawFirst(draw, current, avoid);
+		} else if (draw.replacements < REPLACEMENTS) {
+			replace(draw, current, avoid);
 		}
 	}
 

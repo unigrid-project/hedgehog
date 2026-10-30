@@ -232,6 +232,30 @@ public class StemRouterTest {
 		assertThat(router.hasSuccessor(Set.of()), is(true));
 	}
 
+	/* A writer drawn while no member was there gets its first successors once members are, which spends none of the
+	   replacements it has once both of them went */
+	@Example
+	public void aDrawWhileNoMemberWasThereSpendsNoReplacement() {
+		final List<Channel> members = new ArrayList<>();
+		final StemRouter router = new StemRouter(new SplittableRandom(5), () -> List.copyOf(members),
+			HostedChain.MAX_WRITERS);
+		final WriterId writer = ChainFleet.writer(1);
+		int rounds = 0;
+
+		assertThat(router.ownSuccessor(writer, Set.of()), is(Optional.empty()));
+		members.addAll(streams(8));
+		assertThat(router.ownSuccessor(writer, Set.of()).isPresent(), is(true));
+		assertThat(router.drawn(writer), hasSize(StemRouter.SUCCESSORS));
+
+		for (List<Channel> left = router.drawn(writer); !left.isEmpty(); left = router.drawn(writer)) {
+			left.forEach(Channel::close);
+			router.ownSuccessor(writer, Set.of());
+			rounds++;
+		}
+
+		assertThat(rounds, is(1 + StemRouter.REPLACEMENTS));
+	}
+
 	/* A refusal moves a writer to its other successor once for its life, at the author and at a relay alike, and a
 	   second leaves it none, so refusals cannot walk the stem of a writer to a member outside its draw */
 	@Property(tries = 20)
