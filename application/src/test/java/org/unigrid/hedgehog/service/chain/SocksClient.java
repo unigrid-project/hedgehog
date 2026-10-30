@@ -31,6 +31,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.socksx.v5.DefaultSocks5CommandRequest;
 import io.netty.handler.codec.socksx.v5.DefaultSocks5InitialRequest;
+import io.netty.handler.codec.socksx.v5.DefaultSocks5PasswordAuthRequest;
 import io.netty.handler.codec.socksx.v5.Socks5AuthMethod;
 import io.netty.handler.codec.socksx.v5.Socks5ClientEncoder;
 import io.netty.handler.codec.socksx.v5.Socks5CommandResponse;
@@ -38,13 +39,18 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandResponseDecoder;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import io.netty.handler.codec.socksx.v5.Socks5InitialResponse;
 import io.netty.handler.codec.socksx.v5.Socks5InitialResponseDecoder;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthResponse;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthResponseDecoder;
+import io.netty.handler.codec.socksx.v5.Socks5PasswordAuthStatus;
 import java.io.ByteArrayOutputStream;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
-/* A SOCKS5 client of Netty's: greets with NO AUTH, asks to CONNECT, sends the bytes it was given right behind the
-   request, as a client that does not wait for the reply would, and keeps what the destination sends */
+/* A SOCKS5 client of Netty's: greets with NO AUTH, or with USERNAME/PASSWORD when it names a username, asks to
+   CONNECT, sends the bytes it was given right behind the request, as a client that does not wait for the reply
+   would, and keeps what the destination sends */
 final class SocksClient implements AutoCloseable {
 	private static final int WAIT_SECONDS = 10;
 
@@ -56,15 +62,23 @@ final class SocksClient implements AutoCloseable {
 	SocksClient(final EventLoopGroup group, final int port, final SocksAddress destination, final byte[] early)
 		throws InterruptedException {
 
+		this(group, port, destination, early, Optional.empty());
+	}
+
+	/* The password is not read by the proxy, so any will do */
+	SocksClient(final EventLoopGroup group, final int port, final SocksAddress destination, final byte[] early,
+		final Optional<String> username) throws InterruptedException {
+
 		channel = new Bootstrap().group(group).channel(NioSocketChannel.class)
 			.handler(new ChannelInitializer<SocketChannel>() {
 				@Override
 				protected void initChannel(final SocketChannel channel) {
 					channel.pipeline().addLast(Socks5ClientEncoder.DEFAULT,
-						new Socks5InitialResponseDecoder(), new Reader(destination, early));
+						new Socks5InitialResponseDecoder(), new Reader(destination, early, username));
 				}
 			}).connect("127.0.0.1", port).sync().channel();
-		channel.writeAndFlush(new DefaultSocks5InitialRequest(Socks5AuthMethod.NO_AUTH));
+		channel.writeAndFlush(new DefaultSocks5InitialRequest(username.isPresent() ? Socks5AuthMethod.PASSWORD
+			: Socks5AuthMethod.NO_AUTH));
 	}
 
 	Socks5CommandResponse reply() throws Exception {
@@ -94,22 +108,31 @@ final class SocksClient implements AutoCloseable {
 	private final class Reader extends SimpleChannelInboundHandler<Object> {
 		private final SocksAddress destination;
 		private final byte[] early;
+		private final Optional<String> username;
 
-		private Reader(final SocksAddress destination, final byte[] early) {
+		private Reader(final SocksAddress destination, final byte[] early, final Optional<String> username) {
 			super(false);
 			this.destination = destination;
 			this.early = early;
+			this.username = username;
 		}
 
 		/* The request and the early bytes leave in one write, so the proxy reads them together */
 		@Override
 		protected void channelRead0(final ChannelHandlerContext ctx, final Object message) {
-			if (message instanceof Socks5InitialResponse) {
+			if (message instanceof Socks5InitialResponse && username.isPresent()) {
+				ctx.pipeline().replace(Socks5InitialResponseDecoder.class, "credentials",
+					new Socks5PasswordAuthResponseDecoder());
+				ctx.writeAndFlush(new DefaultSocks5PasswordAuthRequest(username.get(), "-"));
+			} else if (message instanceof Socks5InitialResponse) {
 				ctx.pipeline().replace(Socks5InitialResponseDecoder.class, "command",
 					new Socks5CommandResponseDecoder());
-				ctx.write(new DefaultSocks5CommandRequest(Socks5CommandType.CONNECT, destination.type(),
-					destination.host(), destination.port()));
-				ctx.writeAndFlush(Unpooled.wrappedBuffer(early));
+				request(ctx);
+			} else if (message instanceof Socks5PasswordAuthResponse response
+				&& response.status() == Socks5PasswordAuthStatus.SUCCESS) {
+				ctx.pipeline().replace(Socks5PasswordAuthResponseDecoder.class, "command",
+					new Socks5CommandResponseDecoder());
+				request(ctx);
 			} else if (message instanceof Socks5CommandResponse response) {
 				reply.complete(response);
 			} else if (message instanceof ByteBuf bytes) {
@@ -119,6 +142,12 @@ final class SocksClient implements AutoCloseable {
 
 				bytes.release();
 			}
+		}
+
+		private void request(final ChannelHandlerContext ctx) {
+			ctx.write(new DefaultSocks5CommandRequest(Socks5CommandType.CONNECT, destination.type(),
+				destination.host(), destination.port()));
+			ctx.writeAndFlush(Unpooled.wrappedBuffer(early));
 		}
 
 		@Override

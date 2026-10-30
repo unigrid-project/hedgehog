@@ -35,9 +35,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
@@ -60,6 +62,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Tag;
@@ -86,6 +89,10 @@ public class ChainProxyEndToEndTest {
 	private static final long RETENTION_MILLIS = 30_000;
 	private static final byte[] NOTHING = new byte[0];
 
+	/* Sessions a test opens for a country after the first, each drawing its exit afresh, so that an exit drawn without
+	   regard to the country would land beside the member in it for at least one of them */
+	private static final int GERMAN_SESSIONS = 3;
+
 	/* A client node, exits on the members it is told, a SOCKS listener in front of the client and a pump that hands
 	   over what the nodes wrote to each other every two milliseconds, a hop at a time, as the event loops of real
 	   streams would. Shared with the UDP test. */
@@ -105,19 +112,27 @@ public class ChainProxyEndToEndTest {
 		Network(final ChainFleet fleet, final Random random, final List<String> onDuty)
 			throws InterruptedException {
 
+			this(fleet, random, onDuty, CountryLookup.NONE, Optional.empty());
+		}
+
+		/* A client node that places the gridnodes with the lookup it is given and whose listener serves the country
+		   given to a SOCKS client that names none */
+		Network(final ChainFleet fleet, final Random random, final List<String> onDuty, final CountryLookup countries,
+			final Optional<String> country) throws InterruptedException {
+
 			this.fleet = fleet;
 			contexts = new ExitContexts(DestinationPolicy.allowLoopback(),
 				new NettyExitConnector(destinations, CONNECT_TIMEOUT_MILLIS), Runnable::run, () -> { },
 				new NettyUdpConnector(destinations));
 			sessions = new ClientSessions(new ChainClient(fleet.settings::get, fleet.directory(CLIENT),
-				CountryLookup.NONE, fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT),
+				countries, fleet.transport(CLIENT), fleet.host(CLIENT), fleet.pending(CLIENT),
 				fleet.clock::get, random, joins), fleet.host(CLIENT), fleet.settings::get, fleet.clock::get, new SecureRandom(),
 				new ManualScheduler());
 			onDuty.forEach(this::exit);
 			pump.setRemoveOnCancelPolicy(true);
 			pump.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
 			listener = new ServerBootstrap().group(proxy).channel(NioServerSocketChannel.class)
-				.childHandler(new SocksInitializer(new ChainTunnel(fleet.settings::get, sessions, pump)))
+				.childHandler(new SocksInitializer(new ChainTunnel(fleet.settings::get, sessions, pump), country))
 				.bind(LOOPBACK, 0).sync().channel();
 			pumping = pump.scheduleWithFixedDelay(fleet::hop, 0, PUMP_MILLIS, TimeUnit.MILLISECONDS);
 		}
@@ -143,8 +158,15 @@ public class ChainProxyEndToEndTest {
 		}
 
 		private SocksClient connect(final int port, final byte[] early) throws InterruptedException {
+			return connect(port, early, Optional.empty());
+		}
+
+		/* A SOCKS client that names the country of its exit as its username */
+		private SocksClient connect(final int port, final byte[] early, final Optional<String> username)
+			throws InterruptedException {
+
 			return new SocksClient(clients, socksPort(),
-				new SocksAddress(Socks5AddressType.IPv4, LOOPBACK, port), early);
+				new SocksAddress(Socks5AddressType.IPv4, LOOPBACK, port), early, username);
 		}
 
 		int openRelays() {
@@ -180,6 +202,25 @@ public class ChainProxyEndToEndTest {
 		/* The gridnode an opening is sealed to */
 		private String named(final Entry opening) {
 			return ChainFleet.openerOf(opening, ids()).orElseThrow();
+		}
+
+		/* The gridnode the latest opening on the chains is sealed to, once there are as many as the sessions opened */
+		private String exitOfOpening(final int openings) {
+			final List<Entry> opens = waiting().until(this::openings, hasSize(openings));
+
+			return named(opens.get(openings - 1));
+		}
+
+		/* The members the client asked to take it on a chain: the first and the spare it attached through */
+		private Set<String> attachedThrough() {
+			return fleet.deliveries.stream().filter(delivery -> delivery.from().equals(CLIENT)
+				&& delivery.packet() instanceof JoinChain).map(ChainFleet.Delivery::to).collect(Collectors.toSet());
+		}
+
+		/* A member the client did not attach through, which may be the exit of a session */
+		private String besideTheAttachment() {
+			return fleet.activeIds().stream().filter(id -> !attachedThrough().contains(id)).findFirst()
+				.orElseThrow();
 		}
 
 		private List<String> ids() {
@@ -437,6 +478,85 @@ public class ChainProxyEndToEndTest {
 			assertRefused(client, Socks5CommandStatus.CONNECTION_REFUSED);
 			assertThat(network.deadlines(), is(0L));
 			waiting().until(network::openRelays, is(0));
+		}
+	}
+
+	/* The client names Germany as its username. One member is there, besides the members the node attached through
+	   for the session before, so every session it opens for Germany goes out through that member. */
+	@Example
+	public void carriesEverySessionThroughTheMemberInTheCountryTheUsernameNames() throws Exception {
+		final ChainFleet fleet = diffusing();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+
+		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
+			fleet.activeIds(), fleet.located(countries), Optional.empty());
+			SocksClient first = network.connect(echo.port(), NOTHING)) {
+
+			opened(first);
+
+			final String german = network.besideTheAttachment();
+
+			countries.put(german, "DE");
+
+			for (int session = 2; session <= GERMAN_SESSIONS + 1; session++) {
+				try (SocksClient client = network.connect(echo.port(), NOTHING, Optional.of("de"))) {
+					opened(client);
+					client.write(bytes("hallo"));
+					assertReceived(client, bytes("hallo"));
+					assertThat(network.exitOfOpening(session), is(german));
+				}
+			}
+		}
+	}
+
+	/* No member is in Iceland, which the client names, so the node asks no member to take it and the client gets the
+	   reply for a network it cannot reach */
+	@Example
+	public void refusesAConnectionThatNamesACountryNoMemberIsIn() throws Exception {
+		final ChainFleet fleet = diffusing();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+
+		fleet.activeIds().forEach(member -> countries.put(member, "SE"));
+
+		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
+			fleet.activeIds(), fleet.located(countries), Optional.empty());
+			SocksClient client = network.connect(echo.port(), NOTHING, Optional.of("is"))) {
+
+			assertRefused(client, Socks5CommandStatus.NETWORK_UNREACHABLE);
+			assertThat(Socks5CommandStatus.NETWORK_UNREACHABLE.byteValue(), is((byte) 0x03));
+			assertThat(network.attachedThrough(), is(empty()));
+			assertThat(echo.peers, is(empty()));
+		}
+	}
+
+	/* The listener serves Germany to the clients that name no country. The node attached for a Swedish session
+	   before, and the one member in Germany is beside that attachment, so every session that names no country goes
+	   out through it. */
+	@Example
+	public void choosesTheExitOfAClientThatNamesNoCountryInTheCountryOfTheListener() throws Exception {
+		final ChainFleet fleet = diffusing();
+		final Map<String, String> countries = new ConcurrentHashMap<>();
+
+		fleet.activeIds().forEach(member -> countries.put(member, "SE"));
+
+		try (LoopbackEcho echo = new LoopbackEcho(); Network network = new Network(fleet, new Random(1),
+			fleet.activeIds(), fleet.located(countries), Optional.of("DE"));
+			SocksClient swedish = network.connect(echo.port(), NOTHING, Optional.of("se"))) {
+
+			opened(swedish);
+
+			final String german = network.besideTheAttachment();
+
+			countries.put(german, "DE");
+
+			for (int session = 2; session <= GERMAN_SESSIONS + 1; session++) {
+				try (SocksClient client = network.connect(echo.port(), NOTHING)) {
+					opened(client);
+					client.write(bytes("hallo"));
+					assertReceived(client, bytes("hallo"));
+					assertThat(network.exitOfOpening(session), is(german));
+				}
+			}
 		}
 	}
 
