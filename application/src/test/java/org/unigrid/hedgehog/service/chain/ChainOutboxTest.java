@@ -1026,6 +1026,25 @@ public class ChainOutboxTest {
 		assertThat(stems.isDrained(), is(true));
 	}
 
+	/* A writer of an exit whose stem has no successor left would have the exit flood what it writes itself, so its
+	   outbox ends instead and posts nothing more */
+	@Example
+	public void anExitsOutboxEndsOnceItsStemHasNoSuccessorLeft() {
+		final ChainOutbox stems = stemming();
+		final List<Entry> entries = mine(2);
+
+		stems.accept(entries.get(0));
+		written();
+		List.of("gn-0", "gn-2", "gn-3").forEach(peer -> fleet.stream("gn-1", peer).close());
+		stems.tick();
+		stems.accept(entries.get(1));
+
+		assertThat(stems.hasEnded(), is(true));
+		assertThat(stems.isWritable(), is(false));
+		assertThat(written().values().stream().allMatch(List::isEmpty), is(true));
+		assertThat(host.hosted(fleet.chain()).orElseThrow().getEmbargo().holds(entries.get(1)), is(false));
+	}
+
 	/* The members an exit avoids are those it knows of when it stems an entry: the second member a client attached
 	   through may become known only after the session began */
 	@Example

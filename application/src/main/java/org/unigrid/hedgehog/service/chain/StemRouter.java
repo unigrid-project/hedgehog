@@ -198,6 +198,21 @@ final class StemRouter {
 		}
 	}
 
+	/* Whether a writer this member stems has no successor left: each it was given refused, went round or went away,
+	   and none may be drawn in their place, for want of a member or of the replacements the writer had. A writer it
+	   has no draw of has none to lose, unless it is past the most the member keeps and no member is there outside
+	   what it avoids. */
+	synchronized boolean strands(final WriterId writer, final Set<Channel> avoid) {
+		final Draw draw = draws.get(writer);
+
+		if (draw == null) {
+			return draws.size() >= maxDraws && successor(hashed(writer), avoid).isEmpty();
+		}
+
+		refresh(draw, avoid);
+		return !draw.diffuses && route(draw).isEmpty();
+	}
+
 	/* Whether a writer drawn now would find a successor outside what is avoided */
 	synchronized boolean hasSuccessor(final Set<Channel> avoid) {
 		final List<Channel> current = members.get();

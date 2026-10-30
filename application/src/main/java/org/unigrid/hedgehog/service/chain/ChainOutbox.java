@@ -87,7 +87,7 @@ public final class ChainOutbox implements Consumer<Entry> {
 	/* Posts at once while nothing waits and nothing is on its way, and queues the entry behind them otherwise */
 	@Override
 	public void accept(final Entry entry) {
-		if (entry != null && claimFor(entry)) {
+		if (entry != null && !strands() && claimFor(entry)) {
 			postClaimed(entry);
 		}
 	}
@@ -128,8 +128,25 @@ public final class ChainOutbox implements Consumer<Entry> {
 			host.resend(chainId, writer);
 		}
 
+		strands();
 		place();
 		announce();
+	}
+
+	/* A writer of an exit whose stem has no successor left on its chain would have the exit flood what it writes, which
+	   would name the exit as its author, so the outbox ends instead and drops what waits: its session ends with it, and
+	   the Close it then writes is not posted. What went to a successor and did not come back is flooded by the
+	   embargo all the same. */
+	private boolean strands() {
+		if (mode != Mode.STEM || !host.isStranded(chainId, writer)) {
+			return false;
+		}
+
+		if (endOnce()) {
+			log.info("The feed of a writer of this node ends, as its stem has no successor left");
+		}
+
+		return true;
 	}
 
 	/* The entry is signed, so one that is lost leaves a gap in the feed that every session of the writer shares: a
@@ -255,6 +272,14 @@ public final class ChainOutbox implements Consumer<Entry> {
 	private synchronized void end() {
 		ended = true;
 		waiting.clear();
+	}
+
+	/* Answers whether the outbox ended only now */
+	private synchronized boolean endOnce() {
+		final boolean ending = !ended;
+
+		end();
+		return ending;
 	}
 
 	private synchronized boolean isSettled() {

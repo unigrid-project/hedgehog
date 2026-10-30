@@ -115,6 +115,13 @@ final class StemEmbargo {
 		held.computeIfPresent(entry, (key, waiting) -> waiting.sent(successor));
 	}
 
+	/* Whether a held entry was ever passed to any successor */
+	synchronized boolean wasSent(final Entry entry) {
+		final Held waiting = held.get(entry);
+
+		return waiting != null && !waiting.sentTo().isEmpty();
+	}
+
 	/* Whether a held entry was ever passed to the given stream */
 	synchronized boolean wasSentTo(final Entry entry, final Channel stream) {
 		final Held waiting = held.get(entry);

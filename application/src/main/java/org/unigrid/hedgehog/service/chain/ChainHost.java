@@ -913,6 +913,14 @@ public class ChainHost implements ChainService {
 		return hosting.find(chainId).map(hosted -> postStem(hosted, entry, avoid)).orElse(Admission.WRONG_CHAIN);
 	}
 
+	/* Whether a writer whose entries go out through the stem has no successor left on the chain: each it was given
+	   refused, went round or went away, and no member may be drawn in their place. A session of the exit that writes
+	   as one of this node's own ends then, rather than have this node flood what it writes, which would name it. */
+	public boolean isStranded(final ChainId chainId, final WriterId writer) {
+		return chainId != null && hosting.find(chainId)
+			.filter(hosted -> hosted.getRouter().strands(writer, hosted.avoidOf(writer))).isPresent();
+	}
+
 	/* Whether an entry posted to the stem now would find a successor outside the streams to avoid */
 	public boolean canStem(final ChainId chainId, final Set<Channel> avoid) {
 		return chainId != null && hosting.find(chainId).filter(hosted -> hosted.getRouter().hasSuccessor(avoid))
@@ -997,9 +1005,14 @@ public class ChainHost implements ChainService {
 	/* What the embargo held past its deadline is flooded as if it came in now, and told to the listeners like any
 	   entry the chain appends: those of this node's own writers they know as such. An entry of this node's own that
 	   the chain has no room for stays in the embargo and is flooded again at its next deadline; one the chain will
-	   never take goes. */
+	   never take goes. So does one of this node's own that went to no successor, of a writer that has none left: this
+	   node would be the first to flood it, which names it as its author, and its session ends instead. */
 	private void floodDue(final HostedChain hosted) {
-		final List<Entry> due = hosted.getEmbargo().due(clock.getAsLong());
+		final Map<Boolean, List<Entry>> held = hosted.getEmbargo().due(clock.getAsLong()).stream()
+			.collect(Collectors.partitioningBy(entry -> wentNowhere(hosted, entry)));
+		final List<Entry> due = held.get(false);
+
+		held.get(true).forEach(hosted.getEmbargo()::release);
 
 		if (!due.isEmpty()) {
 			final List<Optional<Offer>> offers = offerAndQueue(hosted, due, null, true);
@@ -1008,6 +1021,15 @@ public class ChainHost implements ChainService {
 				.forEach(place -> hosted.getEmbargo().release(due.get(place)));
 			handOver(hosted);
 		}
+	}
+
+	/* An entry of this node's own that went to no successor, of a writer that has none left */
+	private static boolean wentNowhere(final HostedChain hosted, final Entry entry) {
+		final StemEmbargo embargo = hosted.getEmbargo();
+		final WriterId writer = entry.header().writer();
+
+		return embargo.holdsOwn(entry) && !embargo.wasSent(entry)
+			&& hosted.getRouter().strands(writer, hosted.avoidOf(writer));
 	}
 
 	/* Drops the retired chains that are done, by the spork as it reads now. While it is on, a chain goes once its

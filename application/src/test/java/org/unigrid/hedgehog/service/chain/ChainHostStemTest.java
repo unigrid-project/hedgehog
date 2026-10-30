@@ -403,6 +403,80 @@ public class ChainHostStemTest {
 		assertThat(stemmedTo(writtenBy(fleet, RELAY)).getKey(), is(not(in(relayDrew))));
 	}
 
+	/* Closes the streams to the successors a member has for a writer, again and again, until none is left, and
+	   answers how many times it closed them */
+	private static int closeEverySuccessor(final ChainFleet fleet, final String member, final int writer) {
+		int closed = 0;
+
+		for (Set<String> left = drawnBy(fleet, member, writer); !left.isEmpty(); left = drawnBy(fleet, member, writer)) {
+			left.forEach(peer -> fleet.stream(member, peer).close());
+			fleet.host(member).isStranded(fleet.chain(), ChainFleet.writer(writer));
+			closed++;
+		}
+
+		return closed;
+	}
+
+	/* The packets of entries a member wrote that hold the given entry */
+	private static List<Object> floodsOf(final Map<String, List<Object>> written, final Entry entry) {
+		return all(written).stream().filter(packet -> packet instanceof ChainEntry flood
+			&& flood.getEntries().contains(entry)).toList();
+	}
+
+	/* Once both successors of a writer of the exit went away and so did the two drawn after them, the writer has no
+	   successor left, though members are: the exit says so, and never floods what the writer posts after, which went
+	   nowhere */
+	@Example
+	public void anExitFloodsNothingOfItsOwnThatWentNowhereOnceNoSuccessorIsLeft() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2);
+		final ChainHost exit = fleet.host(EXIT);
+
+		postStem(fleet, own.get(0));
+
+		assertThat(exit.isStranded(fleet.chain(), ChainFleet.writer(1)), is(false));
+		assertThat(closeEverySuccessor(fleet, EXIT, 1), is(1 + StemRouter.REPLACEMENTS));
+		assertThat(exit.isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
+		assertThat(exit.canStem(fleet.chain(), Set.of()), is(true));
+
+		writtenBy(fleet, EXIT);
+		postStem(fleet, own.get(1));
+
+		for (int second = 0; second < MAX_ROUNDS; second++) {
+			fleet.clock.addAndGet(1000);
+			exit.maintain();
+			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(1)), is(empty()));
+		}
+
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(false));
+	}
+
+	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */
+	@Example
+	public void aRelayWithNoSuccessorLeftFloodsAtItsTimer() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> relayed = entries(fleet, 2, 2);
+		int rounds = 0;
+
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		assertThat(closeEverySuccessor(fleet, RELAY, 2), is(1 + StemRouter.REPLACEMENTS));
+
+		writtenBy(fleet, RELAY);
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+		assertThat(all(writtenBy(fleet, RELAY)), is(empty()));
+
+		while (!hosted(fleet, RELAY).getChain().entries().contains(relayed.get(1)) && rounds < MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(RELAY).maintain();
+			rounds++;
+		}
+
+		assertThat(rounds, is(lessThan(MAX_ROUNDS)));
+		assertThat(hosted(fleet, RELAY).getEmbargo().holds(relayed.get(1)), is(false));
+		assertThat(floodsOf(writtenBy(fleet, RELAY), relayed.get(1)), is(not(empty())));
+	}
+
 	/* A client passes nothing on, so a stem from its stream, from a stranger or for a chain this node only follows is
 	   dropped like a fetch from one */
 	@Example

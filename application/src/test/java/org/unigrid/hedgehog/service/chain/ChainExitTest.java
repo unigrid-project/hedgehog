@@ -2514,6 +2514,32 @@ public class ChainExitTest {
 			.map(Map.Entry::getValue).toList(), everyItem(is(instanceOf(ChainEntry.class))));
 	}
 
+	/* A session whose writer has no successor left, as the members it could stem to went away and only the one its
+	   client attached through is there, ends, and the exit sends nothing of it any more, not even its Close, which only
+	   the exit itself could flood */
+	@Example
+	public void endsASessionWhoseWriterHasNoSuccessorLeftWithoutFloodingIt() {
+		final Rig rig = new Rig();
+
+		rig.caller(1).open();
+		assertThat(rig.exit.openRelays(), is(1));
+
+		final List<Map.Entry<String, Object>> writes = rig.recordWrites();
+
+		rig.fleet.offline("gn-2");
+		rig.fleet.offline("gn-3");
+		rig.fleet.host(EXIT).refresh();
+
+		for (int second = 0; second < 20; second++) {
+			rig.fleet.clock.addAndGet(1000);
+			rig.exit.tick();
+			rig.fleet.host(EXIT).maintain();
+		}
+
+		assertThat(rig.exit.openRelays(), is(0));
+		assertThat(writes, is(empty()));
+	}
+
 	/* The only other member the exit holds a stream to is the one the client's entries came in from, so it has nowhere
 	   to stem an answer and stays silent; the client's timeout moves it to another exit. With another member back, an
 	   opening is answered. */
