@@ -54,9 +54,10 @@ public class SocksOptions {
 
 	/* An empty default, so that a database one parse names is not taken as the default of the next */
 	@Option(names = "--socks-geoip", scope = CommandLine.ScopeType.INHERIT,
-		description = "GeoIP2 or GeoLite2 Country database in the MaxMind DB format to find the country of each "
-		+ "gridnode in (defaults to geoip/country.mmdb in the data directory). Without it, a SOCKS5 connection that "
-		+ "names a country fails.",
+		description = "Country database in the MMDB format to find the country of each gridnode in (defaults to "
+		+ "geoip/country.mmdb in the data directory), such as IP to Country Lite of DB-IP, licensed CC BY 4.0 with "
+		+ "attribution to DB-IP.com required. Any MMDB file whose records hold country.iso_code works. Without it, "
+		+ "a SOCKS5 connection that names a country fails.",
 		defaultValue = ""
 	)
 	private static Path geoip;

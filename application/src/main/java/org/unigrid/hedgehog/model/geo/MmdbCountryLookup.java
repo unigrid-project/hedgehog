@@ -29,9 +29,10 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 
-/* A country database in the MaxMind DB format, as GeoIP2 and GeoLite2 Country are, read into memory whole. A record is
-   decoded into maps and strings, and only the code of the country the network is in counts, not the one it is
-   registered in. */
+/* A country database in the MMDB format, read into memory whole. The one meant for it is IP to Country Lite of
+   DB-IP, licensed CC BY 4.0 with attribution to DB-IP.com required, but any whose records hold country.iso_code
+   works. A record is decoded into maps and strings, and only the code of the country the network is in counts, not
+   the one it is registered in. */
 @Slf4j
 public final class MmdbCountryLookup implements CountryLookup {
 	/* Many times the few megabytes a country database takes. Reading one holds two to three times its size at the

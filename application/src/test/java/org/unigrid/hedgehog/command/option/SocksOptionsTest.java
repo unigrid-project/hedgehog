@@ -38,6 +38,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayContaining;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 public class SocksOptionsTest {
 	private static CommandLine hedgehog() {
@@ -128,12 +129,27 @@ public class SocksOptionsTest {
 
 	@Example
 	public void shouldReadTheGeoipDatabaseItIsGivenForOneParseOnly() {
-		hedgehog().parseArgs("daemon", "--socks-geoip", "/srv/geoip/GeoLite2-Country.mmdb");
-		assertThat(SocksOptions.getGeoip(), is(Path.of("/srv/geoip/GeoLite2-Country.mmdb")));
+		hedgehog().parseArgs("daemon", "--socks-geoip", "/srv/geoip/dbip-country-lite.mmdb");
+		assertThat(SocksOptions.getGeoip(), is(Path.of("/srv/geoip/dbip-country-lite.mmdb")));
 
 		hedgehog().parseArgs("daemon");
 		assertThat(SocksOptions.getGeoip(), is(ApplicationDirectory.create().getUserDataDir().resolve("geoip")
 			.resolve("country.mmdb")));
+	}
+
+	/* The database meant for it is free to share under its attribution, and any other with the same field works */
+	@Example
+	public void shouldNameTheIntendedDatabaseAndItsAttributionInTheHelp() {
+		final String help = String.join(" ", hedgehog().getSubcommands().get("daemon").getCommandSpec()
+			.findOption("--socks-geoip").description());
+
+		assertThat(help, containsString("DB-IP"));
+		assertThat(help, containsString("IP to Country Lite"));
+		assertThat(help, containsString("CC BY 4.0"));
+		assertThat(help, containsString("attribution"));
+		assertThat(help, containsString("country.iso_code"));
+		assertThat(help, not(containsString("GeoLite2")));
+		assertThat(help, not(containsString("GeoIP2")));
 	}
 
 	@Example
