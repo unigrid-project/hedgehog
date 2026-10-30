@@ -26,7 +26,10 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -38,6 +41,7 @@ import org.jboss.weld.environment.se.WeldContainer;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtension;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
@@ -86,6 +90,17 @@ public class ChainExitEagerTest extends BaseMockedWeldTest {
 				}
 			};
 		}
+	}
+
+	/* The announced address is made of options that only a started daemon has set. It is none of this node's own,
+	   so its sockets go out from wherever the host puts them. */
+	@BeforeContainer
+	private static void announceAnAddress() {
+		new MockUp<GridnodeSetup>() {
+			@Mock public /* static */ String announcedAddress() {
+				return "203.0.113.5:52883";
+			}
+		};
 	}
 
 	private static List<Thread> threads(final Predicate<String> named) {
