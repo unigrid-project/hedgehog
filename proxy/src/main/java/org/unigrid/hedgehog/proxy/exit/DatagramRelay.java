@@ -49,7 +49,7 @@ final class DatagramRelay {
 				if (!socket.send(address, port, bytes)) {
 					drop();
 				}
-			});
+			}, socket::reaches);
 	}
 
 	/* The destinations' drops and the relay's own: strangers, replies too large for an entry, what the socket

@@ -101,7 +101,7 @@ public final class NettyUdpConnector implements UdpConnector {
 		   closed channel is never writable. An address the local address cannot reach is dropped. */
 		@Override
 		public boolean send(InetAddress address, int port, byte[] bytes) {
-			if (address == null || !reachable.test(address) || !channel.isWritable()) {
+			if (address == null || !reaches(address) || !channel.isWritable()) {
 				return false;
 			}
 
@@ -112,6 +112,11 @@ public final class NettyUdpConnector implements UdpConnector {
 			} catch (RuntimeException ex) {
 				return false;
 			}
+		}
+
+		@Override
+		public boolean reaches(InetAddress address) {
+			return reachable.test(address);
 		}
 
 		@Override

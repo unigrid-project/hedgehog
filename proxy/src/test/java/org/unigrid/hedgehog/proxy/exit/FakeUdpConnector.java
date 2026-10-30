@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /* Records the sockets the relay asks for; the test opens them, and answers through the listener */
 final class FakeUdpConnector implements UdpConnector {
@@ -51,6 +52,7 @@ final class FakeUdpConnector implements UdpConnector {
 
 		final List<Sent> sent = new ArrayList<>();
 		boolean accepting = true;
+		Predicate<InetAddress> reachable = address -> true;
 		boolean readable;
 		boolean closed;
 		int closes;
@@ -62,6 +64,11 @@ final class FakeUdpConnector implements UdpConnector {
 			}
 
 			return accepting;
+		}
+
+		@Override
+		public boolean reaches(InetAddress address) {
+			return reachable.test(address);
 		}
 
 		@Override

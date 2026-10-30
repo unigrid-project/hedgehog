@@ -277,6 +277,26 @@ public class ExitRelayDatagramTest {
 			equalTo(List.of(ExitRelayTest.address("93.184.215.14"), ExitRelayTest.address("93.184.215.14"))));
 	}
 
+	/* A socket bound to an IPv6 address sends to the IPv6 address of a name, though an IPv4 one comes first, and
+	   drops what has only the other family */
+	@Example
+	public void shouldSendToTheAddressOfANameThatTheSocketReachesAndCountWhatItDoesNot()
+		throws UnknownHostException {
+
+		final SessionPair pair = new SessionPair(ASSOCIATE);
+		final ExitRelay relay = relay(pair, ProxySettings.DEFAULTS, host -> List.of(
+			ExitRelayTest.address("93.184.215.14"), ExitRelayTest.address("2606:2800:21f::1")));
+		final FakeUdpConnector.FakeSocket socket = associated(pair);
+
+		socket.reachable = address -> address instanceof Inet6Address;
+		send(pair, relay, new Datagram(NAME, new byte[] { 1 }));
+		send(pair, relay, new Datagram(LITERAL, new byte[] { 2 }));
+
+		assertThat(socket.sent.stream().map(FakeUdpConnector.FakeSocket.Sent::address).toList(),
+			equalTo(List.of(ExitRelayTest.address("2606:2800:21f::1"))));
+		assertThat(relay.droppedDatagrams(), is(1L));
+	}
+
 	@Example
 	public void shouldDropDatagramsToLocalDestinationsAndCountThem() {
 		final SessionPair pair = new SessionPair(ASSOCIATE);

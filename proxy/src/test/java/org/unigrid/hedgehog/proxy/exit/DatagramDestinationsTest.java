@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.proxy.exit;
 
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.util.NetUtil;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -33,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -129,8 +131,15 @@ public class DatagramDestinationsTest {
 	}
 
 	private DatagramDestinations through(DestinationPolicy policy, Resolver resolver, Executor resolving) {
+		return through(policy, resolver, resolving, address -> true);
+	}
+
+	/* Destinations of a socket that reaches only the addresses the predicate takes */
+	private DatagramDestinations through(DestinationPolicy policy, Resolver resolver, Executor resolving,
+		Predicate<InetAddress> reachable) {
+
 		return new DatagramDestinations(policy, resolver, resolving, clock::get,
-			(address, port, bytes) -> sent.add(new Sent(address, port, bytes)));
+			(address, port, bytes) -> sent.add(new Sent(address, port, bytes)), reachable);
 	}
 
 	@Example
@@ -202,6 +211,34 @@ public class DatagramDestinationsTest {
 		assertThat(resolutions.get(), is(1));
 		assertThat(sent.stream().map(Sent::address).toList(), equalTo(List.of(address("93.184.215.14"),
 			address("93.184.215.14"))));
+	}
+
+	/* A socket bound to an IPv6 address cannot send to the IPv4 address that comes first */
+	@Example
+	public void shouldSendToTheFirstCheckedAddressThatTheSocketReaches() {
+		final DatagramDestinations destinations = through(DestinationPolicy.publicOnly(), counting(),
+			Runnable::run, reachable -> reachable instanceof Inet6Address);
+
+		destinations.send(name("example.org"), PAYLOAD);
+
+		assertThat(sent.stream().map(Sent::address).toList(), equalTo(List.of(address("2606:2800:21f::1"))));
+		assertThat(destinations.allowsReplyFrom(new InetSocketAddress(address("2606:2800:21f::1"), PORT)), is(true));
+		assertThat(destinations.allowsReplyFrom(new InetSocketAddress(address("93.184.215.14"), PORT)), is(false));
+		assertThat(destinations.dropped(), is(0L));
+	}
+
+	@Example
+	public void shouldDropWhatTheSocketCannotReachWhetherLiteralOrName() {
+		answers = Map.of("example.org", List.of("93.184.215.14"));
+
+		final DatagramDestinations destinations = through(DestinationPolicy.publicOnly(), counting(),
+			Runnable::run, reachable -> reachable instanceof Inet6Address);
+
+		destinations.send(literal("93.184.215.14"), PAYLOAD);
+		destinations.send(name("example.org"), PAYLOAD);
+
+		assertThat(sent, is(empty()));
+		assertThat(destinations.dropped(), is(2L));
 	}
 
 	@Example

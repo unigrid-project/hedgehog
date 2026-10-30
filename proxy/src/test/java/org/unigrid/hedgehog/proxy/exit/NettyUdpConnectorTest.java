@@ -203,6 +203,20 @@ public class NettyUdpConnectorTest {
 		final UdpConnector.Socket socket = heard.socket();
 
 		assertThat(socket.send(InetAddress.ofLiteral("2001:db8::1"), 53, new byte[] { 1 }), is(false));
+		assertThat(socket.reaches(InetAddress.ofLiteral("2001:db8::1")), is(false));
+		assertThat(socket.reaches(EchoServer.LOOPBACK), is(true));
+	}
+
+	@Example
+	public void shouldReachBothFamiliesWithoutALocalAddress() throws Exception {
+		final Heard heard = new Heard();
+
+		connector.open(heard);
+
+		final UdpConnector.Socket socket = heard.socket();
+
+		assertThat(socket.reaches(InetAddress.ofLiteral("2001:db8::1")), is(true));
+		assertThat(socket.reaches(EchoServer.LOOPBACK), is(true));
 	}
 
 	@Example

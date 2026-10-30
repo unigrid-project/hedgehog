@@ -43,6 +43,12 @@ public interface UdpConnector {
 
 		InetSocketAddress localAddress();
 
+		/* Whether the socket can send to the address at all: one bound to an address reaches only its own family.
+		   Asked to choose among the addresses of a name, and never waits. */
+		default boolean reaches(InetAddress address) {
+			return true;
+		}
+
 		void setReadable(boolean readable);
 
 		void close();

@@ -29,6 +29,7 @@ import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.LongSupplier;
+import java.util.function.Predicate;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.DestinationRefusedException;
 import org.unigrid.hedgehog.proxy.session.Resolver;
@@ -37,7 +38,7 @@ import org.unigrid.hedgehog.proxy.session.SocksAddress;
 /* Where the datagrams of one association may go. Every destination is admitted by the destination policy before
    anything is sent to it, a name is looked up once and the datagrams go to the address that was checked, never to
    the name, and replies are taken only from where the association sent. What cannot be sent is dropped and
-   counted. */
+   counted, and so is what the socket cannot reach. */
 final class DatagramDestinations {
 	/* Destinations one association keeps at a time */
 	static final int MAX_DESTINATIONS = 64;
@@ -71,18 +72,20 @@ final class DatagramDestinations {
 	private final Executor resolving;
 	private final LongSupplier clock;
 	private final Sink sink;
+	private final Predicate<InetAddress> reachable;
 	private final Map<SocksAddress, Destination> destinations = new HashMap<>();
 	private int lookups;
 	private long dropped;
 
 	DatagramDestinations(DestinationPolicy policy, Resolver resolver, Executor resolving, LongSupplier clock,
-		Sink sink) {
+		Sink sink, Predicate<InetAddress> reachable) {
 
 		this.policy = policy;
 		this.resolver = resolver;
 		this.resolving = resolving;
 		this.clock = clock;
 		this.sink = sink;
+		this.reachable = reachable;
 	}
 
 	synchronized long dropped() {
@@ -161,7 +164,7 @@ final class DatagramDestinations {
 
 	private Optional<InetAddress> check(SocksAddress destination) {
 		try {
-			return Optional.of(policy.admit(destination, resolver).get(0));
+			return policy.admit(destination, resolver).stream().filter(reachable).findFirst();
 		} catch (DestinationRefusedException | RuntimeException ex) {
 			return Optional.empty();
 		}
