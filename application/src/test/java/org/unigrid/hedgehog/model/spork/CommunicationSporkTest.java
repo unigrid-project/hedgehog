@@ -142,9 +142,9 @@ public class CommunicationSporkTest {
 		});
 	}
 
-	private static void assertCapacityBounds(long maxEntryBytes) {
-		assertThat(acceptsCapacity(maxEntryBytes, 4 * maxEntryBytes - 1), is(false));
-		assertThat(acceptsCapacity(maxEntryBytes, 4 * maxEntryBytes), is(true));
+	private static void assertCapacityBounds(long maxEntryBytes, long lowest) {
+		assertThat(acceptsCapacity(maxEntryBytes, lowest - 1), is(false));
+		assertThat(acceptsCapacity(maxEntryBytes, lowest), is(true));
 		assertThat(acceptsCapacity(maxEntryBytes, MAX_UNSIGNED_INT), is(true));
 		assertThat(acceptsCapacity(maxEntryBytes, MAX_UNSIGNED_INT + 1), is(false));
 	}
@@ -267,13 +267,13 @@ public class CommunicationSporkTest {
 	}
 
 	@Example
-	public void keepsChainCapacitiesFromFourEntriesToTheWireWidthAtTheSmallestEntrySize() {
-		assertCapacityBounds(1024);
+	public void keepsChainCapacitiesFromThirtyTwoKibibytesToTheWireWidthAtTheSmallestEntrySize() {
+		assertCapacityBounds(1024, 32_768);
 	}
 
 	@Example
 	public void keepsChainCapacitiesFromFourEntriesToTheWireWidthAtTheLargestEntrySize() {
-		assertCapacityBounds(1_048_576);
+		assertCapacityBounds(1_048_576, 4 * 1_048_576);
 	}
 
 	@Example
@@ -312,6 +312,10 @@ public class CommunicationSporkTest {
 			equalTo("maxEntryBytes must be 1024-1048576, not 1048577"));
 		assertThat(refusalOf(data -> data.setChainCapacityBytes(-1)),
 			equalTo("chainCapacityBytes must hold four of the largest entries and be at most 4294967295, not -1"));
+		assertThat(refusalOf(data -> {
+			data.setMaxEntryBytes(1024);
+			data.setChainCapacityBytes(32_767);
+		}), equalTo("chainCapacityBytes must be at least 32768, not 32767"));
 	}
 
 	@Example
@@ -385,7 +389,7 @@ public class CommunicationSporkTest {
 	   a chain of fewer than four of them can leave it no room for one of its own */
 	@Property
 	public void refusesChainsThatCannotHoldFourOfTheLargestEntries(
-		@ForAll @LongRange(min = 1024, max = 1_048_576) long maxEntryBytes,
+		@ForAll @LongRange(min = 8192, max = 1_048_576) long maxEntryBytes,
 		@ForAll @LongRange(min = -2, max = 2) long slack) {
 
 		final SporkData data = new SporkData();
@@ -393,6 +397,14 @@ public class CommunicationSporkTest {
 		data.setMaxEntryBytes(maxEntryBytes);
 		data.setChainCapacityBytes(4 * maxEntryBytes + slack);
 		assertThat(accepts(data), is(slack >= 0));
+	}
+
+	/* At 32 KiB the reserve of a chain, a sixteenth of it, holds two of the smallest entries, so the half of it that
+	   relayed entries may take still holds one, whatever the largest entry */
+	@Property
+	public void refusesChainsBelowThirtyTwoKibibytes(@ForAll @LongRange(min = 1024, max = 8192) long maxEntryBytes) {
+		assertThat(acceptsCapacity(maxEntryBytes, 32_768), is(true));
+		assertThat(acceptsCapacity(maxEntryBytes, 32_767), is(false));
 	}
 
 	@Property
