@@ -46,12 +46,12 @@ final class StemEmbargo {
 
 	private static final Comparator<Entry> BY_SEQ = Comparator.comparingLong(entry -> entry.header().seq());
 
-	private record Held(boolean own, long until, Channel source, List<Channel> sentTo) {
-		/* Whether the entry is of a writer of this member, until when it waits to come back, the stream it came in
-		   on, none for one of this member's own, and the successors it was passed to, the first MAX_SENT_TO of
-		   them */
-		private Held until(final long deadline) {
-			return new Held(own, deadline, source, sentTo);
+	private record Held(boolean own, long since, long until, Channel source, List<Channel> sentTo) {
+		/* Whether the entry is of a writer of this member, since when and until when it waits to come back, the
+		   stream it came in on, none for one of this member's own, and the successors it was passed to, the first
+		   MAX_SENT_TO of them */
+		private Held waitsAgain(final long now, final long deadline) {
+			return new Held(own, now, deadline, source, sentTo);
 		}
 
 		private Held sent(final Channel successor) {
@@ -62,8 +62,12 @@ final class StemEmbargo {
 			final List<Channel> more = new ArrayList<>(sentTo);
 
 			more.add(successor);
-			return new Held(own, until, source, List.copyOf(more));
+			return new Held(own, since, until, source, List.copyOf(more));
 		}
+	}
+
+	record Due(Entry entry, long since) {
+		/* An entry that waited out its deadline, and since when it waited */
 	}
 
 	private final RandomGenerator random;
@@ -87,7 +91,7 @@ final class StemEmbargo {
 			return false;
 		}
 
-		held.put(entry, new Held(own, deadline(own, now), source, List.of()));
+		held.put(entry, new Held(own, now, deadline(own, now), source, List.of()));
 		writers.merge(entry.header().writer(), 1, Integer::sum);
 		count(own, entry.size());
 		return true;
@@ -151,19 +155,24 @@ final class StemEmbargo {
 			&& entry.header().seq() >= seq).sorted(BY_SEQ).toList();
 	}
 
-	/* What waited past its deadline, in the order it was held, for the member to flood. Those it relays are let go,
-	   and its own wait again until they come back. */
+	/* What waited past its deadline, in the order it was held, for the member to flood */
 	synchronized List<Entry> due(final long now) {
-		final List<Entry> due = new ArrayList<>();
+		return waited(now).stream().map(Due::entry).toList();
+	}
+
+	/* The same, each with since when it waited. Those the member relays are let go, and its own wait again until
+	   they come back. */
+	synchronized List<Due> waited(final long now) {
+		final List<Due> due = new ArrayList<>();
 
 		for (final Map.Entry<Entry, Held> waiting : List.copyOf(held.entrySet())) {
 			final Held entry = waiting.getValue();
 
 			if (entry.until() <= now) {
-				due.add(waiting.getKey());
+				due.add(new Due(waiting.getKey(), entry.since()));
 
 				if (entry.own()) {
-					held.put(waiting.getKey(), entry.until(deadline(true, now)));
+					held.put(waiting.getKey(), entry.waitsAgain(now, deadline(true, now)));
 				} else {
 					release(waiting.getKey());
 				}

@@ -457,7 +457,8 @@ public class ChainHostStemTest {
 
 	/* A successor that stops reading never makes the exit flood an entry of its own that never left: once such an
 	   entry waited out its deadline, the route counts as gone and the entry goes to the other successor, then to one
-	   drawn in place of both, and once none is left the writer has no successor and the entry is dropped */
+	   drawn in place of both, and once none is left the writer has no successor and the entry is dropped. A member
+	   that stalled is never drawn for the writer again, though it reads again. */
 	@Example
 	public void aSuccessorThatStopsReadingNeverMakesTheExitFloodItsOwn() {
 		final ChainFleet fleet = groupOfEight();
@@ -473,6 +474,7 @@ public class ChainHostStemTest {
 			Optional<String> moved = Optional.empty();
 			int rounds = 0;
 
+			stalled.forEach(member -> fleet.stream(EXIT, member).flush());
 			ChainFleet.unwritable(fleet.stream(EXIT, route));
 			stalled.add(route);
 			postStem(fleet, unsent);
@@ -497,6 +499,51 @@ public class ChainHostStemTest {
 		assertThat(stalled, hasSize(SUCCESSORS_AND_REPLACEMENTS));
 		assertThat(exit.isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
 		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(own.size() - 1)), is(false));
+	}
+
+	/* Turns the stream between two members unwritable anew, so that it took writes in between */
+	private static void stallAgain(final ChainFleet fleet, final String owner, final String peer) {
+		fleet.stream(owner, peer).flush();
+		ChainFleet.unwritable(fleet.stream(owner, peer));
+	}
+
+	/* A route counts as stalled only when it took no writes for the whole wait of an entry: one that took writes in
+	   between, though it takes none whenever an entry waited out its deadline, moves nothing, at the author and at a
+	   relay alike, so a member cannot spend the replacements of a writer that way */
+	@Example
+	public void aRouteThatTookWritesWhileAnEntryWaitedMovesNothing() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 2);
+		final List<Entry> relayed = entries(fleet, 2, 2);
+
+		postStem(fleet, own.get(0));
+		stem(fleet, RELAY, "gn-3", relayed.subList(0, 1));
+
+		final String exitRoute = stemmedTo(writtenBy(fleet, EXIT)).getKey();
+		final String relayRoute = stemmedTo(writtenBy(fleet, RELAY)).getKey();
+		final Set<String> exitDrew = drawnBy(fleet, EXIT, 1);
+		final Set<String> relayDrew = drawnBy(fleet, RELAY, 2);
+		final List<Object> relayFloods = new ArrayList<>();
+
+		ChainFleet.unwritable(fleet.stream(EXIT, exitRoute));
+		ChainFleet.unwritable(fleet.stream(RELAY, relayRoute));
+		postStem(fleet, own.get(1));
+		stem(fleet, RELAY, "gn-3", relayed.subList(1, 2));
+
+		for (int second = 0; second < 3 * MAX_ROUNDS; second++) {
+			stallAgain(fleet, EXIT, exitRoute);
+			stallAgain(fleet, RELAY, relayRoute);
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			fleet.host(RELAY).maintain();
+			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(1)), is(empty()));
+			relayFloods.addAll(floodsOf(writtenBy(fleet, RELAY), relayed.get(1)));
+		}
+
+		assertThat(drawnBy(fleet, EXIT, 1), is(exitDrew));
+		assertThat(drawnBy(fleet, RELAY, 2), is(relayDrew));
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(1)), is(true));
+		assertThat(relayFloods, is(not(empty())));
 	}
 
 	/* A relay whose route stopped taking writes moves the writer off it as the exit does, once an entry it could not
