@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
@@ -25,8 +29,11 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -69,7 +76,9 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
@@ -81,6 +90,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
@@ -2635,5 +2645,53 @@ public class ChainExitTest {
 		assertThat(ChainExit.announcedLocal(ChainFleet.sealingKey(EXIT), announced),
 			is(Optional.of(InetAddress.ofLiteral("127.0.0.1"))));
 		assertThat(ChainExit.announcedLocal(SealingKey.none(), unasked), is(Optional.empty()));
+	}
+
+	/* The operator hears once, at the start, when the exit cannot leave from the address it announces: behind 1:1
+	   NAT, or for a name, it leaves from the address the host chooses, and from loopback it reaches nothing public.
+	   Neither line names the address. An address of this host's own is no news. */
+	@Example
+	public void tellsTheOperatorWhenTheExitCannotLeaveFromTheAddressItAnnounces() throws SocketException {
+		final SealingKey key = ChainFleet.sealingKey(EXIT);
+		final List<ILoggingEvent> natted = infosWhile(() -> ChainExit.announcedLocal(key, () -> "203.0.113.5:52883"));
+		final List<ILoggingEvent> named = infosWhile(() -> ChainExit.announcedLocal(key,
+			() -> "gridnode.example.org:52883"));
+		final List<ILoggingEvent> loopback = infosWhile(() -> ChainExit.announcedLocal(key, () -> "127.0.0.1:52883"));
+		final Optional<InetAddress> own = NetworkInterface.networkInterfaces().flatMap(NetworkInterface::inetAddresses)
+			.filter(Inet4Address.class::isInstance).filter(address -> !address.isLoopbackAddress()).findFirst();
+
+		assertThat(natted.stream().map(ILoggingEvent::getFormattedMessage).toList(), contains(allOf(
+			containsString("1:1 NAT"), not(containsString("203.0.113.5")))));
+		assertThat(named.stream().map(ILoggingEvent::getFormattedMessage).toList(), contains(allOf(
+			containsString("1:1 NAT"), not(containsString("example.org")))));
+		assertThat(loopback.stream().map(ILoggingEvent::getFormattedMessage).toList(), contains(allOf(
+			containsString("loopback"), not(containsString("127.0.0.1")))));
+		assertThat(infosWhile(() -> ChainExit.announcedLocal(SealingKey.none(), () -> "203.0.113.5:52883")),
+			is(empty()));
+		own.ifPresent(address -> assertThat(infosWhile(() -> ChainExit.announcedLocal(key,
+			() -> address.getHostAddress() + ":52883")), is(empty())));
+	}
+
+	/* What the exit tells the log at INFO and above while the action runs */
+	private static List<ILoggingEvent> infosWhile(final Runnable action) {
+		ChainExitTest.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core")
+			.orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ChainExit.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		final Level level = logger.getLevel();
+
+		appender.start();
+		logger.addAppender(appender);
+		logger.setLevel(Level.INFO);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+			logger.setLevel(level);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.INFO)).toList();
 	}
 }

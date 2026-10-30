@@ -46,6 +46,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.geo.HostLiteral;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.proxy.chain.Chain;
@@ -199,9 +200,24 @@ public class ChainExit implements ChainDrain {
 	}
 
 	/* The address the exit connects from: the announced one, where this machine has it. Only a gridnode announces
-	   an address, and the daemon has checked that one before the container starts. */
+	   an address, and the daemon has checked that one before the container starts. The operator is told once, as
+	   the exit starts, when the exit cannot leave from the address clients choose it by, without naming it. */
 	static Optional<InetAddress> announcedLocal(final SealingKey sealingKey, final Supplier<String> announced) {
-		return sealingKey.publicKey().flatMap(key -> ExitContexts.localAddressOf(announced.get()));
+		if (sealingKey.publicKey().isEmpty()) {
+			return Optional.empty();
+		}
+
+		final String address = announced.get();
+		final Optional<InetAddress> local = ExitContexts.localAddressOf(address);
+
+		if (HostLiteral.of(address).filter(InetAddress::isLoopbackAddress).isPresent()) {
+			log.info("The gridnode announces a loopback address, so its exit reaches no public destination");
+		} else if (local.isEmpty()) {
+			log.info("The gridnode announces no address of this host, as behind 1:1 NAT, so its exit connects "
+				+ "from the address the host chooses");
+		}
+
+		return local;
 	}
 
 	private static Thread daemonThread(final Runnable body) {
