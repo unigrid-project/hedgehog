@@ -35,6 +35,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;
+import org.unigrid.hedgehog.model.network.packet.EntryRefused;
 import org.unigrid.hedgehog.proxy.chain.Admission;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -168,7 +169,7 @@ final class Stem {
 
 	/* Passes entries on to their route, at the author and at a relay alike, but never one to the stream it came in on:
 	   that one waits in the embargo, which floods it at the deadline */
-	void pass(final HostedChain hosted, final Channel route, final List<Entry> entries, final long now) {
+	private void pass(final HostedChain hosted, final Channel route, final List<Entry> entries, final long now) {
 		final StemEmbargo embargo = hosted.getEmbargo();
 		final Map<Boolean, List<Entry>> back = entries.stream()
 			.collect(Collectors.partitioningBy(entry -> embargo.sourceOf(entry).equals(Optional.of(route))));
@@ -370,5 +371,21 @@ final class Stem {
 		return unsent.stream().map(StemEmbargo.Due::waiting).filter(Objects::nonNull)
 			.anyMatch(waiting -> waiting.route() == route && (StemStalls.since(route, waiting.since())
 				|| waiting.missed() >= StemEmbargo.MISSED_DEADLINES));
+	}
+
+	void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
+		final long now) {
+
+		final StemEmbargo embargo = hosted.getEmbargo();
+		final List<Entry> refused = embargo.from(refusal.getWriter(), refusal.getSeq()).stream()
+			.filter(entry -> embargo.wasSentTo(entry, refuser)).toList();
+
+		/* A refusal of nothing that went to the member through the stem, as of a copy of a flood or one sent
+		   unasked, neither bars it nor spends the move of the writer. Of what moves on, an entry that came from the
+		   successor it moves to waits in the embargo. */
+		if (!refused.isEmpty()) {
+			hosted.getRouter().refused(refusal.getWriter(), refuser, hosted.avoidOf(refusal.getWriter()))
+				.ifPresent(next -> pass(hosted, next, refused, now));
+		}
 	}
 }

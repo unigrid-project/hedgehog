@@ -1063,24 +1063,8 @@ public class ChainHost implements ChainService, StemHost {
 			&& hosted(refusal.getChainId()).filter(hosted -> hosted.trusts(peer)).isPresent()) {
 
 			pauses.pause(refusal);
-			hosting.find(refusal.getChainId()).ifPresent(hosted -> stemAgain(hosted, refusal, peer,
+			hosting.find(refusal.getChainId()).ifPresent(hosted -> stems.stemAgain(hosted, refusal, peer,
 				clock.getAsLong()));
-		}
-	}
-
-	private void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
-		final long now) {
-
-		final StemEmbargo embargo = hosted.getEmbargo();
-		final List<Entry> refused = embargo.from(refusal.getWriter(), refusal.getSeq()).stream()
-			.filter(entry -> embargo.wasSentTo(entry, refuser)).toList();
-
-		/* A refusal of nothing that went to the member through the stem, as of a copy of a flood or one sent
-		   unasked, neither bars it nor spends the move of the writer. Of what moves on, an entry that came from the
-		   successor it moves to waits in the embargo. */
-		if (!refused.isEmpty()) {
-			hosted.getRouter().refused(refusal.getWriter(), refuser, hosted.avoidOf(refusal.getWriter()))
-				.ifPresent(next -> stems.pass(hosted, next, refused, now));
 		}
 	}
 
