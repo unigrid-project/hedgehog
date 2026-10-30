@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.proxy.session;
 public enum SessionState {
 	/* Not opened yet */
 	NEW,
-	/* OPEN posted, waiting for the exit's ACCEPT */
+	/* The opening posted, waiting for the exit's answer */
 	OPENING,
 	OPEN,
 	CLOSED

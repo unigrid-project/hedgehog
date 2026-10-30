@@ -1604,11 +1604,11 @@ public class ChainExitTest {
 		assertThat(rig.exit.openRelays(), is(256));
 	}
 
-	/* Nothing ends meanwhile, so an OPEN is answered exactly when the node, its chain and its writer are below their
-	   shares at the moment it arrives. Two chains get most of the OPENs and five writers send them, so that each
-	   bound is reached in most tries. */
+	/* Nothing ends meanwhile, so an opening is answered exactly when the node, its chain and its writer are below
+	   their shares at the moment it arrives. Two chains get most of the openings and five writers send them, so that
+	   each bound is reached in most tries. */
 	@Property(tries = 8)
-	public void answersAnOpenExactlyWhileTheNodeItsChainAndItsWriterHaveRoom(
+	public void answersAnOpeningExactlyWhileTheNodeItsChainAndItsWriterHaveRoom(
 		@ForAll @Size(min = 280, max = 360) List<@IntRange(max = 17) Integer> opens) {
 
 		final Rig rig = new Rig();

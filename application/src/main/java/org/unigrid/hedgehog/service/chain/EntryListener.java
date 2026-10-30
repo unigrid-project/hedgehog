@@ -24,12 +24,13 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 @FunctionalInterface
 public interface EntryListener {
 	/* A chain took the entry in from another node, once and in the order the chain appended it, so an exit
-	   that sees an OPEN here sees it exactly once. Entries this node posts itself are not offered. It runs on the
-	   thread of a stream that is receiving entries for the chain, an event loop that holds no lock of the host, or
-	   on the delivery thread of the host, but never on the thread of a caller that posts. No lock of the host is
-	   held, so it may take its own locks and call back into the host. It should still only queue or hand over, as
-	   the entries that come in on the chain meanwhile wait for it. A notification is missed when the chain holds
-	   more waiting deliveries than it keeps, in which case the flood of those entries is lost too (members catch
-	   up through reconcile, attached clients do not), or when an Error escapes a listener. */
+	   that sees an opening here sees it exactly once. Entries this node posts straight to its replica are not
+	   offered, but those it stems are, once they come back by flood, so a listener passes over the writers of its
+	   own. It runs on the thread of a stream that is receiving entries for the chain, an event loop that holds no
+	   lock of the host, or on the delivery thread of the host, but never on the thread of a caller that posts. No
+	   lock of the host is held, so it may take its own locks and call back into the host. It should still only
+	   queue or hand over, as the entries that come in on the chain meanwhile wait for it. A notification is missed
+	   when the chain holds more waiting deliveries than it keeps, in which case the flood of those entries is lost
+	   too (members catch up through reconcile, attached clients do not), or when an Error escapes a listener. */
 	void appended(ChainId chainId, Entry entry);
 }

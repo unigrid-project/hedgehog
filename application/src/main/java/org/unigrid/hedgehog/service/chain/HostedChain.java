@@ -50,8 +50,8 @@ final class HostedChain {
 
 	/* The deliveries that may wait for the thread that drains a chain, so that a listener that is slow or stuck
 	   cannot make the host hold on to every entry that comes in meanwhile. A delivery beyond it is dropped: the
-	   entries are in the chain all the same, a member catches up through reconcile and a session that missed its
-	   OPEN times out and tries again. */
+	   entries are in the chain all the same, a member catches up through reconcile and a session whose opening or
+	   answer was missed times out and tries again. */
 	static final int MAX_PENDING_DELIVERIES = 4096;
 
 	private static final Set<Admission> HOLDS_A_FEED = Set.of(Admission.ACCEPTED, Admission.AHEAD);
