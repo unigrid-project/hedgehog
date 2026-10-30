@@ -1771,7 +1771,7 @@ public class ChainExitTest {
 	}
 
 	/* What the destination sent waited for room longer than the chain keeps entries, so the chain will never take it:
-	   the tick ends the session of that feed as it does those of a chain the host dropped, and the next OPEN gets a
+	   the tick ends the session of that feed as it does those of a chain the host dropped, and the next opening gets a
 	   feed of its own */
 	@Example
 	public void endsTheSessionsOfAFeedWhoseEntryWaitedTooLongAndStartsAFeedOfItsOwn() {
