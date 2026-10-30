@@ -86,7 +86,7 @@ import org.unigrid.hedgehog.service.chain.DeliveryQueue.Delivery;
 @Slf4j
 @Eager @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
-public class ChainHost implements ChainService, StemHost {
+public class ChainHost implements ChainService {
 	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */
 	static final int MAX_WRITERS_PER_STREAM = 4;
 
@@ -164,6 +164,22 @@ public class ChainHost implements ChainService, StemHost {
 		}
 	}
 
+	/* What the stem calls back into, kept off the methods of the host so that nothing else that holds the host can
+	   offer to a chain past a post or a flood */
+	private final class StemPort implements StemHost {
+		@Override
+		public List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
+			final Channel origin, final boolean tell) {
+
+			return ChainHost.this.offerAndQueue(hosted, entries, origin, tell);
+		}
+
+		@Override
+		public void handOver(final HostedChain hosted) {
+			ChainHost.this.handOver(hosted);
+		}
+	}
+
 	@Inject
 	public ChainHost(final ProxySettingsSource settings, final GridnodeDirectory directory,
 		final ChainTransport transport) {
@@ -204,7 +220,7 @@ public class ChainHost implements ChainService, StemHost {
 		this.stemRandom = draws.stem();
 
 		/* Last, as the stem calls back into the host */
-		this.stems = new Stem(this, () -> hosting, clock);
+		this.stems = new Stem(new StemPort(), () -> hosting, clock);
 	}
 
 	/* A daemon, so a host that is never stopped still lets the process end */
@@ -672,8 +688,7 @@ public class ChainHost implements ChainService, StemHost {
 	   what makes the queue hold the deliveries in the order the chain appended them, however many streams relay the
 	   same feed at once. Nothing else runs under the lock: flooding and the listeners are left to whoever drains the
 	   queue, with nothing locked. What was appended before an offer failed is queued all the same. */
-	@Override
-	public List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
+	private List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
 		final Channel origin, final boolean tell) {
 
 		final List<Optional<Offer>> offers = new ArrayList<>();
@@ -796,8 +811,7 @@ public class ChainHost implements ChainService, StemHost {
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
-	@Override
-	public void handOver(final HostedChain hosted) {
+	private void handOver(final HostedChain hosted) {
 		try {
 			deliveryExecutor.execute(() -> drain(hosted));
 		} catch (RejectedExecutionException ex) {
