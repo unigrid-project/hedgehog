@@ -1466,7 +1466,8 @@ public class ChainHostStemTest {
 	}
 
 	/* A successor whose stream takes no writes is passed over by the author and the relay alike, as a flood passes it
-	   over, so stems do not pile up behind a member that stopped reading: the embargo floods what it did not take */
+	   over, so stems do not pile up behind a member that stopped reading: what it did not take waits in the embargo,
+	   and goes to it once it reads again, or to the successor that takes its place */
 	@Example
 	public void stemsNothingToASuccessorThatTakesNoWrites() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));
@@ -1506,7 +1507,8 @@ public class ChainHostStemTest {
 	}
 
 	/* A route that takes no writes for a while is skipped for what comes meanwhile, which waits in the embargo, and the
-	   writer stays on it: once it takes writes again the next entry goes there, at the author and at a relay alike */
+	   writer stays on it: once it takes writes again, what waited and the next entry go there, at the author and at a
+	   relay alike */
 	@Example
 	public void skipsARouteThatTakesNoWritesAndKeepsIt() {
 		final ChainFleet fleet = group(ChainFleet.everyMember(false));

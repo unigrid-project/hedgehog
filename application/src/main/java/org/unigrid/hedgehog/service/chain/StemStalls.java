@@ -25,9 +25,12 @@ import io.netty.util.AttributeKey;
 import java.util.function.Consumer;
 
 /* Since when a stream to a member has taken none of the stems this node passed it: from the first it did not take,
-   for as long as it took none and its writability did not change, which a handler on the stream notes. A route
-   counts as stalled only when it took no writes for the whole wait of an entry, so that a member cannot spend the
-   replacements of a writer by turning unwritable for a moment at a deadline. */
+   for as long as it took none and its writability did not change, which a handler on the stream notes, and which
+   hands it what waits for it once it takes writes again. A route counts as stalled for an entry when it took no
+   writes for the whole wait of the entry, so that a member cannot spend the replacements of a writer by turning
+   unwritable for a moment at a deadline, or when the entry missed StemEmbargo.MISSED_DEADLINES deadlines on it,
+   its write there on its way or not, so that a member that seems to take writes but never reads loses the writer
+   all the same. */
 final class StemStalls {
 	private static final AttributeKey<Long> SINCE = AttributeKey.valueOf("stemStallsSince");
 	private static final AttributeKey<Boolean> WATCHED = AttributeKey.valueOf("stemStallsWatched");
