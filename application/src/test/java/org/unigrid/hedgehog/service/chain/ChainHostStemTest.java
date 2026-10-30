@@ -26,8 +26,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
+import java.util.SplittableRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 import java.util.concurrent.Executors;
@@ -666,6 +668,11 @@ public class ChainHostStemTest {
 		return firstFlooder;
 	}
 
+	/* Hosts that each draw the stem from a generator of their own, spread from the seed and their id */
+	private static Function<String, RandomGenerator> seeded(final long seed) {
+		return id -> new Random(new SplittableRandom(seed + Objects.hashCode(id)).nextLong());
+	}
+
 	/* Whatever the modes and successors of the members, the exit is never the first to flood an entry of its own while
 	   no embargo fired. Most entries reach a flood that way; those that went round the stem wait for an embargo. */
 	@Example
@@ -961,5 +968,33 @@ public class ChainHostStemTest {
 			assertThat(hosted(fleet, EXIT).getEmbargo().bytes(), is(lessThanOrEqualTo(room)));
 			assertThat(hosted(fleet, EXIT).getEmbargo().relayedBytes(), is((long) own.size()));
 		}
+	}
+
+	/* The first member to flood an entry of a session is the first one on the route of its writer that diffuses it,
+	   and the route is drawn once for the life of the writer. However long a member watches who floods the entries of
+	   one session first, it sees one member, or two once the writer moved, and never the exit while no embargo fired,
+	   so it rules out no more members over time than it did at the start. */
+	@Property(tries = 20)
+	public void theFirstFloodersOfASessionStayTheSameForHalfAnHour(@ForAll long seed) {
+		final ChainFleet fleet = ChainFleet.group(8, ChainFleet.settings(8, 4, 16, 30, 3), seeded(seed));
+		final FeedWriter session = new FeedWriter(ChainFleet.key(1), fleet.chain());
+		final List<Entry> posted = new ArrayList<>();
+
+		for (int minute = 0; minute < 40; minute++) {
+			for (final Entry entry : ChainFleet.write(session, 2, fleet.clock.get())) {
+				assertThat(postStem(fleet, entry), is(in(PASSED_ON.values())));
+				posted.add(entry);
+				fleet.deliver();
+			}
+
+			fleet.clock.addAndGet(MINUTE);
+		}
+
+		final Map<Entry, String> firstFlooder = firstFlooders(fleet);
+		final Set<String> seen = posted.stream().filter(firstFlooder::containsKey).map(firstFlooder::get)
+			.collect(Collectors.toSet());
+
+		assertThat(seen.size(), is(lessThanOrEqualTo(2)));
+		assertThat(EXIT, is(not(in(seen))));
 	}
 }
