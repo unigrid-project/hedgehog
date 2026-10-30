@@ -663,6 +663,7 @@ public class ChainHost implements ChainService, StemHost {
 			.mapToObj(entries::get).toList();
 	}
 
+	/* Not private, as the stem reads the offers of what it floods by it too */
 	static boolean isFull(final Optional<Offer> offer) {
 		return offer.isPresent() && offer.get().admission() == Admission.FULL;
 	}

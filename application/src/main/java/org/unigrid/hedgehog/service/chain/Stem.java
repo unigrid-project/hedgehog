@@ -42,9 +42,9 @@ import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
-/* The Dandelion++ stem of the chains a host holds, at the author and at a relay alike: it passes entries on to the
-   successor drawn for their writer before any member floods them, holds them in the embargo meanwhile, and lets the
-   chain take them by flood once they came round or their deadline passed. The chain takes them through the host,
+/* The Dandelion++ stem of the chains this node hosts, at the author and at a relay alike: it passes entries on to
+   the successor drawn for their writer before any member floods them, holds them in the embargo meanwhile, and lets
+   the chain take them by flood once they came round or their deadline passed. The chain takes them through the host,
    the way it takes anything else. */
 final class Stem {
 	/* What a stem entry must be to the chain to be passed on: one it would take, or hold for a gap before it */
