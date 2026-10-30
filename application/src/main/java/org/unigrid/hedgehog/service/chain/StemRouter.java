@@ -59,9 +59,9 @@ final class StemRouter {
 	/* What the member drew for one writer: whether it floods the entries of the writer it is passed, and for a writer
 	   past the most it keeps, the hash that stands in for the draw. The successors that are left come route first.
 	   Every member drawn for the writer is noted by its identity, as none of them is drawn again on any stream, and so
-	   is how often one was drawn in
-	   place of the others, whether the last went away and none could be drawn yet, and whether a refusal or a round
-	   moved the writer. A writer this member relays avoids the streams its entries came in on. */
+	   is how often one was drawn in place of the others, whether the last went away and none could be drawn yet, and
+	   whether a refusal or a round moved the writer. A writer this member relays avoids the streams its entries came
+	   in on. */
 	static final class Draw {
 		private final boolean own;
 		private final boolean diffuses;
