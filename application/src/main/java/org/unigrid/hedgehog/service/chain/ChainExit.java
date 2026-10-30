@@ -171,7 +171,8 @@ public class ChainExit implements ChainDrain {
 
 	@Inject
 	public ChainExit(final ChainHost host, final ProxySettingsSource settings, final SealingKey sealingKey) {
-		this(host, settings, sealingKey, System::currentTimeMillis, new SecureRandom(), ExitContexts.production(),
+		this(host, settings, sealingKey, System::currentTimeMillis, new SecureRandom(),
+			ExitContexts.production(Optional.empty()),
 			Executors.newSingleThreadScheduledExecutor(ChainExit::daemonThread));
 	}
 

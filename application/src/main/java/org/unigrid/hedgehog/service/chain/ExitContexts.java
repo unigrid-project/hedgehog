@@ -46,7 +46,7 @@ import org.unigrid.hedgehog.proxy.session.Resolver;
 
 /* What the exit relays of a node share besides the spork: the destination policy, the connectors and the executor
    names are looked up on. The policy is the only gate between a stranger's request and a connection, so the one
-   way to get these in production is `production()`, which never allows what `publicOnly` refuses. Tests build
+   way to get these in production is `production`, which never allows what `publicOnly` refuses. Tests build
    their own with the package-private constructor. */
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class ExitContexts {
@@ -69,15 +69,15 @@ final class ExitContexts {
 	}
 
 	/* The container starts the exit at every daemon start, also with the proxy off, so no thread of either starts
-	   before a relay needs one */
-	static ExitContexts production() {
+	   before a relay needs one. Given a local address, every connection and datagram socket leaves from it. */
+	static ExitContexts production(final Optional<InetAddress> local) {
 		final ThreadPoolExecutor resolving = resolver();
-		final LazyConnector connector = new LazyConnector();
+		final LazyConnector connector = new LazyConnector(local);
 
 		return new ExitContexts(DestinationPolicy.publicOnly(), connector, resolving, () -> {
 			resolving.shutdownNow();
 			connector.release();
-		}, new NettyUdpConnector(connector::group));
+		}, new NettyUdpConnector(connector::group, local));
 	}
 
 	/* The announced address when its host is an IP literal of one of this machine's interfaces, which is what the
@@ -125,9 +125,14 @@ final class ExitContexts {
 			return Attempt.NONE;
 		};
 
+		private final Optional<InetAddress> local;
 		private EventLoopGroup group;
 		private ExitConnector connector;
 		private boolean released;
+
+		LazyConnector(final Optional<InetAddress> local) {
+			this.local = local;
+		}
 
 		@Override
 		public Attempt connect(final List<InetAddress> addresses, final int port, final TargetListener listener) {
@@ -154,7 +159,7 @@ final class ExitContexts {
 			}
 
 			if (connector == null) {
-				connector = new NettyExitConnector(group(), CONNECT_TIMEOUT_MILLIS);
+				connector = new NettyExitConnector(group(), CONNECT_TIMEOUT_MILLIS, local);
 			}
 
 			return connector;

@@ -145,7 +145,7 @@ public class ExitContextsTest {
 
 	@Example
 	public void relaysDatagramsOverNettyInProduction() {
-		final ExitContexts contexts = ExitContexts.production();
+		final ExitContexts contexts = ExitContexts.production(Optional.empty());
 
 		try {
 			final ExitContext context = contexts.of(ProxySettings.DEFAULTS);
@@ -160,7 +160,7 @@ public class ExitContextsTest {
 
 	@Example
 	public void releasesTwiceWithoutHarm() {
-		final ExitContexts contexts = ExitContexts.production();
+		final ExitContexts contexts = ExitContexts.production(Optional.empty());
 
 		contexts.of(ProxySettings.DEFAULTS);
 		contexts.close();
@@ -197,7 +197,7 @@ public class ExitContextsTest {
 	/* The cancel reaches the connect under way, which then never connects */
 	@Example
 	public void cancelsAConnectItStartedOnItsLoops() throws Exception {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final CompletableFuture<Target> connected = new CompletableFuture<>();
 
 		try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
@@ -213,7 +213,7 @@ public class ExitContextsTest {
 
 	@Example
 	public void connectsOnItsOwnDaemonThreadsAndStopsThemWhenReleased() throws Exception {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final CompletableFuture<Target> connected = new CompletableFuture<>();
 
 		try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
@@ -234,7 +234,7 @@ public class ExitContextsTest {
 	/* The datagram sockets share the connector's loops, which start with the first socket and close it on release */
 	@Example
 	public void opensDatagramSocketsOnItsOwnDaemonThreadsAndStopsThemWhenReleased() throws Exception {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final Opening opening = new Opening();
 
 		try {
@@ -254,7 +254,7 @@ public class ExitContextsTest {
 
 	@Example
 	public void failsDatagramSocketsOnceReleasedWithoutStartingAThread() {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final Opening opening = new Opening();
 
 		production.close();
@@ -262,6 +262,43 @@ public class ExitContextsTest {
 
 		assertThat(opening.failed.getNow(null), is(Socks5CommandStatus.FAILURE));
 		assertThat(connectorThreads(), hasSize(0));
+	}
+
+	@Example
+	public void connectsFromTheLocalAddressInProduction() throws Exception {
+		final InetAddress local = InetAddress.ofLiteral("127.0.0.2");
+		final ExitContexts production = ExitContexts.production(Optional.of(local));
+		final CompletableFuture<Target> connected = new CompletableFuture<>();
+
+		try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+			production.of(ProxySettings.DEFAULTS).connector().connect(List.of(InetAddress.getLoopbackAddress()),
+				server.getLocalPort(), completing(connected));
+
+			final Target target = connected.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+			assertThat(target.localAddress().getAddress(), is(local));
+			target.close();
+		} finally {
+			production.close();
+		}
+
+		await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> connectorThreads().isEmpty());
+	}
+
+	@Example
+	public void opensDatagramSocketsOnTheLocalAddressInProduction() throws Exception {
+		final InetAddress local = InetAddress.ofLiteral("127.0.0.2");
+		final ExitContexts production = ExitContexts.production(Optional.of(local));
+		final Opening opening = new Opening();
+
+		try {
+			production.of(ProxySettings.DEFAULTS).udp().open(opening);
+			assertThat(opening.opened.get(WAIT_SECONDS, TimeUnit.SECONDS).localAddress().getAddress(), is(local));
+		} finally {
+			production.close();
+		}
+
+		await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> connectorThreads().isEmpty());
 	}
 
 	/* Only an address of this machine can be bound to: behind 1:1 NAT the announced one is not, and a name is

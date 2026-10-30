@@ -1892,7 +1892,7 @@ public class ChainExitTest {
 
 	@Example
 	public void looksUpNoMoreNamesAtOnceThanItHasThreadsAndQueueFor() throws Exception {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final CountDownLatch release = new CountDownLatch(1);
 		final CountDownLatch started = new CountDownLatch(ExitContexts.RESOLVER_THREADS);
 		final Set<Thread> threads = ConcurrentHashMap.newKeySet();
@@ -1926,7 +1926,7 @@ public class ChainExitTest {
 
 	@Example
 	public void connectsAndLooksUpNothingOnceReleasedHoweverOften() {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 		final List<Socks5CommandStatus> failures = new ArrayList<>();
 
 		production.close();
@@ -1990,7 +1990,7 @@ public class ChainExitTest {
 
 	@Example
 	public void neverAllowsWhatThePublicPolicyRefusesInProduction() throws Exception {
-		final ExitContexts production = ExitContexts.production();
+		final ExitContexts production = ExitContexts.production(Optional.empty());
 
 		try {
 			final DestinationPolicy policy = production.of(ProxySettings.DEFAULTS).policy();
