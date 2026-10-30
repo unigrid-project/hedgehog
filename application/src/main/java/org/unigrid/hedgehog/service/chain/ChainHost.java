@@ -1071,8 +1071,7 @@ public class ChainHost implements ChainService {
 			&& hosted(refusal.getChainId()).filter(hosted -> hosted.trusts(peer)).isPresent()) {
 
 			pauses.pause(refusal);
-			hosting.find(refusal.getChainId()).ifPresent(hosted -> stems.stemAgain(hosted, refusal, peer,
-				clock.getAsLong()));
+			stems.stemAgain(refusal, peer);
 		}
 	}
 

@@ -373,7 +373,12 @@ final class Stem {
 				|| waiting.missed() >= StemEmbargo.MISSED_DEADLINES));
 	}
 
-	void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
+	void stemAgain(final EntryRefused refusal, final Channel refuser) {
+		hosting.get().find(refusal.getChainId()).ifPresent(hosted -> stemAgain(hosted, refusal, refuser,
+			clock.getAsLong()));
+	}
+
+	private void stemAgain(final HostedChain hosted, final EntryRefused refusal, final Channel refuser,
 		final long now) {
 
 		final StemEmbargo embargo = hosted.getEmbargo();
