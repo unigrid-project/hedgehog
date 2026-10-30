@@ -39,6 +39,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.IntStream;
@@ -104,6 +105,21 @@ public class NettyExitConnectorTest {
 			target.close();
 			assertThat(listener.closed.get(RecordingTargetListener.TIMEOUT_MILLIS, TimeUnit.MILLISECONDS),
 				is(true));
+		}
+	}
+
+	/* The destination sees the address the exit is bound to, and not the one the host would have picked for the
+	   route, which here is the destination's own */
+	@Example
+	public void connectsFromTheLocalAddress() throws Exception {
+		final ExitConnector bound = new NettyExitConnector(group, 2000, Optional.of(EchoServer.loopback(2)));
+
+		try (EchoServer echo = new EchoServer()) {
+			final RecordingTargetListener listener = new RecordingTargetListener();
+
+			bound.connect(List.of(EchoServer.LOOPBACK), echo.port(), listener);
+			assertThat(listener.target().localAddress().getAddress(), equalTo(EchoServer.loopback(2)));
+			assertThat(echo.peerAddress(), equalTo(EchoServer.loopback(2)));
 		}
 	}
 

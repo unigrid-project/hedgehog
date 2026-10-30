@@ -42,10 +42,13 @@ import java.net.NoRouteToHostException;
 import java.net.SocketException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-/* Connects over TCP with Netty on an NIO event loop group, trying the admitted addresses one after another */
+/* Connects over TCP with Netty on an NIO event loop group, trying the admitted addresses one after another. Given a
+   local address, every connection leaves from it, so the destination sees the address it was given. */
 public final class NettyExitConnector implements ExitConnector {
 	/* Each unreachable address costs a whole connect timeout, and whoever controls a name controls how many
 	   addresses it has, so a stranger could keep a relay connecting for minutes. Names seldom have more. */
@@ -60,10 +63,20 @@ public final class NettyExitConnector implements ExitConnector {
 	private final Bootstrap bootstrap;
 
 	public NettyExitConnector(EventLoopGroup group, int connectTimeoutMillis) {
-		this(group, connectTimeoutMillis, CLOSE_GRACE_MILLIS);
+		this(group, connectTimeoutMillis, Optional.empty());
+	}
+
+	public NettyExitConnector(EventLoopGroup group, int connectTimeoutMillis, Optional<InetAddress> local) {
+		this(group, connectTimeoutMillis, CLOSE_GRACE_MILLIS, local);
 	}
 
 	NettyExitConnector(EventLoopGroup group, int connectTimeoutMillis, int closeGraceMillis) {
+		this(group, connectTimeoutMillis, closeGraceMillis, Optional.empty());
+	}
+
+	NettyExitConnector(EventLoopGroup group, int connectTimeoutMillis, int closeGraceMillis,
+		Optional<InetAddress> local) {
+
 		if (connectTimeoutMillis <= 0) {
 			throw new IllegalArgumentException("The connect timeout must be positive: " + connectTimeoutMillis);
 		}
@@ -73,6 +86,8 @@ public final class NettyExitConnector implements ExitConnector {
 		bootstrap = new Bootstrap().group(group).channel(NioSocketChannel.class)
 			.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, connectTimeoutMillis)
 			.option(ChannelOption.AUTO_READ, false).option(ChannelOption.TCP_NODELAY, true);
+
+		Objects.requireNonNull(local, "local").ifPresent(address -> bootstrap.localAddress(address, 0));
 	}
 
 	/* The list is copied because the attempts go on after this call, on the event loop, while the caller may
