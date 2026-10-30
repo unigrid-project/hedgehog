@@ -882,26 +882,21 @@ public class ChainHostStemTest {
 		assertThat(holding(held, relayed.get(0)), is(1L));
 	}
 
-	/* A writer of the exit is never routed by the hash: one past the draws the exit keeps has no successor, so its
-	   session ends and nothing it posts is flooded by the exit */
+	/* The draws of the writers of the exit count against no cap, as the exit bounds its writers on a chain itself: with
+	   the draws full of writers it relays, a new session of the exit still draws its successors and stems its entries,
+	   and the exit still answers openings truthfully */
 	@Example
-	public void aWriterOfTheExitPastTheDrawsHasNoSuccessor() {
+	public void aWriterOfTheExitDrawsItsSuccessorsWhenTheDrawsAreFull() {
 		final ChainFleet fleet = groupOfEight();
 		final List<Entry> own = entries(fleet, 1, 1);
 
 		fillTheDraws(fleet, EXIT);
-		postStem(fleet, own.get(0));
 
-		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
-		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
-
-		for (int second = 0; second < MAX_ROUNDS; second++) {
-			fleet.clock.addAndGet(1000);
-			fleet.host(EXIT).maintain();
-			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(0)), is(empty()));
-		}
-
-		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(false));
+		assertThat(fleet.host(EXIT).canStem(fleet.chain(), Set.of()), is(true));
+		assertThat(postStem(fleet, own.get(0)), is(Admission.ACCEPTED));
+		assertThat(stemmedTo(writtenBy(fleet, EXIT)).getValue(), equalTo(List.of(new ChainStem(own))));
+		assertThat(drawnBy(fleet, EXIT, 1), hasSize(StemRouter.SUCCESSORS));
+		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(false));
 	}
 
 	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */

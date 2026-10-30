@@ -91,12 +91,14 @@ final class StemRouter {
 	private final Function<Channel, Object> identity;
 	private final Map<WriterId, Draw> draws = new HashMap<>();
 
-	/* The most writers the member keeps a draw for, as many as the chain takes. A writer past them goes by a hash of
-	   its id under a key drawn once for the chain, which keeps its mode and its successor as well, and a stream that
-	   floods the stem with fresh writers makes the router hold no more. Nothing moves such a writer, as there is no
-	   draw of it to move. */
+	/* The most writers it relays that the member keeps a draw for, as many as the chain takes. A writer past them goes
+	   by a hash of its id under a key drawn once for the chain, which keeps its mode and its successor as well, and a
+	   stream that floods the stem with fresh writers makes the router hold no more. Nothing moves such a writer, as
+	   there is no draw of it to move. The writers of this member's own count against no such bound, as the exit bounds
+	   them on a chain itself, so each of them is drawn. */
 	private final int maxDraws;
 	private final long key;
+	private int relayed;
 
 	/* The members are the streams of the chain to the other members of its group, as the host holds them now, and the
 	   identity of a stream is the member it goes to, which a stream that closed and came back keeps */
@@ -125,7 +127,7 @@ final class StemRouter {
 			return held;
 		}
 
-		if (draws.size() >= maxDraws) {
+		if (relayed >= maxDraws) {
 			return hashed(writer);
 		}
 
@@ -144,8 +146,8 @@ final class StemRouter {
 	   the member keeps, or that many are kept already, and notes the stream the entry came in on among those the
 	   writer avoids */
 	synchronized void keep(final WriterId writer, final Draw draw, final Channel source) {
-		if (draw.hash.isEmpty() && draws.size() < maxDraws) {
-			draws.putIfAbsent(writer, draw);
+		if (draw.hash.isEmpty() && relayed < maxDraws && draws.putIfAbsent(writer, draw) == null) {
+			relayed++;
 		}
 
 		Optional.ofNullable(draws.get(writer)).ifPresent(held -> held.sources.add(identity.apply(source)));
@@ -159,17 +161,17 @@ final class StemRouter {
 	}
 
 	/* The same for a writer of this member's own, which is drawn the first time, among the members it does not
-	   avoid, and never diffused. It is never routed by the hash: one past the most the member keeps has none. */
+	   avoid, and never diffused nor routed by the hash */
 	synchronized Optional<Channel> ownSuccessor(final WriterId writer, final Set<Channel> avoid) {
 		Draw draw = draws.get(writer);
 
-		if (draw == null && draws.size() < maxDraws) {
+		if (draw == null) {
 			draw = new Draw(true, false, Optional.empty());
 			drawFirst(draw, members.get(), identities(avoid));
 			draws.put(writer, draw);
 		}
 
-		return draw == null ? Optional.empty() : successor(draw, avoid);
+		return successor(draw, avoid);
 	}
 
 	/* The successor a writer moves to when its route refused an entry of it for want of room: the second, and the
@@ -227,12 +229,12 @@ final class StemRouter {
 
 	/* Whether a writer of this member's own has no successor left: each it was given refused, went round or went
 	   away, and none may be drawn in their place, for want of a member or of the replacements the writer had. A writer
-	   it has no draw of has none to lose, unless it is past the most the member keeps, as such a writer has none. */
+	   it has no draw of yet has none to lose. */
 	synchronized boolean strands(final WriterId writer, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
 		if (draw == null) {
-			return draws.size() >= maxDraws;
+			return false;
 		}
 
 		refresh(draw, avoid);
@@ -253,7 +255,8 @@ final class StemRouter {
 
 	/* Lets go of the draws of the writers the chain forgot */
 	synchronized void forget(final Collection<WriterId> writers) {
-		draws.keySet().removeAll(writers);
+		writers.forEach(writer -> Optional.ofNullable(draws.remove(writer)).filter(draw -> !draw.own)
+			.ifPresent(draw -> relayed--));
 	}
 
 	/* The successors of a writer as they stand, the route first, for a test */
