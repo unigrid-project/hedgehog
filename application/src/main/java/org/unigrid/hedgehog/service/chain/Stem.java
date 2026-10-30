@@ -149,7 +149,7 @@ final class Stem {
 
 	private void diffuse(final HostedChain hosted, final List<Entry> entries) {
 		if (!entries.isEmpty()) {
-			host.offerAndQueue(hosted, entries, null, true);
+			host.offer(hosted, entries);
 		}
 	}
 
@@ -319,7 +319,7 @@ final class Stem {
 			.forEach((lane, unsent) -> due.addAll(passLate(hosted, lane, unsent, now)));
 
 		if (!due.isEmpty()) {
-			final List<Optional<Offer>> offers = host.offerAndQueue(hosted, due, null, true);
+			final List<Optional<Offer>> offers = host.offer(hosted, due);
 
 			IntStream.range(0, due.size()).filter(place -> !ChainHost.isFull(offers.get(place)))
 				.forEach(place -> hosted.getEmbargo().release(due.get(place)));

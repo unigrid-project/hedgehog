@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.service.chain;
 
-import io.netty.channel.Channel;
 import java.util.List;
 import java.util.Optional;
 import org.unigrid.hedgehog.proxy.chain.Entry;
@@ -27,9 +26,10 @@ import org.unigrid.hedgehog.proxy.chain.Offer;
 /* What the stem of a host calls back into: the chain takes what the stem lets go of, by flood, the way it takes
    anything else, and the host floods and delivers it */
 interface StemHost {
-	/* Offers the entries to the chain and queues what it appended, as one step under the delivery lock of the
-	   chain, and answers the offers in the order of the entries */
-	List<Optional<Offer>> offerAndQueue(HostedChain hosted, List<Entry> entries, Channel origin, boolean tell);
+	/* Offers the entries to the chain as if they came in now on no stream, so that what it appends is flooded to
+	   every stream and told to the listeners once the chain is drained, and answers the offers in the order of the
+	   entries */
+	List<Optional<Offer>> offer(HostedChain hosted, List<Entry> entries);
 
 	/* Hands the draining of the chain to the delivery executor */
 	void handOver(HostedChain hosted);

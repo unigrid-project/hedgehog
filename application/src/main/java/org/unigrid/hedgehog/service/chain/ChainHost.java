@@ -168,10 +168,8 @@ public class ChainHost implements ChainService {
 	   offer to a chain past a post or a flood */
 	private final class StemPort implements StemHost {
 		@Override
-		public List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
-			final Channel origin, final boolean tell) {
-
-			return ChainHost.this.offerAndQueue(hosted, entries, origin, tell);
+		public List<Optional<Offer>> offer(final HostedChain hosted, final List<Entry> entries) {
+			return offerAndQueue(hosted, entries, null, true);
 		}
 
 		@Override
