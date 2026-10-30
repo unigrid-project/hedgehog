@@ -23,6 +23,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Arrays;
@@ -39,11 +40,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
@@ -171,8 +174,14 @@ public class ChainExit implements ChainDrain {
 
 	@Inject
 	public ChainExit(final ChainHost host, final ProxySettingsSource settings, final SealingKey sealingKey) {
+		this(host, settings, sealingKey, GridnodeSetup::announcedAddress);
+	}
+
+	ChainExit(final ChainHost host, final ProxySettingsSource settings, final SealingKey sealingKey,
+		final Supplier<String> announced) {
+
 		this(host, settings, sealingKey, System::currentTimeMillis, new SecureRandom(),
-			ExitContexts.production(Optional.empty()),
+			ExitContexts.production(announcedLocal(sealingKey, announced)),
 			Executors.newSingleThreadScheduledExecutor(ChainExit::daemonThread));
 	}
 
@@ -187,6 +196,12 @@ public class ChainExit implements ChainDrain {
 		this.random = random;
 		this.contexts = contexts;
 		this.scheduler = scheduler;
+	}
+
+	/* The address the exit connects from: the announced one, where this machine has it. Only a gridnode announces
+	   an address, and the daemon has checked that one before the container starts. */
+	static Optional<InetAddress> announcedLocal(final SealingKey sealingKey, final Supplier<String> announced) {
+		return sealingKey.publicKey().flatMap(key -> ExitContexts.localAddressOf(announced.get()));
 	}
 
 	private static Thread daemonThread(final Runnable body) {

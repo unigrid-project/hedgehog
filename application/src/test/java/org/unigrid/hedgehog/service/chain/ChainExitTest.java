@@ -56,6 +56,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.IntSupplier;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -82,6 +83,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
+import org.unigrid.hedgehog.model.gridnode.SealingKey;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;
 import org.unigrid.hedgehog.model.network.packet.EntryRefused;
@@ -2012,7 +2014,7 @@ public class ChainExitTest {
 		fleet.clock.set(System.currentTimeMillis());
 
 		final Rig rig = new Rig(fleet, built -> new ChainExit(fleet.host(EXIT), fleet.settings::get,
-			ChainFleet.sealingKey(EXIT)));
+			ChainFleet.sealingKey(EXIT), () -> "203.0.113.5:52883"));
 		final Caller caller = rig.caller(1);
 
 		caller.session().open();
@@ -2620,5 +2622,18 @@ public class ChainExitTest {
 
 		assertThat(rig.accepts(), is(1));
 		assertThat(rig.exit.heldRelays(), is(1));
+	}
+
+	/* Only a gridnode announces an address, so that of any other node is not even asked for: it may have none */
+	@Example
+	public void leavesFromTheAnnouncedAddressOfAGridnodeOnly() {
+		final Supplier<String> announced = () -> "127.0.0.1:52883";
+		final Supplier<String> unasked = () -> {
+			throw new AssertionError("Asked for the address of a node that announces none");
+		};
+
+		assertThat(ChainExit.announcedLocal(ChainFleet.sealingKey(EXIT), announced),
+			is(Optional.of(InetAddress.ofLiteral("127.0.0.1"))));
+		assertThat(ChainExit.announcedLocal(SealingKey.none(), unasked), is(Optional.empty()));
 	}
 }
