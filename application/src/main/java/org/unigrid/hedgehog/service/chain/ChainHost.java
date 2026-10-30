@@ -86,7 +86,7 @@ import org.unigrid.hedgehog.service.chain.DeliveryQueue.Delivery;
 @Slf4j
 @Eager @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
-public class ChainHost implements ChainService {
+public class ChainHost implements ChainService, StemHost {
 	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */
 	static final int MAX_WRITERS_PER_STREAM = 4;
 
@@ -826,7 +826,8 @@ public class ChainHost implements ChainService {
 	   what makes the queue hold the deliveries in the order the chain appended them, however many streams relay the
 	   same feed at once. Nothing else runs under the lock: flooding and the listeners are left to whoever drains the
 	   queue, with nothing locked. What was appended before an offer failed is queued all the same. */
-	private List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
+	@Override
+	public List<Optional<Offer>> offerAndQueue(final HostedChain hosted, final List<Entry> entries,
 		final Channel origin, final boolean tell) {
 
 		final List<Optional<Offer>> offers = new ArrayList<>();
@@ -1016,7 +1017,8 @@ public class ChainHost implements ChainService {
 	}
 
 	/* Nothing is drained once the host is stopped, as its executor then takes no more */
-	private void handOver(final HostedChain hosted) {
+	@Override
+	public void handOver(final HostedChain hosted) {
 		try {
 			deliveryExecutor.execute(() -> drain(hosted));
 		} catch (RejectedExecutionException ex) {
