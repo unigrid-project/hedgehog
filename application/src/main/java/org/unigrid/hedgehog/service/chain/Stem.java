@@ -74,7 +74,13 @@ final class Stem {
 		}
 	}
 
-	/* Answers the entries the chain had no room for */
+	/* The entries of one chain a member passed on. Each entry is checked as a flood would be, and only one the chain
+	   would take, or hold for a gap before it, goes on: of a writer this member diffuses, it is flooded, and of one
+	   it relays, it is held in the embargo and passed on to the successor of its writer, never back to the stream it
+	   came on. One the embargo holds already has come round the stem, and is flooded at once, which ends the round
+	   and tells nothing of the exit, as a member that relayed it is never its author; its author leaves it to the
+	   shorter timers of the relays that hold it, and so does a relay it came straight back to. A round moves the
+	   writer off its route at the author and at a relay alike. Answers the entries the chain had no room for. */
 	List<Entry> passOn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final long now = clock.getAsLong();
 		final PassedOn packet = new PassedOn();
@@ -373,6 +379,10 @@ final class Stem {
 				|| waiting.missed() >= StemEmbargo.MISSED_DEADLINES));
 	}
 
+	/* A member that refused an entry of a writer stemmed to it gets nothing more of the writer, and what the embargo
+	   holds of the writer from the refused entry on, of what went to that member, goes to the other successor at
+	   once, unless that is a member one of those entries came from: an author and a relay do so alike, as both hold
+	   what they passed on, and neither ever passes an entry back to where it came from. */
 	void stemAgain(final EntryRefused refusal, final Channel refuser) {
 		hosting.get().find(refusal.getChainId()).ifPresent(hosted -> stemAgain(hosted, refusal, refuser,
 			clock.getAsLong()));

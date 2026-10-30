@@ -636,13 +636,7 @@ public class ChainHost implements ChainService {
 
 	/* Entries a member passes on before any member floods them. Only a member of the group of a chain this node hosts
 	   is heard, as a client passes nothing on, and only for as many entries as its stream has left of its second,
-	   counted as those of a flood are. Each entry is checked as a flood would be, and only one the chain would take, or
-	   hold for a gap before it, goes on: of a writer this member diffuses, it is flooded, and of one it relays, it
-	   is held in the embargo and passed on to the successor of its writer, never back to the stream it came on. One
-	   the embargo holds already has come round the stem, and is flooded at once, which ends the round and tells
-	   nothing of the exit, as a member that relayed it is never its author; its author leaves it to the shorter timers
-	   of the relays that hold it, and so does a relay it came straight back to. A round moves the writer off its
-	   route at the author and at a relay alike. What the chain had no room for is answered as for a flood. */
+	   counted as those of a flood are. What the chain had no room for is answered as for a flood. */
 	@Override
 	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
 		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
@@ -1061,10 +1055,7 @@ public class ChainHost implements ChainService {
 	/* Only a full chain asks the writer to wait, and only a member of that chain's group is believed, on a retired
 	   chain as on a current one since both still take entries, and on a followed chain a member it is followed
 	   through. A refusal does not say whether the writer is one of this node's, so whatever owns a writer looks its
-	   pause up here. A member that refused an entry of a writer stemmed to it gets nothing more of the writer, and
-	   what the embargo holds of the writer from the refused entry on, of what went to that member, goes to
-	   the other successor at once, unless that is a member one of those entries came from: an author and a relay do so
-	   alike, as both hold what they passed on, and neither ever passes an entry back to where it came from. */
+	   pause up here. */
 	@Override
 	public void refused(final Channel peer, final EntryRefused refusal) {
 		if (refusal != null && refusal.getWriter() != null && refusal.getAdmission() == Admission.FULL
