@@ -978,7 +978,7 @@ public class ChainHost implements ChainService {
 		final long now = clock.getAsLong();
 
 		hosting.all().forEach(hosted -> byLane(hosted, hosted.getEmbargo().waitingFor(stream))
-			.forEach((lane, entries) -> hosted.getRouter().successor(lane.writer(), lane.avoid(hosted))
+			.forEach((lane, entries) -> lane.route(hosted)
 				.ifPresent(route -> pass(hosted, route, entries, now))));
 	}
 
@@ -988,6 +988,21 @@ public class ChainHost implements ChainService {
 		   keeps the route of a writer past the draws the router keeps the same wherever it is asked for */
 		private Set<Channel> avoid(final HostedChain hosted) {
 			return source == null ? hosted.avoidOf(writer) : Set.of(source);
+		}
+
+		private Optional<Channel> route(final HostedChain hosted) {
+			return source == null ? hosted.getRouter().ownSuccessor(writer, avoid(hosted))
+				: hosted.getRouter().successor(writer, avoid(hosted));
+		}
+
+		/* A writer a relay routes by the hash, past the draws it keeps, which nothing moves */
+		private boolean isHashed(final HostedChain hosted) {
+			return source != null && !hosted.getRouter().keeps(writer);
+		}
+
+		/* A writer of this node's own is never routed by the hash */
+		private boolean isLost(final HostedChain hosted) {
+			return source == null && !hosted.getRouter().keeps(writer);
 		}
 	}
 
@@ -1087,16 +1102,17 @@ public class ChainHost implements ChainService {
 	/* What never left of a writer at its deadline goes to the route of the writer, once the writer was moved off a
 	   route that stalled, and answers what a relay floods for want of a successor. A route counts as stalled for an
 	   entry tried on it when it took no writes since the entry first missed it, or when the entry has now missed
-	   MISSED_DEADLINES deadlines on it. An entry whose write to the route it stays on is still on its way waits on,
-	   and is not written there again. Nothing moves a writer a relay routes by the hash, so it has no successor
-	   while its route takes no writes. */
+	   MISSED_DEADLINES deadlines on it, its write there on its way or not. An entry whose write to the route it stays
+	   on is still on its way waits on, and is not written there again. Nothing moves a writer a relay routes by the
+	   hash, so it has no successor once its route stalled or takes no writes, and the relay floods what waits. */
 	private List<Entry> passLate(final HostedChain hosted, final Lane lane, final List<StemEmbargo.Due> unsent,
 		final long now) {
 
 		final List<Entry> entries = unsent.stream().map(StemEmbargo.Due::entry).toList();
-		final boolean hashed = lane.source() != null && !hosted.getRouter().keeps(lane.writer());
-		final Optional<Channel> route = hosted.getRouter().moveIfStalled(lane.writer(), lane.avoid(hosted),
-			current -> stalls(current, unsent)).filter(current -> !hashed || current.isWritable());
+		final boolean hashed = lane.isHashed(hosted);
+		final Optional<Channel> route = lane.isLost(hosted) ? Optional.empty() : hosted.getRouter()
+			.moveIfStalled(lane.writer(), lane.avoid(hosted), current -> stalls(current, unsent))
+			.filter(current -> !hashed || current.isWritable() && !stalls(current, unsent));
 
 		if (route.isPresent()) {
 			passAgain(hosted, route.get(), unsent, now);

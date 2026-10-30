@@ -159,7 +159,7 @@ final class StemRouter {
 	}
 
 	/* The same for a writer of this member's own, which is drawn the first time, among the members it does not
-	   avoid, and never diffused */
+	   avoid, and never diffused. It is never routed by the hash: one past the most the member keeps has none. */
 	synchronized Optional<Channel> ownSuccessor(final WriterId writer, final Set<Channel> avoid) {
 		Draw draw = draws.get(writer);
 
@@ -169,7 +169,7 @@ final class StemRouter {
 			draws.put(writer, draw);
 		}
 
-		return successor(draw == null ? hashed(writer) : draw, avoid);
+		return draw == null ? Optional.empty() : successor(draw, avoid);
 	}
 
 	/* The successor a writer moves to when its route refused an entry of it for want of room: the second, and the
@@ -225,15 +225,14 @@ final class StemRouter {
 		return route(draw);
 	}
 
-	/* Whether a writer this member stems has no successor left: each it was given refused, went round or went away,
-	   and none may be drawn in their place, for want of a member or of the replacements the writer had. A writer it
-	   has no draw of has none to lose, unless it is past the most the member keeps and no member is there outside
-	   what it avoids. */
+	/* Whether a writer of this member's own has no successor left: each it was given refused, went round or went
+	   away, and none may be drawn in their place, for want of a member or of the replacements the writer had. A writer
+	   it has no draw of has none to lose, unless it is past the most the member keeps, as such a writer has none. */
 	synchronized boolean strands(final WriterId writer, final Set<Channel> avoid) {
 		final Draw draw = draws.get(writer);
 
 		if (draw == null) {
-			return draws.size() >= maxDraws && successor(hashed(writer), avoid).isEmpty();
+			return draws.size() >= maxDraws;
 		}
 
 		refresh(draw, avoid);

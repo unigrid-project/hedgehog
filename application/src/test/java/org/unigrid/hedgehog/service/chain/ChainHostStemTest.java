@@ -850,6 +850,60 @@ public class ChainHostStemTest {
 		assertThat(floods, is(not(empty())));
 	}
 
+	/* A deadline that passes while the write of an entry to its route is still on its way counts as missed, so a
+	   member that takes the connection but never reads, while its stream stays below the mark where it takes no
+	   writes, holds nothing for ever: a writer a relay routes by the hash cannot be moved, so the relay floods the
+	   entry once it missed MISSED_DEADLINES deadlines there */
+	@Example
+	public void aRelayFloodsAWriterPastTheDrawsWhoseRouteNeverGetsAWriteOut() {
+		final ChainFleet fleet = groupOfEight();
+
+		fillTheDraws(fleet, RELAY);
+
+		final int writer = hashedRelayedWriter(fleet);
+		final List<Entry> relayed = entries(fleet, writer, 1);
+		final Channel route = hosted(fleet, RELAY).getRouter().successor(ChainFleet.writer(writer),
+			Set.of(fleet.stream(RELAY, "gn-3"))).orElseThrow();
+		final List<ChainStem> held = holdStems(fleet.activeIds().stream().map(id -> fleet.stream(RELAY, id))
+			.filter(stream -> stream == route).findFirst().orElseThrow());
+		final List<Object> floods = new ArrayList<>();
+		int rounds = 0;
+
+		stem(fleet, RELAY, "gn-3", relayed);
+
+		while (floods.isEmpty() && rounds < 3 * MAX_ROUNDS) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(RELAY).maintain();
+			floods.addAll(floodsOf(writtenBy(fleet, RELAY), relayed.get(0)));
+			rounds++;
+		}
+
+		assertThat(floods, is(not(empty())));
+		assertThat(holding(held, relayed.get(0)), is(1L));
+	}
+
+	/* A writer of the exit is never routed by the hash: one past the draws the exit keeps has no successor, so its
+	   session ends and nothing it posts is flooded by the exit */
+	@Example
+	public void aWriterOfTheExitPastTheDrawsHasNoSuccessor() {
+		final ChainFleet fleet = groupOfEight();
+		final List<Entry> own = entries(fleet, 1, 1);
+
+		fillTheDraws(fleet, EXIT);
+		postStem(fleet, own.get(0));
+
+		assertThat(all(writtenBy(fleet, EXIT)), is(empty()));
+		assertThat(fleet.host(EXIT).isStranded(fleet.chain(), ChainFleet.writer(1)), is(true));
+
+		for (int second = 0; second < MAX_ROUNDS; second++) {
+			fleet.clock.addAndGet(1000);
+			fleet.host(EXIT).maintain();
+			assertThat(floodsOf(writtenBy(fleet, EXIT), own.get(0)), is(empty()));
+		}
+
+		assertThat(hosted(fleet, EXIT).getEmbargo().holds(own.get(0)), is(false));
+	}
+
 	/* A relay in the same place floods what it can pass on to nobody at its timer, which tells nothing of the exit */
 	@Example
 	public void aRelayWithNoSuccessorLeftFloodsAtItsTimer() {
