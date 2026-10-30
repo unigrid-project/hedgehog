@@ -418,4 +418,9 @@ final class HostedChain {
 			return Optional.of(offer);
 		}
 	}
+
+	/* Whether an offer found no room for its entry; an entry that was never offered did not */
+	static boolean isFull(final Optional<Offer> offer) {
+		return offer.isPresent() && offer.get().admission() == Admission.FULL;
+	}
 }

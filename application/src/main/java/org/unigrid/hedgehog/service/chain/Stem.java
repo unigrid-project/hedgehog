@@ -321,7 +321,7 @@ final class Stem {
 		if (!due.isEmpty()) {
 			final List<Optional<Offer>> offers = host.offer(hosted, due);
 
-			IntStream.range(0, due.size()).filter(place -> !ChainHost.isFull(offers.get(place)))
+			IntStream.range(0, due.size()).filter(place -> !HostedChain.isFull(offers.get(place)))
 				.forEach(place -> hosted.getEmbargo().release(due.get(place)));
 			host.handOver(hosted);
 		}

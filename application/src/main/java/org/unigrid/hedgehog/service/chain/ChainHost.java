@@ -673,13 +673,8 @@ public class ChainHost implements ChainService {
 	private List<Entry> takeIn(final HostedChain hosted, final Channel peer, final List<Entry> entries) {
 		final List<Optional<Offer>> offers = offerAndQueue(hosted, entries, peer, true);
 
-		return IntStream.range(0, entries.size()).filter(place -> isFull(offers.get(place)))
+		return IntStream.range(0, entries.size()).filter(place -> HostedChain.isFull(offers.get(place)))
 			.mapToObj(entries::get).toList();
-	}
-
-	/* Not private, as the stem reads the offers of what it floods by it too */
-	static boolean isFull(final Optional<Offer> offer) {
-		return offer.isPresent() && offer.get().admission() == Admission.FULL;
 	}
 
 	/* The offers and the queueing of what they appended are one step under the delivery lock of the chain, which is
