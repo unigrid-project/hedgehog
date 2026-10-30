@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -166,6 +167,27 @@ public class NettyUdpConnectorTest {
 			assertThat(heard.first(), equalTo(new byte[] { 1, 2, 3 }));
 			assertThat(heard.sources.get(0), equalTo(new InetSocketAddress(echo.address(), echo.port())));
 			assertThat(heard.asked, equalTo(heard.sources));
+		}
+	}
+
+	/* The destination sees the address the socket is bound to, which is where its answer goes */
+	@Example
+	public void shouldBindTheLocalAddressAndSendFromIt() throws Exception {
+		final UdpConnector bound = new NettyUdpConnector(() -> group, Optional.of(EchoServer.loopback(2)));
+
+		try (UdpEcho echo = new UdpEcho()) {
+			final Heard heard = new Heard();
+
+			bound.open(heard);
+
+			final UdpConnector.Socket socket = heard.socket();
+
+			assertThat(socket.localAddress().getAddress(), equalTo(EchoServer.loopback(2)));
+			assertThat(socket.localAddress().getPort(), greaterThan(0));
+			socket.setReadable(true);
+			assertThat(socket.send(echo.address(), echo.port(), new byte[] { 1, 2, 3 }), is(true));
+			assertThat(heard.first(), equalTo(new byte[] { 1, 2, 3 }));
+			assertThat(heard.sources.get(0), equalTo(new InetSocketAddress(echo.address(), echo.port())));
 		}
 	}
 

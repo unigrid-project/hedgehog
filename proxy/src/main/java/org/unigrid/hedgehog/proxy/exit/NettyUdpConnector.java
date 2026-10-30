@@ -33,24 +33,34 @@ import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
-/* Datagram sockets with Netty on an NIO event loop group. Each is bound to the wildcard address and an ephemeral
-   port, because the exit does not know which interface a destination is reached from. It reads into buffers of
-   the largest UDP datagram: Netty's default would cut a longer one without a word. */
+/* Datagram sockets with Netty on an NIO event loop group. Each is bound to an ephemeral port of the local address
+   it is given, so the destination sees that address. Without one it is the wildcard address, because the exit
+   does not know which interface a destination is reached from. It reads into buffers of the largest UDP
+   datagram: Netty's default would cut a longer one without a word. */
 public final class NettyUdpConnector implements UdpConnector {
 	private static final int LARGEST_DATAGRAM = 64 * 1024;
 
 	private final Supplier<EventLoopGroup> group;
+	private final SocketAddress bound;
 
 	public NettyUdpConnector(EventLoopGroup group) {
 		this(() -> group);
 	}
 
-	/* The group may be handed over lazily, so that a node which never relays a datagram starts no event loops */
 	public NettyUdpConnector(Supplier<EventLoopGroup> group) {
+		this(group, Optional.empty());
+	}
+
+	/* The group may be handed over lazily, so that a node which never relays a datagram starts no event loops */
+	public NettyUdpConnector(Supplier<EventLoopGroup> group, Optional<InetAddress> local) {
 		this.group = Objects.requireNonNull(group, "group");
+		bound = Objects.requireNonNull(local, "local").<SocketAddress>map(
+			address -> new InetSocketAddress(address, 0)).orElseGet(() -> new InetSocketAddress(0));
 	}
 
 	/* A group that is shut down would drop the answer to the bind, and the relay would wait for it for good */
@@ -64,7 +74,7 @@ public final class NettyUdpConnector implements UdpConnector {
 			new Bootstrap().group(loops).channel(NioDatagramChannel.class)
 				.option(ChannelOption.AUTO_READ, false)
 				.option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(LARGEST_DATAGRAM))
-				.handler(new Receiver(listener)).bind(0).addListener((ChannelFutureListener) done -> {
+				.handler(new Receiver(listener)).bind(bound).addListener((ChannelFutureListener) done -> {
 					if (done.isSuccess()) {
 						listener.opened(new NettySocket(done.channel()));
 					} else {
