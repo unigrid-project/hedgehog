@@ -262,6 +262,11 @@ final class StemRouter {
 		return Optional.ofNullable(draws.get(writer)).map(draw -> List.copyOf(draw.successors)).orElse(List.of());
 	}
 
+	/* Whether a refusal or a round moved the writer, for a test */
+	synchronized boolean moved(final WriterId writer) {
+		return Optional.ofNullable(draws.get(writer)).filter(draw -> draw.moved).isPresent();
+	}
+
 	/* How many writers the member keeps a draw for, for a test */
 	synchronized int draws() {
 		return draws.size();
