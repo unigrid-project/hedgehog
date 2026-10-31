@@ -33,6 +33,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -91,5 +92,16 @@ public class GridnodeStatusCommandTest {
 
 		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
 		assertThat(result.err(), is(""));
+	}
+
+	@Property(tries = 30)
+	public void exitsWithOkOnlyWhenTheNodeAnsweredWithASuccess(@ForAll boolean start,
+		@ForAll Response.Status status) {
+
+		final GridnodeStatusCommand command = start ? new GridnodeStart() : new GridnodeStop();
+
+		RestCommandFixture.run(command, Response.status(status).build());
+		assertThat(command.getExitCode(), equalTo(status.getFamily() == Response.Status.Family.SUCCESSFUL
+			? ExitCode.OK : ExitCode.FAILED));
 	}
 }

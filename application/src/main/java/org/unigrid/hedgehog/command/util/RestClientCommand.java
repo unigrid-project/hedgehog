@@ -23,6 +23,7 @@ import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.Response.Status.Family;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -32,15 +33,21 @@ import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import org.unigrid.hedgehog.server.rest.RestToken;
+import picocli.CommandLine.IExitCodeGenerator;
 
+/* The command exits with FAILED when the node refused it, could not be reached or answered with anything but a
+   success, so that a script can tell */
 @RequiredArgsConstructor
-public class RestClientCommand implements Runnable {
+public class RestClientCommand implements Runnable, IExitCodeGenerator {
 	private final String method;
+	@Getter @Setter(AccessLevel.PROTECTED) private int exitCode = ExitCode.OK;
 	@Getter(AccessLevel.PROTECTED) private String location;
 	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
 	private Optional<MultivaluedMap<String, Object>> headers = Optional.empty();
@@ -67,17 +74,17 @@ public class RestClientCommand implements Runnable {
 					System.out.println(response.getStatusInfo());
 				});
 			} else {
-				execute(response);
+				conclude(response);
 			}
 		}
 
 		private void delete(RestClient rest) throws ResponseOddityException {
-			execute(headers.isPresent()
+			conclude(headers.isPresent()
 				? rest.deleteWithHeaders(getLocation(), headers.get()) : rest.delete(getLocation()));
 		}
 
 		private void post(RestClient rest) throws ResponseOddityException {
-			execute(RestClientCommand.this.post(rest));
+			conclude(RestClientCommand.this.post(rest));
 		}
 
 		private void put(RestClient rest) throws ResponseOddityException {
@@ -95,9 +102,20 @@ public class RestClientCommand implements Runnable {
 				}, () -> {
 					System.out.println(response.getStatusInfo());
 				});
+
+				exitCode = ExitCode.FAILED;
 			} else {
-				execute(response);
+				conclude(response);
 			}
+		}
+	}
+
+	/* A status that is no success is a refusal, whatever the command made of the answer */
+	private void conclude(Response response) {
+		execute(response);
+
+		if (exitCodeOf(response) != ExitCode.OK) {
+			exitCode = ExitCode.FAILED;
 		}
 	}
 
@@ -119,7 +137,12 @@ public class RestClientCommand implements Runnable {
 			dispatch(rest);
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(describe(ex));
+			exitCode = ExitCode.FAILED;
 		}
+	}
+
+	public static int exitCodeOf(Response response) {
+		return response.getStatusInfo().getFamily() == Family.SUCCESSFUL ? ExitCode.OK : ExitCode.FAILED;
 	}
 
 	/* A name that cannot be resolved is not known to be on this machine. Nothing named is this machine. */

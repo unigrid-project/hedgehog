@@ -19,12 +19,14 @@
 package org.unigrid.hedgehog.command.cli;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
@@ -37,7 +39,10 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.command.ExitCode;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
@@ -87,6 +92,31 @@ public class NodeAddTest {
 
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of(Status.CONFLICT.getReasonPhrase())));
+	}
+
+	/* As the shell sees it: through the command line of the application, which exits with what the command says */
+	private static int exitCodeOf(String address, Answer node) {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "node-add", address)), node);
+		return cli.get().exitCode();
+	}
+
+	@Property(tries = 10)
+	public void exitsWithFailedOnAConflictAndWithOkOtherwise(@ForAll("addresses") String address,
+		@ForAll boolean conflict) {
+
+		final Response answer = Response.status(conflict ? Status.CONFLICT : Status.CREATED)
+			.location(locationOf(address)).build();
+
+		assertThat(exitCodeOf(address, request -> answer), equalTo(conflict ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	@Property(tries = 5)
+	public void exitsWithFailedWhenTheNodeCannotBeReached(@ForAll("addresses") String address) {
+		assertThat(exitCodeOf(address, request -> {
+			throw new ProcessingException("Connection refused");
+		}), equalTo(ExitCode.FAILED));
 	}
 
 	@Example

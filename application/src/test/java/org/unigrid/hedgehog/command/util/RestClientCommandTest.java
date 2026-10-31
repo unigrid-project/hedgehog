@@ -24,6 +24,7 @@ import jakarta.ws.rs.core.MultivaluedHashMap;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import jakarta.ws.rs.core.Response.Status.Family;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
@@ -46,6 +47,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Connection;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -183,6 +185,53 @@ public class RestClientCommandTest {
 		assertThat(result.connection(), equalTo(Optional.empty()));
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of(problem)));
+	}
+
+	/* A status that is no success is a refusal, whatever the command made of the answer */
+	@Property(tries = 50)
+	public void exitsWithFailedUnlessTheNodeAnsweredWithASuccess(@ForAll("methods") String method,
+		@ForAll @IntRange(min = 100, max = 599) int status) {
+
+		Assume.that(!(HttpMethod.GET.equals(method) && status == Status.NO_CONTENT.getStatusCode()));
+		Assume.that(!(HttpMethod.PUT.equals(method) && status == Status.UNAUTHORIZED.getStatusCode()));
+
+		final RestClientCommand command = command(method, "/", Optional.empty());
+
+		RestCommandFixture.run(command, Response.status(status).build());
+		assertThat(command.getExitCode(), equalTo(Family.familyOf(status) == Family.SUCCESSFUL ? ExitCode.OK
+			: ExitCode.FAILED));
+	}
+
+	@Property(tries = 20)
+	public void exitsWithOkWhenNothingCameBackAndWithFailedWhenThePutWasRefused(@ForAll boolean put,
+		@ForAll Optional<@AlphaChars String> fallback) {
+
+		final RestClientCommand command = command(put ? HttpMethod.PUT : HttpMethod.GET, "/", fallback);
+
+		RestCommandFixture.run(command, Response.status(put ? Status.UNAUTHORIZED : Status.NO_CONTENT).build());
+		assertThat(command.getExitCode(), equalTo(put ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	@Property(tries = 20)
+	public void exitsWithFailedOnAnOddAnswer(@ForAll("methods") String method,
+		@ForAll @IntRange(min = 100, max = 599) int status) {
+
+		final RestClientCommand command = command(method, "/", Optional.empty());
+
+		RestCommandFixture.runWithOddity(command, new ResponseOddityException(Response.status(status).build()
+			.getStatusInfo()));
+
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	@Property(tries = 20)
+	public void exitsWithFailedWithoutAToken(@ForAll("methods") String method, @ForAll boolean missing) {
+		final RestClientCommand command = command(method, "/", Optional.empty());
+
+		RestCommandFixture.runWithoutToken(command, missing ? new NoSuchFileException("/token")
+			: new IOException("unreadable"));
+
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Example

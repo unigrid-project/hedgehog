@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.AlphaChars;
@@ -34,6 +35,8 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.command.ExitCode;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -58,5 +61,18 @@ public class StorageDeleteTest {
 
 		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
 		assertThat(result.err(), equalTo(""));
+	}
+
+	@Property(tries = 20)
+	public void exitsWithOkOnlyWhenTheNodeDeletedTheFile(
+		@ForAll @AlphaChars @NumericChars @StringLength(min = 1, max = 60) String fingerprint, @ForAll Status status) {
+
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "storage-delete", "-f", fingerprint)),
+			Response.status(status).build());
+
+		assertThat(cli.get().exitCode(), equalTo(status.getFamily() == Status.Family.SUCCESSFUL ? ExitCode.OK
+			: ExitCode.FAILED));
 	}
 }
