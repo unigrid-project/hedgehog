@@ -179,7 +179,9 @@ public class GroupRepairer {
 		}
 
 		/* A repair counts only the window, so it may already have rebuilt the index held here. Moving that copy
-		   would only fill the slack with a duplicate, and once the window is full it could never move at all. */
+		   would only fill the slack with a duplicate, and once the window is full it could never move at all.
+		   A lying member can still relay the fragment from another holder once and discard it afterwards. A
+		   handover target could always do the same, and the spot check finds the loss later. */
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
 			final List<CompletableFuture<FragmentReply>> replies = claimsOf(survey.census()).entrySet().stream()
