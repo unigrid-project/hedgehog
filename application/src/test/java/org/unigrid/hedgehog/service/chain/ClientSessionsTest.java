@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.handler.codec.socksx.v5.Socks5AddressType;
 import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
@@ -51,6 +55,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
@@ -58,6 +63,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.JoinChain;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
@@ -85,6 +91,7 @@ public class ClientSessionsTest {
 	private static final long EPOCH_MILLIS = 3_600_000;
 	private static final long RETENTION_MILLIS = 30_000;
 	private static final long IDLE_MILLIS = ProxySettings.DEFAULTS.sessionIdleMillis();
+	private static final String FAILURE_DETAIL = "10.9.8.7:52883 turned the stream down";
 	private static final int TIMEOUT_SECONDS = 10;
 	/* The opening, the answer and the Connect, each an entry of the smallest class */
 	private static final int HANDSHAKE_ENTRIES = 3;
@@ -1196,6 +1203,26 @@ public class ClientSessionsTest {
 		assertThat(rig.fleet.host(CLIENT).chain(attachments.get(0).chainId()), equalTo(Optional.empty()));
 	}
 
+	/* What the sessions warn about while the action runs, read as ChainFleet#warningsWhile reads the host's */
+	private static List<ILoggingEvent> warningsWhile(final Runnable action) {
+		ClientSessionsTest.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core")
+			.orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ClientSessions.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
+	}
+
 	/* The sessions read the spork through a source the test sets, the members and the client through the fleet's */
 	private static Rig withSpork(final ChainFleet fleet, final AtomicReference<Optional<ProxySettings>> spork) {
 		return new Rig(fleet, fleet.clock::get, spork::get, new SecureRandom());
@@ -1320,6 +1347,32 @@ public class ClientSessionsTest {
 		rig.after(0);
 		assertThat(rig.follows(earlier), is(false));
 		assertThat(rig.sent(LeaveChain.class), is((long) earlier.streams().size()));
+	}
+
+	/* The failure is told by its class alone, once for the attachment the tick found out of use */
+	@Example
+	public void logsTheClassOfASporkThatCannotBeReadForTheGraceAndNothingMoreOfIt() {
+		final ChainFleet fleet = ChainFleet.group(epochOf(3600));
+		final AtomicBoolean unreadable = new AtomicBoolean();
+		final Rig rig = new Rig(fleet, fleet.clock::get, () -> {
+			if (unreadable.get()) {
+				throw new IllegalStateException(FAILURE_DETAIL);
+			}
+
+			return fleet.settings.get();
+		}, new SecureRandom());
+
+		rig.sessions.open(CONNECT, Optional.empty(), new Listener());
+		rig.fleet.deliver();
+		turnTheEpoch(rig);
+		unreadable.set(true);
+
+		final List<ILoggingEvent> warnings = warningsWhile(() -> rig.after(0));
+
+		assertThat(warnings, hasSize(1));
+		assertThat(warnings.get(0).getFormattedMessage(), containsString(IllegalStateException.class.getName()));
+		assertThat(warnings.get(0).getFormattedMessage(), not(containsString(FAILURE_DETAIL)));
+		assertThat(warnings.get(0).getThrowableProxy(), is(nullValue()));
 	}
 
 	/* An attachment in use again, as when the clock stepped back over the turn of the epoch, starts its grace over */

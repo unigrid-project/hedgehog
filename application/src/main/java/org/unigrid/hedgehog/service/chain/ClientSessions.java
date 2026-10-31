@@ -159,11 +159,13 @@ public final class ClientSessions implements SessionOpener {
 	}
 
 	/* The grace follows the spork as it reads now. A spork that is absent or cannot be read means the proxy is off,
-	   as it does to the client: no grace runs out then, and the sessions end on their idle limit. */
+	   as it does to the client: no grace runs out then, and the sessions end on their idle limit. A spork that cannot
+	   be read is logged by the class of the failure alone, as a message may name an address. */
 	private boolean isGraceOver(final long unusedMillis) {
 		try {
 			return settings.current().filter(proxy -> unusedMillis >= ChainHost.graceMillis(proxy)).isPresent();
 		} catch (RuntimeException ex) {
+			log.warn("Reading the grace of the client sessions failed with {}", ex.getClass().getName());
 			return false;
 		}
 	}
