@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.nextStamp;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 
 /* The release builds in keys 0 and 1. The node holds the second version of the mint supply, whose log holds the
@@ -92,10 +93,9 @@ public class SporkAnchorTest {
 	/* What util spork-db sign makes of the data with two keys that are active, a while after the version before */
 	@SneakyThrows
 	private GridSpork signedAgain(BigDecimal supply, int signer, int cosigner) {
-		Thread.sleep(2);
-
 		final GridSpork again = GridSpork.firstVersionOf(stored);
 
+		again.setTimeStamp(nextStamp());
 		again.<MintSupply.SporkData>getData().setMaxSupply(supply);
 		again.sign(key(signer).getPrivateKey());
 		again.cosign(key(cosigner).getPrivateKey());

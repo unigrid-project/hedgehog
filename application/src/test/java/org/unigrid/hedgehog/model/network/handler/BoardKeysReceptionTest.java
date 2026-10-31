@@ -93,9 +93,7 @@ public class BoardKeysReceptionTest {
 		return handler.receive(SerializationUtils.clone(spork), database, pending, lag, "peer" + peers++);
 	}
 
-	@SneakyThrows
 	private static BoardKeys later(BoardKeys.SporkData chain, int signer, int cosigner) {
-		Thread.sleep(2);
 		return signed(chain, key(signer), key(cosigner));
 	}
 

@@ -27,6 +27,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
@@ -42,6 +43,8 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 public final class BoardKeysFixture {
 	public static final List<Signature> KEYS = keys(8);
 
+	private static final AtomicReference<Instant> LAST_STAMP = new AtomicReference<>(Instant.EPOCH);
+
 	@SneakyThrows
 	private static List<Signature> keys(int count) {
 		final List<Signature> keys = new ArrayList<>();
@@ -52,6 +55,15 @@ public final class BoardKeysFixture {
 
 		keys.sort(Comparator.comparing(Signature::getPublicKey));
 		return List.copyOf(keys);
+	}
+
+	/* A time stamp for a version, later than every one that this method gave before and never behind the clock, so that
+	   versions made in a row follow on each other however quickly they are made */
+	public static Instant nextStamp() {
+		return LAST_STAMP.updateAndGet(last -> {
+			final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+			return now.isAfter(last) ? now : last.plusMillis(1);
+		});
 	}
 
 	public static Signature key(int index) {
@@ -126,6 +138,7 @@ public final class BoardKeysFixture {
 	public static BoardKeys signed(BoardKeys.SporkData chain, Signature signer, Signature cosigner) {
 		final BoardKeys spork = (BoardKeys) GridSpork.firstVersionOf(withChain(chain));
 
+		spork.setTimeStamp(nextStamp());
 		spork.sign(signer.getPrivateKey());
 		spork.cosign(cosigner.getPrivateKey());
 		return spork;
@@ -137,6 +150,7 @@ public final class BoardKeysFixture {
 	public static BoardKeys signedAnyway(BoardKeys.SporkData chain, Signature signer, Signature cosigner) {
 		final BoardKeys spork = (BoardKeys) GridSpork.firstVersionOf(withChain(chain));
 
+		spork.setTimeStamp(nextStamp());
 		spork.sign(signer.getPrivateKey());
 		spork.setCosignature(cosigner.signInOneForm(spork.getSignable()));
 		return spork;

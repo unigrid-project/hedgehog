@@ -33,6 +33,7 @@ import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.nextStamp;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 
@@ -59,9 +60,7 @@ public class BoardKeysSuccessionTest {
 		return later(chain, 1, 2);
 	}
 
-	@SneakyThrows
 	private static BoardKeys later(BoardKeys.SporkData chain, int signer, int cosigner) {
-		Thread.sleep(2);
 		return signed(chain, key(signer), key(cosigner));
 	}
 
@@ -140,8 +139,8 @@ public class BoardKeysSuccessionTest {
 		final BoardKeys stored = signed(chainOf(ADDING), key(0), key(1));
 		final BoardKeys forged = later(chainOf(ADDING, SWITCHING_OFF));
 
-		Thread.sleep(2);
 		stored.renew();
+		stored.setTimeStamp(nextStamp());
 		stored.sign(key(0).getPrivateKey());
 		stored.cosign(key(2).getPrivateKey());
 

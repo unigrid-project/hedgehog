@@ -62,7 +62,6 @@ public class BoardKeysWireTest extends BaseRestClientTest {
 	}
 
 	@Example
-	@SneakyThrows
 	public void shouldStoreAndInstallALongerChainAndRefuseAShorterOne() {
 		buildIn(keys(0, 1));
 
@@ -71,7 +70,6 @@ public class BoardKeysWireTest extends BaseRestClientTest {
 		final KeyChange switchingOff = change(root, List.of(adding), keys(2, 3), keys(0, 2, 3));
 		final BoardKeys shorter = signed(chainOf(adding), key(0), key(1));
 
-		Thread.sleep(2);
 		assertThat(Status.fromStatusCode(submit(signed(chainOf(adding, switchingOff), key(2), key(3))).getStatus()),
 			equalTo(Status.OK));
 		assertThat(active(), equalTo(Set.of(publicKeysOf(keys(2, 3)))));
