@@ -247,7 +247,7 @@ public final class ChainClient {
 	/* The members drop their writers when the proxy turns off, so the replicas are dropped then too; isCurrent notices
 	   it as well, for an owner that keeps asking about its attachments without asking for a new one. Settings that
 	   cannot be read and a clock before the origin have no epoch, which leaves nothing in use, and the join that
-	   follows fails with them. */
+	   follows fails with them. Only the class of the failure is logged, as its message may name an address. */
 	private Optional<Epoch> currentEpoch() {
 		try {
 			final Optional<ProxySettings> proxy = settings.current();
@@ -259,16 +259,19 @@ public final class ChainClient {
 
 			return proxy.map(on -> on.epochAt(now));
 		} catch (RuntimeException ex) {
+			log.warn("Reading the current epoch failed with {}", ex.getClass().getName());
 			return Optional.empty();
 		}
 	}
 
-	/* While its epoch is the current one and its chain is still followed */
+	/* While its epoch is the current one and its chain is still followed. A lookup that fails leaves it out of use,
+	   and only the class of the failure is logged, as its message may name an address. */
 	private boolean inUse(final ChainAttachment attachment, final Optional<Epoch> epoch) {
 		try {
 			return claimed(attachment) && epoch.equals(Optional.of(attachment.epoch()))
 				&& host.chain(attachment.chainId()).isPresent();
 		} catch (RuntimeException ex) {
+			log.warn("Telling whether an attachment is in use failed with {}", ex.getClass().getName());
 			return false;
 		}
 	}

@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
@@ -66,6 +70,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThan;
@@ -75,7 +80,9 @@ import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -87,6 +94,7 @@ import org.unigrid.hedgehog.model.network.packet.JoinReply;
 import org.unigrid.hedgehog.model.network.packet.LeaveChain;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
+import org.unigrid.hedgehog.proxy.chain.Chain;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
@@ -102,6 +110,7 @@ public class ChainClientTest {
 	private static final int TIMEOUT_SECONDS = 10;
 	private static final JoinReply.Status JOINED = JoinReply.Status.JOINED;
 	private static final JoinReply.Status FULL = JoinReply.Status.FULL;
+	private static final String FAILURE_DETAIL = "10.9.8.7:52883 turned the stream down";
 
 	/* Lets the requests with the given numbers time out at once and leaves the others to the node's own */
 	private static final class Flaky extends PendingRequests {
@@ -159,6 +168,7 @@ public class ChainClientTest {
 		volatile ProxySettingsSource source;
 		volatile ChainTransport transport = id -> Optional.ofNullable(streams.get(id));
 		volatile Runnable afterFollow = () -> { };
+		volatile boolean chainFails;
 
 		/* One chain for each group, so that every member of a group answers the same one */
 		Scripted(final int members, final int groupSize, final PendingRequests pending) {
@@ -181,6 +191,15 @@ public class ChainClientTest {
 					log.add(new Followed(chainId, member, Thread.currentThread().getName()));
 					afterFollow.run();
 					return followed;
+				}
+
+				@Override
+				public Optional<Chain> chain(final ChainId id) {
+					if (chainFails) {
+						throw new IllegalStateException(FAILURE_DETAIL);
+					}
+
+					return super.chain(id);
 				}
 			};
 		}
@@ -317,6 +336,26 @@ public class ChainClientTest {
 				}
 			}).toList();
 		}
+	}
+
+	/* What the client warns about while the action runs, read as ChainFleet#warningsWhile reads the host's */
+	private static List<ILoggingEvent> warningsWhile(final Runnable action) {
+		ChainClientTest.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core")
+			.orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ChainClient.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
 	}
 
 	private static ChainClient clientOf(final ChainFleet fleet, final CountryLookup countries,
@@ -1576,6 +1615,41 @@ public class ChainClientTest {
 
 		assertThat(client.isCurrent(held), is(false));
 		assertThat(client.attachment(Optional.empty()).isCompletedExceptionally(), is(true));
+	}
+
+	@Example
+	public void logsTheClassOfSettingsThatCannotBeReadAndNothingMoreOfIt() {
+		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
+		final ChainClient client = scripted.client();
+		final ChainAttachment held = done(client.attachment(Optional.empty()));
+
+		scripted.source = () -> {
+			throw new IllegalStateException(FAILURE_DETAIL);
+		};
+
+		final List<ILoggingEvent> warnings = warningsWhile(() -> client.isCurrent(held));
+
+		assertThat(warnings, hasSize(1));
+		assertThat(warnings.get(0).getFormattedMessage(), containsString(IllegalStateException.class.getName()));
+		assertThat(warnings.get(0).getFormattedMessage(), not(containsString(FAILURE_DETAIL)));
+		assertThat(warnings.get(0).getThrowableProxy(), is(nullValue()));
+	}
+
+	/* A chain that cannot be looked up leaves its attachment out of use */
+	@Example
+	public void logsTheClassOfAChainThatCannotBeLookedUpAndNothingMoreOfIt() {
+		final Scripted scripted = new Scripted(2, 2, new PendingRequests());
+		final ChainClient client = scripted.client();
+		final ChainAttachment held = done(client.attachment(Optional.empty()));
+
+		scripted.chainFails = true;
+
+		final List<ILoggingEvent> warnings = warningsWhile(() -> assertThat(client.isCurrent(held), is(false)));
+
+		assertThat(warnings, hasSize(1));
+		assertThat(warnings.get(0).getFormattedMessage(), containsString(IllegalStateException.class.getName()));
+		assertThat(warnings.get(0).getFormattedMessage(), not(containsString(FAILURE_DETAIL)));
+		assertThat(warnings.get(0).getThrowableProxy(), is(nullValue()));
 	}
 
 	@Example
