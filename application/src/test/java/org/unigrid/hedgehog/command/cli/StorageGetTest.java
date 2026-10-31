@@ -254,4 +254,25 @@ public class StorageGetTest {
 			assertThat(command.getExitCode(), equalTo(ExitCode.UNUSABLE));
 		}
 	}
+
+	@SneakyThrows
+	@Example
+	public void exitsWithUnusableAndSaysWhereItCouldNotWrite() {
+		final PrintStream console = System.err;
+		final ByteArrayOutputStream errors = new ByteArrayOutputStream();
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final StorageGet command = storageGet(fs);
+
+			body = new ByteArrayInputStream(new byte[] { 1, 2, 3 });
+			System.setErr(new PrintStream(errors, true, StandardCharsets.UTF_8));
+			command.execute(announcing(3));
+			assertThat(command.getExitCode(), equalTo(ExitCode.UNUSABLE));
+		} finally {
+			System.setErr(console);
+		}
+
+		assertThat(errors.toString(StandardCharsets.UTF_8).lines().toList(), equalTo(List.of("Cannot write "
+			+ OUTPUT + ": no such file or directory")));
+	}
 }

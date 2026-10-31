@@ -29,6 +29,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -121,6 +123,36 @@ public class StoragePutTest {
 
 			assertThat(result.out(), equalTo(""));
 			assertThat(result.err().lines().toList(), equalTo(List.of(tooLarge.getMessage())));
+		}
+	}
+
+	@SneakyThrows
+	@Property(tries = 10)
+	public void exitsWithUnusableAndSaysWhichFileItCouldNotRead(
+		@ForAll @AlphaChars @StringLength(min = 1, max = 20) String name) {
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path missing = folder(fs).resolve(name);
+			final StoragePut command = storagePut(fs, missing);
+			final Result result = RestCommandFixture.run(command, stored("unused"));
+
+			assertThat(result.request(), equalTo(Optional.empty()));
+			assertThat(result.err().lines().toList(), equalTo(List.of("Cannot read " + missing
+				+ ": no such file or directory")));
+			assertThat(command.getExitCode(), equalTo(ExitCode.UNUSABLE));
+		}
+	}
+
+	@SneakyThrows
+	@Example
+	public void exitsWithFailedAndNamesTheTokenWhenTheTokenIsMissing() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final StoragePut command = storagePut(fs, Files.write(folder(fs).resolve("upload"), new byte[] { 1 }));
+			final Result result = RestCommandFixture.runWithoutToken(command, new NoSuchFileException("/token"));
+
+			assertThat(result.err().lines().toList(), equalTo(List.of("No REST token in /token; is the daemon"
+				+ " running? Otherwise pass --resttoken.")));
+			assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
 		}
 	}
 }

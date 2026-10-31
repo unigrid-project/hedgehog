@@ -54,7 +54,15 @@ public class StorageGet extends FingerprintCommand {
 			return;
 		}
 
-		final Path partial = Files.createTempFile(output.toAbsolutePath().getParent(), ".storage-get-", ".part");
+		final Path partial;
+
+		try {
+			partial = Files.createTempFile(output.toAbsolutePath().getParent(), ".storage-get-", ".part");
+		} catch (IOException ex) {
+			System.err.println(describe("Cannot write", output, ex));
+			setExitCode(ExitCode.UNUSABLE);
+			return;
+		}
 
 		try {
 			if (isComplete(response, partial)) {

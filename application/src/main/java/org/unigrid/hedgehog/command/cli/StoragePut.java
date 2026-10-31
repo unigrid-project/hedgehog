@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,10 +44,11 @@ public class StoragePut extends RestClientCommand {
 	/* The daemon refuses an upload that does not announce its length, and announcing it lets the file stream
 	   rather than wait to be buffered whole */
 	@Override
-	@SneakyThrows
 	protected Response post(final RestClient rest) throws ResponseOddityException {
 		try (InputStream content = Files.newInputStream(file)) {
 			return rest.postStream(getLocation(), content, Files.size(file));
+		} catch (IOException ex) {
+			throw new LocalFileException("Cannot read", file, ex);
 		}
 	}
 

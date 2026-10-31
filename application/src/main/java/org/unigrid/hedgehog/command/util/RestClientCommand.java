@@ -27,7 +27,10 @@ import jakarta.ws.rs.core.Response.Status.Family;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.AccessLevel;
@@ -138,6 +141,9 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(describe(ex));
 			exitCode = ExitCode.FAILED;
+		} catch (LocalFileException ex) {
+			System.err.println(ex.getMessage());
+			exitCode = ExitCode.UNUSABLE;
 		}
 	}
 
@@ -168,6 +174,23 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		return TerminalText.printable(String.valueOf(ex.getMessage()));
 	}
 
+	/* What failed with a file on this machine, named as the user gave it, as the exception names a file of its own */
+	public static String describe(String operation, Path path, IOException ex) {
+		final String reason;
+
+		if (ex instanceof NoSuchFileException) {
+			reason = "no such file or directory";
+		} else if (ex instanceof AccessDeniedException) {
+			reason = "permission denied";
+		} else if (ex instanceof FileSystemException other) {
+			reason = Optional.ofNullable(other.getReason()).orElse(other.getClass().getSimpleName());
+		} else {
+			reason = String.valueOf(ex.getMessage());
+		}
+
+		return TerminalText.printable(operation + " " + path + ": " + reason);
+	}
+
 	public void setHeaders(MultivaluedMap<String, Object> headers) {
 		this.headers = Optional.of(headers);
 	}
@@ -182,5 +205,13 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 
 	protected void execute(Response response) {
 		throw new UnsupportedOperationException();
+	}
+
+	/* A file on this machine that the command was given and cannot use, which ends the command with UNUSABLE and is
+	   not taken for a token that cannot be read */
+	protected static final class LocalFileException extends RuntimeException {
+		public LocalFileException(String operation, Path path, IOException cause) {
+			super(describe(operation, path, cause), cause);
+		}
 	}
 }
