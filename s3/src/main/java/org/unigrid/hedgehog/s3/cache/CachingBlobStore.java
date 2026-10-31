@@ -28,8 +28,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -43,8 +41,8 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
-import lombok.SneakyThrows;
 import lombok.Synchronized;
+import org.unigrid.hedgehog.common.crypto.Digests;
 import org.unigrid.hedgehog.s3.spi.Blob;
 import org.unigrid.hedgehog.s3.spi.BlobId;
 import org.unigrid.hedgehog.s3.spi.BlobStore;
@@ -93,10 +91,8 @@ public final class CachingBlobStore implements BlobStore {
 	}
 
 	/* Ids grant read access, so only their hashes reach the file system */
-	@SneakyThrows(NoSuchAlgorithmException.class)
 	private static String name(final BlobId id) {
-		return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-			.digest(id.value().getBytes(StandardCharsets.UTF_8)));
+		return HexFormat.of().formatHex(Digests.sha256(id.value().getBytes(StandardCharsets.UTF_8)));
 	}
 
 	private CacheEntry entry(final String name, final double hits) {

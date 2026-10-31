@@ -37,6 +37,7 @@ import javax.crypto.spec.SecretKeySpec;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.common.crypto.Digests;
 
 /*
    AWS Signature Version 4 as S3 applies it: the path of the request is encoded once, with its slashes kept and
@@ -140,8 +141,7 @@ public final class SigV4 {
 		return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
 	}
 
-	@SneakyThrows
 	public static String sha256Hex(final byte[] data) {
-		return HEX.formatHex(MessageDigest.getInstance("SHA-256").digest(data));
+		return HEX.formatHex(Digests.sha256(data));
 	}
 }
