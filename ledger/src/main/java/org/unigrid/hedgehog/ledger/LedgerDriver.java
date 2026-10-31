@@ -34,6 +34,7 @@ import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.Action.Broadcast;
 import org.unigrid.hedgehog.ledger.Action.Decide;
 import org.unigrid.hedgehog.ledger.Action.Schedule;
@@ -81,6 +82,7 @@ import org.unigrid.hedgehog.ledger.Scheduler.Cancellable;
    from one small bucket of its own. The queue is limited in bytes as well, by the size of the frame of each item
    that the caller passes. A peer that becomes penalised is cut off, once for each penalty, by asking the network
    to close its connections (DoorKeeper). */
+@Slf4j
 public final class LedgerDriver implements Closeable {
 	/* The reason a submit is refused with while there is no node to take it. It is also how the REST interface knows
 	   to answer 503 and not 409, so there is one text of it. */
@@ -358,6 +360,7 @@ public final class LedgerDriver implements Closeable {
 		try {
 			return supervisor.ready() && supervisor.node().holds(message);
 		} catch (RuntimeException e) {
+			log.atDebug().log("Asking the node about a message failed with {}", e.getClass().getName());
 			return false;
 		}
 	}
