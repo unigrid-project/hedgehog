@@ -18,8 +18,13 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +41,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.NodeConnections;
@@ -135,6 +141,27 @@ public class ChainProducerTest {
 		assertThat(reason, settingsAfter(change), equalTo(Optional.empty()));
 	}
 
+	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
+	private static List<String> warningsWhile(final Runnable action) {
+		ChainProducerTest.class.getModule()
+			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ChainProducer.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel() == Level.WARN)
+			.map(ILoggingEvent::getFormattedMessage).toList();
+	}
+
 	@Provide
 	public Arbitrary<SporkData> sporkData() {
 		return CommunicationSporkTest.sporkDataAcrossTheBounds();
@@ -165,6 +192,51 @@ public class ChainProducerTest {
 		};
 
 		assertThat(settingsOf(databaseWith(refusing)), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void warnsOnceThatTheProxyStaysOffForARefusedSpork() {
+		final SporkData refused = new SporkData();
+		final ChainProducer producer = producerOver(databaseWith(refused));
+
+		refused.setGroupSize(0);
+
+		assertThat(warningsWhile(() -> producer.proxySettings()), equalTo(List.of(
+			"The communication spork is refused, so the proxy stays off: groupSize must be 1-65535, not 0")));
+		assertThat(warningsWhile(() -> producer.proxySettings()), equalTo(List.<String>of()));
+		assertThat(warningsWhile(() -> producer.proxySettingsSource().current()), equalTo(List.<String>of()));
+	}
+
+	@Example
+	public void warnsAgainForARefusalWithAnotherMessage() {
+		final SporkDatabase database = SporkDatabase.builder().build();
+		final ChainProducer producer = producerOver(database);
+		final SporkData first = new SporkData();
+		final SporkData second = new SporkData();
+
+		first.setGroupSize(0);
+		second.setClientsPerChain(65_536);
+
+		assertThat(warningsWhile(() -> {
+			database.setCommunicationSpork(sporkOf(first));
+			producer.proxySettings();
+			database.setCommunicationSpork(sporkOf(second));
+			producer.proxySettings();
+			database.setCommunicationSpork(sporkOf(first));
+			producer.proxySettings();
+		}), equalTo(List.of(
+			"The communication spork is refused, so the proxy stays off: groupSize must be 1-65535, not 0",
+			"The communication spork is refused, so the proxy stays off: clientsPerChain must be 1-65535, "
+				+ "not 65536")));
+	}
+
+	@Example
+	public void staysSilentForASporkThatTheProxyAccepts() {
+		final ChainProducer producer = producerOver(databaseWith(new SporkData()));
+
+		assertThat(warningsWhile(() -> producer.proxySettings()), equalTo(List.<String>of()));
+		assertThat(warningsWhile(() -> producerOver(SporkDatabase.builder().build()).proxySettings()),
+			equalTo(List.<String>of()));
 	}
 
 	@Example

@@ -23,6 +23,9 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -31,8 +34,14 @@ import org.unigrid.hedgehog.service.chain.ChainTransport;
 import org.unigrid.hedgehog.service.chain.NettyChainTransport;
 import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
+@Slf4j
 @ApplicationScoped
 public class ChainProducer {
+	private static final int MAX_REPORTED = 256;
+	private static final String REFUSED = "The communication spork is refused, so the proxy stays off: {}";
+
+	private final Set<String> reported = ConcurrentHashMap.newKeySet();
+
 	@Inject
 	private SporkDatabase sporkDatabase;
 
@@ -54,10 +63,10 @@ public class ChainProducer {
 	Optional<ProxySettings> proxySettings() {
 		return Optional.ofNullable(sporkDatabase.getCommunicationSpork())
 			.<CommunicationSpork.SporkData>map(CommunicationSpork::getData)
-			.flatMap(ChainProducer::settingsOf);
+			.flatMap(this::settingsOf);
 	}
 
-	private static Optional<ProxySettings> settingsOf(final CommunicationSpork.SporkData data) {
+	private Optional<ProxySettings> settingsOf(final CommunicationSpork.SporkData data) {
 		try {
 			data.validate();
 
@@ -66,7 +75,15 @@ public class ChainProducer {
 				data.getRetentionSeconds(), data.getMaxEntryBytes(), data.getSessionIdleSeconds(),
 				data.getCommunicationFlags()));
 		} catch (IllegalArgumentException ex) {
+			reportOnce(String.valueOf(ex.getMessage()));
 			return Optional.empty();
+		}
+	}
+
+	/* The proxy asks again every time it needs its settings, and a spork that stays as it is would fill the log */
+	private void reportOnce(final String refusal) {
+		if (reported.size() < MAX_REPORTED && reported.add(refusal)) {
+			log.atWarn().addArgument(refusal).log(REFUSED);
 		}
 	}
 }
