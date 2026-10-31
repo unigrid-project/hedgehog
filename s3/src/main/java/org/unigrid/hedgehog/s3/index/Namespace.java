@@ -478,7 +478,7 @@ public final class Namespace implements AutoCloseable {
 		final Cursor cursor = tree.snapshot().scan(Keys.garbage(), Keys.end(Keys.garbage()));
 
 		for (Slot slot = cursor.next(); Objects.nonNull(slot) && due.size() < SWEEP_BATCH; slot = cursor.next()) {
-			if (!Codec.decode(slot.value(), Codec::readInstant).isAfter(now)) {
+			if (isDue(slot.value(), now)) {
 				due.add(Keys.garbageBlob(slot.key()));
 			}
 		}
@@ -494,8 +494,7 @@ public final class Namespace implements AutoCloseable {
 
 			for (BlobId blob : candidates) {
 				final Optional<byte[]> queued = transaction.get(Keys.garbage(blob));
-				final boolean due = queued.isPresent()
-					&& !Codec.decode(queued.get(), Codec::readInstant).isAfter(now);
+				final boolean due = queued.isPresent() && isDue(queued.get(), now);
 
 				if (due && References.count(transaction, blob) == 0 && deleting.add(blob)) {
 					claimed.add(blob);
@@ -504,6 +503,11 @@ public final class Namespace implements AutoCloseable {
 
 			return claimed;
 		});
+	}
+
+	/* Whether a queued release is due at the instant: the pick and the claim must judge it alike */
+	private static boolean isDue(final byte[] queued, final Instant now) throws IOException {
+		return !Codec.decode(queued, Codec::readInstant).isAfter(now);
 	}
 
 	private static void check(final boolean holds) throws ConditionFailedException {
