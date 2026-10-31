@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.s3;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.server.s3.S3Credentials;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
@@ -33,14 +34,14 @@ public class S3KeyDelete implements Callable<Integer> {
 	public Integer call() {
 		try {
 			if (new S3Credentials(S3Credentials.getFile()).delete(accessKeyId)) {
-				return 0;
+				return ExitCode.OK;
 			}
 
 			System.err.println("No access key " + accessKeyId);
-			return 1;
+			return ExitCode.FAILED;
 		} catch (IOException ex) {
 			System.err.println("Failed to delete the access key: " + ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 	}
 }

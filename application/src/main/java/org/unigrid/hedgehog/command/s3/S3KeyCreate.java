@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.s3;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.server.s3.S3Credentials;
 import picocli.CommandLine.Command;
 
@@ -33,11 +34,11 @@ public class S3KeyCreate implements Callable<Integer> {
 			key = new S3Credentials(S3Credentials.getFile()).create();
 		} catch (IOException ex) {
 			System.err.println("Failed to store the access key: " + ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		System.out.println("Access key id:     " + key.accessKeyId());
 		System.out.println("Secret access key: " + key.secretKey());
-		return 0;
+		return ExitCode.OK;
 	}
 }

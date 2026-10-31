@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
 import picocli.CommandLine.Command;
@@ -48,12 +49,12 @@ public class BootstrapImport implements Callable<Integer> {
 
 		if (Files.exists(target) && !force) {
 			System.err.println(target + " already exists, pass --force to overwrite it");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		Files.createDirectories(target.toAbsolutePath().getParent());
 		System.out.println(SnapshotBuilder.build(blocks, target));
 		System.out.println("Snapshot:           " + target);
-		return 0;
+		return ExitCode.OK;
 	}
 }

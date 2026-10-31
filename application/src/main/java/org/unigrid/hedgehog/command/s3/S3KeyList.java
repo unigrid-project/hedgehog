@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.s3;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.server.s3.S3Credentials;
 import picocli.CommandLine.Command;
 
@@ -29,10 +30,10 @@ public class S3KeyList implements Callable<Integer> {
 	public Integer call() {
 		try {
 			new S3Credentials(S3Credentials.getFile()).list().forEach(System.out::println);
-			return 0;
+			return ExitCode.OK;
 		} catch (IOException ex) {
 			System.err.println("Failed to read the access keys: " + ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 	}
 }

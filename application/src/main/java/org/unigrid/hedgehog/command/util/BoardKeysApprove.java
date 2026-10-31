@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import org.apache.commons.codec.binary.Hex;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
@@ -90,7 +91,7 @@ public class BoardKeysApprove implements Callable<Integer> {
 			+ " of the " + proposed.getQuorum() + " that the keys before it need");
 		System.out.println("added keys that approved it: " + approved.stream().filter(proposed.getAdded()::contains)
 			.count() + " of " + proposed.getAdded().size());
-		return 0;
+		return ExitCode.OK;
 	}
 
 	private static void show(ProposedKeyChange proposed) {

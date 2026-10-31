@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.bootstrap;
 
 import java.io.IOException;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
@@ -36,7 +37,7 @@ public class BootstrapInfo implements Callable<Integer> {
 
 		} catch (IOException ex) {
 			System.err.println(ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		System.out.println("Tip hash:          " + info.getTipHash());
@@ -48,6 +49,6 @@ public class BootstrapInfo implements Callable<Integer> {
 		System.out.println("Zerocoin minted:   " + info.getZerocoinMinted());
 		System.out.println("Built:             " + info.getBuilt());
 		System.out.println("Signature:         " + info.getSignature());
-		return 0;
+		return ExitCode.OK;
 	}
 }

@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
@@ -55,7 +56,7 @@ public class BootstrapFetch implements Callable<Integer> {
 
 		if (Files.exists(target) && !force) {
 			System.err.println(target + " already exists, pass --force to replace it");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		try {
@@ -65,11 +66,11 @@ public class BootstrapFetch implements Callable<Integer> {
 
 		} catch (IOException ex) {
 			System.err.println(ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		System.out.println("Installed " + target);
-		return 0;
+		return ExitCode.OK;
 	}
 
 	/* A released build carries the snapshot its release was published with; a snapshot build has no

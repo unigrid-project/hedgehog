@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.util;
 
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Parameters;
@@ -38,6 +39,6 @@ public class SporkDbValidate implements Callable<Integer> {
 
 	@Override
 	public Integer call() {
-		return SporkDatabaseFile.report(SporkDatabaseFile.load(spec, file)) ? 0 : 1;
+		return SporkDatabaseFile.report(SporkDatabaseFile.load(spec, file)) ? ExitCode.OK : ExitCode.FAILED;
 	}
 }

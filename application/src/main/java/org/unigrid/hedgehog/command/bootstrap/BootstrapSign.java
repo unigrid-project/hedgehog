@@ -26,6 +26,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import lombok.Cleanup;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.command.util.SporkDatabaseFile;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
@@ -66,7 +67,7 @@ public class BootstrapSign implements Callable<Integer> {
 
 		if (!Files.exists(snapshot)) {
 			System.err.println("There is no snapshot at " + snapshot);
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		goByTheBoardKeys();
@@ -74,25 +75,25 @@ public class BootstrapSign implements Callable<Integer> {
 		if (!NetworkKey.isTrusted(key)) {
 			System.err.println("That key is not one the network trusts, so nothing would accept"
 				+ " the result");
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		final String problem = unsignableReason(snapshot);
 
 		if (problem != null) {
 			System.err.println(problem);
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		if (SnapshotSignature.read(snapshot).isPresent() && !force) {
 			System.err.println(snapshot + " is already signed, pass --force to replace it");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		truncateToContent(snapshot);
 		SnapshotSignature.signAndAppend(snapshot, key);
 		System.out.println("Signed " + snapshot);
-		return 0;
+		return ExitCode.OK;
 	}
 
 	/* The board keys are those of the longest chain of them that this machine knows: the one the release ships, the

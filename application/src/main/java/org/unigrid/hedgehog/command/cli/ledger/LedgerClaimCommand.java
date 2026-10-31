@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli.ledger;
 import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;
 import org.unigrid.hedgehog.ledger.LegacyAddress;
@@ -74,7 +75,7 @@ public class LedgerClaimCommand implements Callable<Integer> {
 			System.out.println("Run this in the legacy wallet, then run this command again with --signature "
 				+ "<what it prints>:");
 			System.out.println("signmessage \"" + LedgerText.text(draft.address()) + "\" \"" + text + "\"");
-			return 0;
+			return ExitCode.OK;
 		}
 
 		final Claim claim = claimOf(draft, chainId, text);

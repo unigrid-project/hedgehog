@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
 import org.unigrid.hedgehog.ledger.FileLockedException;
@@ -81,7 +82,7 @@ public class SporkDbImport implements Callable<Integer> {
 			System.err.println("Nothing was imported: the board keys of " + file + " do not carry on the"
 				+ " chain of board keys of the node, which would take the node back to keys that the board"
 				+ " switched off, or onto a fork");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		SporkDatabaseFile.requireHeldByTheRecord(spec, database, file);
@@ -89,7 +90,7 @@ public class SporkDbImport implements Callable<Integer> {
 		if (!SporkDatabaseFile.report(database)) {
 			System.err.println("Nothing was imported: two current board keys did not sign every spork of " + file
 				+ ", or the content of one does not hold");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		try (ExclusiveLock lock = SporkDatabaseLock.take(dataDirectory.get(), locker)) {
@@ -114,7 +115,7 @@ public class SporkDbImport implements Callable<Integer> {
 			System.err.println("The chain of board keys of " + file + " was not recorded: " + ex.getMessage());
 		}
 
-		return 0;
+		return ExitCode.OK;
 	}
 
 	/* A node goes by the chain of board keys of its database, so one whose chain does not hold the chain that the node

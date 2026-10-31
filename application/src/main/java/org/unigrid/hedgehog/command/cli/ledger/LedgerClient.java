@@ -34,6 +34,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.ledger.Digests;
@@ -119,7 +120,7 @@ final class LedgerClient implements AutoCloseable {
 
 	private static int failed(final String reason) {
 		System.err.println(printable(reason));
-		return 1;
+		return ExitCode.FAILED;
 	}
 
 	/* The words of a node are shown as they are, but a control character in them, which could move the cursor or
@@ -196,7 +197,7 @@ final class LedgerClient implements AutoCloseable {
 	static int print(final Question<?> question) {
 		return session(ledger -> {
 			System.out.println(Json.parse(question.ask(ledger)));
-			return 0;
+			return ExitCode.OK;
 		});
 	}
 
@@ -237,7 +238,7 @@ final class LedgerClient implements AutoCloseable {
 	int send(final byte[] chainId, final String signed, final Transaction transaction) throws Refused {
 		announce(chainId, signed);
 		System.out.println(Json.parse(submit(transaction)));
-		return 0;
+		return ExitCode.OK;
 	}
 
 	private <T> T read(final String location, final Class<T> type) throws Refused {

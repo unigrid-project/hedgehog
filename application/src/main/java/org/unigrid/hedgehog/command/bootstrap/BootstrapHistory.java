@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.bootstrap;
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
@@ -55,12 +56,12 @@ public class BootstrapHistory implements Callable<Integer> {
 
 		} catch (IllegalArgumentException | IOException ex) {
 			System.err.println(ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		if (transactions.isEmpty()) {
 			System.err.println("No transactions for " + address);
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		if (json) {
@@ -70,7 +71,7 @@ public class BootstrapHistory implements Callable<Integer> {
 			transactions.forEach(BootstrapHistory::print);
 		}
 
-		return 0;
+		return ExitCode.OK;
 	}
 
 	private static void print(AddressTransaction transaction) {

@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
@@ -84,7 +85,7 @@ public class BoardKeysApply implements Callable<Integer> {
 		System.out.println("board keys: " + chain.size() + (chain.size() == 1 ? " change" : " changes"));
 		keys.active().forEach(key -> System.out.println("active: " + key));
 		System.out.println("output: " + output);
-		return 0;
+		return ExitCode.OK;
 	}
 
 	private static List<KeyChange> changesOf(BoardKeys held) {

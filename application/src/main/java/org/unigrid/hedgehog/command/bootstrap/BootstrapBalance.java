@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.bootstrap;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
@@ -41,16 +42,16 @@ public class BootstrapBalance implements Callable<Integer> {
 
 		} catch (IllegalArgumentException | IOException ex) {
 			System.err.println(ex.getMessage());
-			return 2;
+			return ExitCode.UNUSABLE;
 		}
 
 		if (balance.isEmpty()) {
 			System.err.println(address + " never appeared on the legacy chain");
-			return 1;
+			return ExitCode.FAILED;
 		}
 
 		System.out.println(balance.get().getBalance() + " in " + balance.get().getTransactionCount()
 			+ " transactions");
-		return 0;
+		return ExitCode.OK;
 	}
 }

@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
@@ -80,7 +81,7 @@ public class BoardKeysPropose implements Callable<Integer> {
 			+ " keys active before it");
 		proposed.getAdded().forEach(key -> System.out.println("approve too: " + key));
 		System.out.println("output: " + output);
-		return 0;
+		return ExitCode.OK;
 	}
 
 	private ActiveKeys verified(List<KeyChange> chain) {
