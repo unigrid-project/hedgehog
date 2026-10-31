@@ -52,6 +52,7 @@ import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.ChunkGroups;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
+import org.unigrid.hedgehog.model.storage.Fragment;
 import org.unigrid.hedgehog.model.storage.GroupDescriptor;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.LayoutParameters;
@@ -138,6 +139,11 @@ public class GroupRepairerTest {
 		fleet.getTransport().lie(liar, entries -> entries.stream()
 			.map(entry -> new FragmentStatus.Entry(entry.getGroupId(), FragmentStatus.State.HELD, index))
 			.collect(Collectors.toList()));
+	}
+
+	private static void keep(StorageFleet fleet, Gridnode gridnode, Fragment fragment) {
+		assertThat(fleet.getTransport().store(gridnode, fragment.encode()).join().getStatus(),
+			equalTo(StorageStatus.OK));
 	}
 
 	private static StorageStatus deleteFrom(FragmentKeeper keeper, GroupKey key) {
@@ -500,5 +506,28 @@ public class GroupRepairerTest {
 			greaterThanOrEqualTo((long) parameters.layout().guaranteedFragments())));
 		service.retrieve(fingerprint, output);
 		assertThat(output.toByteArray(), equalTo(file));
+	}
+
+	/* A repair counts only the window, so it may rebuild the index of a holder that a join pushed out of the
+	   window and leave no free member for that holder to hand its copy over to */
+	@Property(tries = 30)
+	public void dropsCopiesOutsideTheWindowThatTheWindowAlreadyHolds(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 1);
+		final GroupKey key = StorageTestData.key(random);
+		final List<Fragment> sealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
+			parameters.layout());
+		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+		final Gridnode outsider = fleet.getGridnodes().stream().filter(g -> !window.contains(g)).findFirst().get();
+
+		IntStream.range(0, window.size()).forEach(rank -> keep(fleet, window.get(rank),
+			sealed.get(rank % sealed.size())));
+		keep(fleet, outsider, sealed.get(random.nextInt(sealed.size())));
+		fleet.runRepairEpochs(2 * parameters.window());
+
+		assertThat(fleet.getStores().get(outsider.getId()).groups().isEmpty(), is(true));
+		assertThat(fleet.distinctIndicesOf(key.groupId(), parameters.window()), equalTo((long) sealed.size()));
 	}
 }

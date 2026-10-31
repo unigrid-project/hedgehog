@@ -171,11 +171,20 @@ public class GroupRepairer {
 		private void relocate(final GroupId groupId, final int width) throws IOException {
 			final Optional<Survey> survey = survey(groupId, width);
 
-			if (survey.isPresent() && !tombstoned(survey.get())
-				&& handOver(survey.get().local(), free(survey.get().window(), survey.get().census()))) {
+			if (survey.isPresent() && !tombstoned(survey.get()) && (isServedInWindow(survey.get())
+				|| handOver(survey.get().local(), free(survey.get().window(), survey.get().census())))) {
 
 				store.remove(groupId);
 			}
+		}
+
+		/* A repair counts only the window, so it may already have rebuilt the index held here. Moving that copy
+		   would only fill the slack with a duplicate, and once the window is full it could never move at all. */
+		private boolean isServedInWindow(final Survey survey) {
+			final Fragment local = survey.local();
+
+			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
+				.anyMatch(claim -> servesBack(claim.getKey(), local));
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {
