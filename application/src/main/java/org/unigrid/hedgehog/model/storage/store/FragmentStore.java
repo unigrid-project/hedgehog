@@ -20,14 +20,12 @@ package org.unigrid.hedgehog.model.storage.store;
 
 import java.io.IOException;
 import java.nio.BufferUnderflowException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +40,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.storage.DeleteProof;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.StorageFormat;
-import org.unigrid.hedgehog.model.storage.GroupKey;
 
 @Slf4j
 public class FragmentStore {
@@ -62,7 +59,7 @@ public class FragmentStore {
 	}
 
 	@Value
-	private static final class Tombstone {
+	static final class Tombstone {
 		private final Instant expiry;
 		private final DeleteProof proof;
 	}
@@ -75,8 +72,6 @@ public class FragmentStore {
 	private static final String FRAGMENT_SUFFIX = ".frag";
 	private static final String TEMPORARY_SUFFIX = ".tmp";
 	private static final String TOMBSTONES = "tombstones";
-	private static final int HEADER_SIZE = 4 + Long.BYTES;
-	private static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
 	private static final int HEX_DIRECTORY = 2;
 	private static final int UNSIGNED_BYTE_MAX = 0xFF;
 	private static final int PERCENT = 100;
@@ -128,8 +123,7 @@ public class FragmentStore {
 
 		final Holding holding = Holding.builder().format(format).slots(slots).tier(tier).index(index)
 			.size(payload.length).sequence(sequence++).build();
-		write(pathOf(id), ByteBuffer.allocate(HEADER_SIZE + payload.length).put(format.getId()).put((byte) slots)
-			.put((byte) tier.ordinal()).put((byte) index).putLong(holding.getSequence()).put(payload).array());
+		write(pathOf(id), FragmentFormat.encodeFragment(holding, payload));
 		track(id, holding);
 		return PutResult.STORED;
 	}
@@ -139,8 +133,7 @@ public class FragmentStore {
 			return Optional.empty();
 		}
 
-		final byte[] content = Files.readAllBytes(pathOf(id));
-		return Optional.of(Arrays.copyOfRange(content, HEADER_SIZE, content.length));
+		return Optional.of(FragmentFormat.payloadOf(Files.readAllBytes(pathOf(id))));
 	}
 
 	public synchronized Optional<Holding> holding(GroupId id) {
@@ -165,8 +158,7 @@ public class FragmentStore {
 		return true;
 	}
 
-	/* [expiry u64][timestamp i64][public key 32 bytes][signature 64 bytes]
-	   A valid proof costs anyone only a fresh key, so a group this node does not hold is tombstoned only within
+	/* A valid proof costs anyone only a fresh key, so a group this node does not hold is tombstoned only within
 	   a budget, while a held group always is, in exchange for the room its fragment frees. */
 	public synchronized boolean delete(GroupId id, Duration keepTombstone, DeleteProof proof) throws IOException {
 		if (!proof.isWellFormed()) {
@@ -177,13 +169,11 @@ public class FragmentStore {
 			return false;
 		}
 
-		final Instant expiry = clock.instant().plus(keepTombstone);
+		final Tombstone tombstone = new Tombstone(clock.instant().plus(keepTombstone), proof);
 
-		write(tombstoneDirectory.resolve(id.toHex()), ByteBuffer.allocate(TOMBSTONE_SIZE)
-			.putLong(expiry.toEpochMilli()).putLong(proof.getTimestamp()).put(proof.getPublicKey())
-			.put(proof.getSignature()).array());
+		write(tombstoneDirectory.resolve(id.toHex()), FragmentFormat.encodeTombstone(tombstone));
 		remove(id);
-		keep(id, new Tombstone(expiry, proof));
+		keep(id, tombstone);
 		return true;
 	}
 
@@ -319,11 +309,11 @@ public class FragmentStore {
 			final GroupId id = groupOf(file, FRAGMENT_SUFFIX);
 			final byte[] header = readHeader(file);
 
-			if (isForeign(header)) {
+			if (FragmentFormat.isForeign(header)) {
 				return false;
 			}
 
-			track(id, holdingOf(header, Files.size(file) - HEADER_SIZE));
+			track(id, FragmentFormat.decodeHeader(header, Files.size(file) - FragmentFormat.HEADER_SIZE));
 		} catch (IllegalArgumentException | IndexOutOfBoundsException | BufferUnderflowException ex) {
 			discard(file, "fragment");
 		} catch (IOException ex) {
@@ -333,21 +323,9 @@ public class FragmentStore {
 		return true;
 	}
 
-	private static boolean isForeign(byte[] header) {
-		return header.length > 0 && StorageFormat.find(header[0] & UNSIGNED_BYTE_MAX).isEmpty();
-	}
-
 	private static GroupId groupOf(Path file, String suffix) {
 		final String name = file.getFileName().toString();
 		return GroupId.fromHex(name.substring(0, name.length() - suffix.length()));
-	}
-
-	private static Holding holdingOf(byte[] header, long size) {
-		final ByteBuffer buffer = ByteBuffer.wrap(header);
-
-		return Holding.builder().format(StorageFormat.of(buffer.get() & UNSIGNED_BYTE_MAX))
-			.slots(buffer.get() & UNSIGNED_BYTE_MAX).tier(Tier.values()[buffer.get()])
-			.index(buffer.get() & UNSIGNED_BYTE_MAX).sequence(buffer.getLong()).size(size).build();
 	}
 
 	/* Repair restores the redundancy an unreadable file held, so keeping it would only waste quota. */
@@ -371,7 +349,7 @@ public class FragmentStore {
 
 	private static byte[] readHeader(Path file) throws IOException {
 		try (var input = Files.newInputStream(file)) {
-			return input.readNBytes(HEADER_SIZE);
+			return input.readNBytes(FragmentFormat.HEADER_SIZE);
 		}
 	}
 
@@ -390,28 +368,11 @@ public class FragmentStore {
 
 	private void loadTombstone(Path file) {
 		try {
-			keep(groupOf(file, ""), readTombstone(file));
+			keep(groupOf(file, ""), FragmentFormat.decodeTombstone(Files.readAllBytes(file)));
 		} catch (IllegalArgumentException ex) {
 			discard(file, "tombstone");
 		} catch (IOException ex) {
 			skip(file, "tombstone", ex);
 		}
-	}
-
-	private static Tombstone readTombstone(Path file) throws IOException {
-		final byte[] content = Files.readAllBytes(file);
-
-		if (content.length != TOMBSTONE_SIZE) {
-			throw new IllegalArgumentException("A tombstone file is exactly " + TOMBSTONE_SIZE + " bytes");
-		}
-
-		final ByteBuffer buffer = ByteBuffer.wrap(content);
-		final Instant expiry = Instant.ofEpochMilli(buffer.getLong());
-		final long timestamp = buffer.getLong();
-		final byte[] publicKey = new byte[GroupKey.PUBLIC_KEY_SIZE];
-		final byte[] signature = new byte[GroupKey.SIGNATURE_SIZE];
-
-		buffer.get(publicKey).get(signature);
-		return new Tombstone(expiry, new DeleteProof(publicKey, timestamp, signature));
 	}
 }
