@@ -61,7 +61,7 @@ final class Gossip {
 	}
 
 	void toAll(Object wire) {
-		toOthers(null, wire);
+		toOthers(LocalSource.LOCAL, wire);
 	}
 
 	/* What the node makes itself goes to every peer. What it passes on goes to no more than `relayFanout` of the
@@ -69,9 +69,9 @@ final class Gossip {
 	   a node that passes everything on to everyone makes every one of N nodes send N copies. */
 	void toOthers(LedgerPeer from, Object wire) {
 		final List<LedgerPeer> others = network.peers().stream()
-			.filter(peer -> from == null || !peer.id().equals(from.id())).toList();
+			.filter(peer -> LocalSource.isLocal(from) || !peer.id().equals(from.id())).toList();
 
-		(from == null ? others.stream() : closest(others, wire)).forEach(peer -> send(peer, wire));
+		(LocalSource.isLocal(from) ? others.stream() : closest(others, wire)).forEach(peer -> send(peer, wire));
 	}
 
 	private Stream<LedgerPeer> closest(List<LedgerPeer> others, Object wire) {

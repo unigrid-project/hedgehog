@@ -163,12 +163,16 @@ public final class LedgerDriver implements Closeable {
 		}
 	}
 
-	/* What a peer sent, or this node's own caller when `from` is null, and the kind of limit it was taken under */
+	/* What a peer sent, or this node's own caller when `from` is LocalSource.LOCAL, and the kind of limit it was taken
+	   under */
 	private record Item(LedgerPeer from, Kind kind, Object wire) {
+		boolean isLocal() {
+			return LocalSource.isLocal(from);
+		}
 	}
 
 	/* What the driver does itself: nothing came from a peer, and what it says goes to every peer */
-	private static final Item OWN = new Item(null, null, null);
+	private static final Item OWN = new Item(LocalSource.LOCAL, null, null);
 
 	/* An item that cannot be told for a copy without the work it takes to judge it */
 	private static final BooleanSupplier NOT_HELD = () -> false;
@@ -426,7 +430,7 @@ public final class LedgerDriver implements Closeable {
 
 	private Optional<String> admit(Transaction transaction) {
 		final LedgerNode asked = supervisor.node();
-		final Item item = new Item(null, Kind.TRANSACTION, transaction);
+		final Item item = new Item(LocalSource.LOCAL, Kind.TRANSACTION, transaction);
 		final Optional<Receipt> receipt = supervisor.ready() ? takeIn(item, transaction) : Optional.empty();
 
 		return receipt.isPresent() && supervisor.node() == asked ? receipt.get().rejection() : unanswered();
@@ -500,8 +504,8 @@ public final class LedgerDriver implements Closeable {
 		return receipt;
 	}
 
-	/* Empty when the node failed, and then nothing of the item is acted on. `from` is null for what this node's own
-	   caller gives it: it is sent to every peer and no one is held to account for it. */
+	/* Empty when the node failed, and then nothing of the item is acted on. `from` is LocalSource.LOCAL for what this
+	   node's own caller gives it: it is sent to every peer and no one is held to account for it. */
 	private Optional<Receipt> receive(Item item, NodeCall<Receipt> rule) {
 		final Optional<Receipt> receipt = itemCall(item, rule);
 
@@ -518,7 +522,7 @@ public final class LedgerDriver implements Closeable {
 			gossip.toOthers(item.from(), item.wire());
 		}
 
-		if (item.from() != null) {
+		if (!item.isLocal()) {
 			account(item.from().id(), item.kind(), receipt);
 		}
 
@@ -565,7 +569,7 @@ public final class LedgerDriver implements Closeable {
 	}
 
 	private void relay(Message message, Item item) {
-		gossip.toOthers(message.equals(item.wire()) ? item.from() : null, message);
+		gossip.toOthers(message.equals(item.wire()) ? item.from() : LocalSource.LOCAL, message);
 	}
 
 	/* A timer that is pending is left as it is: asking again must not push it out */
@@ -684,7 +688,7 @@ public final class LedgerDriver implements Closeable {
 
 			lastHeartbeat = now;
 			supervisor.eventCall(node -> gossip.heartbeat(node, beat))
-				.ifPresent(receipt -> settle(new Item(null, Kind.HEARTBEAT, beat), receipt));
+				.ifPresent(receipt -> settle(new Item(LocalSource.LOCAL, Kind.HEARTBEAT, beat), receipt));
 		}
 	}
 

@@ -306,7 +306,7 @@ final class NodeSupervisor {
 	private void itemFailed(Exception cause, LedgerPeer culprit, String what) {
 		log.atWarn().setCause(cause).log("A {} made the ledger node throw", what);
 
-		if (culprit != null) {
+		if (!LocalSource.isLocal(culprit)) {
 			limiter.ban(culprit.id());
 		}
 
