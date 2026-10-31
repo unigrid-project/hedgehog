@@ -388,7 +388,7 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored, BooleanSupplier mayVerify) {
-		return succeeds(stored, mayVerify, this::isDoublySigned);
+		return SporkSuccession.canReplace(this, stored, mayVerify);
 	}
 
 	/**
@@ -406,7 +406,7 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean canBeProposedOver(GridSpork stored, BooleanSupplier mayVerify) {
-		return isPending() && succeeds(stored, mayVerify, this::isValidSignature);
+		return SporkSuccession.canBeProposedOver(this, stored, mayVerify);
 	}
 
 	/**
@@ -515,7 +515,8 @@ public class GridSpork implements Serializable, Signable {
 	*/
 	@JsonIgnore
 	public boolean isProposalOver(GridSpork stored, BooleanSupplier mayVerify) {
-		return isPending() && isMadeFrom(stored) && succeeds(stored, mayVerify, this::isValidSignature);
+		return isPending() && isMadeFrom(stored)
+			&& SporkSuccession.succeeds(this, stored, mayVerify, this::isValidSignature);
 	}
 
 	/**
@@ -553,7 +554,7 @@ public class GridSpork implements Serializable, Signable {
 		final SignatureLog log = getSignatureLog();
 
 		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.timeStamp)
-			&& goesOnWithTheHeadOf(stored, log.size() - 1);
+			&& SporkSuccession.goesOnWithTheHeadOf(this, stored, log.size() - 1);
 	}
 
 	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
@@ -571,106 +572,12 @@ public class GridSpork implements Serializable, Signable {
 			() -> create(type).<ChunkData>getData().empty()));
 	}
 
-	private boolean succeeds(GridSpork stored, BooleanSupplier mayVerify, BooleanSupplier isSignedHead) {
-		final GridSpork anchor = anchorAmong(stored);
-		final SignatureLog storedLog = logOf(anchor);
-
-		/* Head first, so a forged log costs one verification rather than one per entry */
-		return followsOn(stored, anchor, storedLog) && isNewerThanLog() && mayVerify.getAsBoolean()
-			&& isSignedHead.getAsBoolean()
-			&& getSignatureLog().isValidFrom(firstUncheckedEntry(storedLog), logKeys());
-	}
-
-	private static GridSpork anchorAmong(GridSpork stored) {
-		return Objects.nonNull(stored) && stored.isAnchoring() ? stored : null;
-	}
-
-	private static SignatureLog logOf(GridSpork spork) {
-		return Objects.isNull(spork) ? new SignatureLog() : spork.getSignatureLog();
-	}
-
-	/* A stored spork that no active key signed is no anchor: the version that the board signs again takes its place
-	   without carrying its log on. It still holds its place in time, so that version is newer than it and than every
-	   version in its log, and is none of them: a version that someone kept cannot take its data back. */
-	private boolean followsOn(GridSpork stored, GridSpork anchor, SignatureLog storedLog) {
-		return (anchor == stored || isLaterThanAllOf(stored)) && isSuccessorOf(anchor, storedLog);
-	}
-
-	private boolean isLaterThanAllOf(GridSpork stored) {
-		final byte[] digest = DigestUtils.sha512(getSignable());
-
-		return Objects.nonNull(timeStamp) && isNewerThan(stored)
-			&& !Arrays.equals(digest, DigestUtils.sha512(stored.getSignable()))
-			&& stored.getSignatureLog().getEntries().stream().allMatch(entry -> isLaterThan(entry, digest));
-	}
-
-	private boolean isLaterThan(SignatureLogEntry entry, byte[] digest) {
-		return timeStamp.isAfter(entry.getTimeStamp()) && !Arrays.equals(entry.getDigest(), digest);
-	}
-
-	/* The entries of the stored log were checked when the stored spork was taken; a log that does not carry it on is
-	   checked whole */
-	private int firstUncheckedEntry(SignatureLog storedLog) {
-		return storedLog.isPrefixOf(getSignatureLog()) ? storedLog.size() : 0;
-	}
-
 	/* Whether this spork may follow on the stored one, judged by what costs no signature */
 	protected boolean isSuccessorOf(GridSpork stored, SignatureLog storedLog) {
-		final SignatureLog log = getSignatureLog();
-		final boolean isNewerSibling = log.size() == storedLog.size() && isNewerThan(stored)
-			&& mayTakeThePlaceOf(stored);
-		final boolean isLater = log.size() > storedLog.size() && goesOnWithTheHeadOf(stored, storedLog.size());
-
-		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
+		return SporkSuccession.isSuccessorByLogOf(this, stored, storedLog);
 	}
 
-	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
-	   change unseen: a node that hands out the version before the stored one has a board member sign over it a
-	   sibling that every node takes. Two co-signers racing over one version make siblings only while a proposal
-	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
-	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
-	   as two renewals do, settle by time, and so does the first version, which follows nothing. So do two first
-	   versions, with no previous time stamp and no log, however far apart they were made, as board members may sign
-	   the data of a database again hours apart: an older one never wins back its place, a new one takes two board
-	   keys, and the command line makes one only on the word of the operator, as a node can hide what it holds. */
-	private boolean mayTakeThePlaceOf(GridSpork stored) {
-		if (Objects.isNull(stored)) {
-			return true;
-		}
-
-		final boolean isOverTheSameVersion = Objects.equals(previousData, stored.previousData)
-			&& Objects.equals(previousTimeStamp, stored.previousTimeStamp);
-
-		return isOverTheSameVersion && (Objects.equals(data, stored.data) || isFirstVersion()
-			|| isWithinAProposalsLifetimeOf(stored));
-	}
-
-	/* A sibling has the log of the stored spork, so this one being a first version makes both one */
-	private boolean isFirstVersion() {
-		return Instant.EPOCH.equals(previousTimeStamp) && getSignatureLog().isEmpty();
-	}
-
-	private boolean isWithinAProposalsLifetimeOf(GridSpork stored) {
-		return Objects.nonNull(stored.timeStamp)
-			&& !timeStamp.isAfter(stored.timeStamp.plus(PendingSporks.LIFETIME));
-	}
-
-	/* An entry may carry a single signature, which one key alone can make, so a version that the network never took
-	   could follow the stored log as an entry, and a version over it would pass for one over the stored spork. A node
-	   that missed versions still finds its own head where its log ends. */
-	private boolean goesOnWithTheHeadOf(GridSpork stored, int index) {
-		if (Objects.isNull(stored)) {
-			return true;
-		}
-
-		final SignatureLogEntry next = getSignatureLog().getEntries().get(index);
-
-		return Arrays.equals(next.getSignature(), stored.signature)
-			&& Arrays.equals(next.getCosignature(), stored.cosignature)
-			&& Arrays.equals(next.getDigest(), DigestUtils.sha512(stored.getSignable()));
-	}
-
-	private boolean isNewerThanLog() {
+	boolean isNewerThanLog() {
 		return getSignatureLog().isEmpty()
 			|| Objects.nonNull(timeStamp) && timeStamp.isAfter(getSignatureLog().last().getTimeStamp());
 	}
