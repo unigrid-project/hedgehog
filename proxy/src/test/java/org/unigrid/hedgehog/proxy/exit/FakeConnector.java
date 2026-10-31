@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.Setter;
 
 /* Records what the relay asks to connect to and how often it cancels; the test answers through the request's
    listener */
@@ -51,7 +52,7 @@ final class FakeConnector implements ExitConnector {
 		final InetSocketAddress local;
 		final ByteArrayOutputStream written = new ByteArrayOutputStream();
 		long backlog;
-		boolean readable;
+		@Setter(onMethod_ = @Override) boolean readable;
 		boolean closed;
 		int closes;
 
@@ -72,11 +73,6 @@ final class FakeConnector implements ExitConnector {
 		@Override
 		public long backlogBytes() {
 			return backlog;
-		}
-
-		@Override
-		public void setReadable(boolean readable) {
-			this.readable = readable;
 		}
 
 		@Override

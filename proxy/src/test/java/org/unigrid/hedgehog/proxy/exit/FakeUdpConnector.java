@@ -23,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import lombok.Setter;
 
 /* Records the sockets the relay asks for; the test opens them, and answers through the listener */
 final class FakeUdpConnector implements UdpConnector {
@@ -53,7 +54,7 @@ final class FakeUdpConnector implements UdpConnector {
 		final List<Sent> sent = new ArrayList<>();
 		boolean accepting = true;
 		Predicate<InetAddress> reachable = address -> true;
-		boolean readable;
+		@Setter(onMethod_ = @Override) boolean readable;
 		boolean closed;
 		int closes;
 
@@ -74,11 +75,6 @@ final class FakeUdpConnector implements UdpConnector {
 		@Override
 		public InetSocketAddress localAddress() {
 			return new InetSocketAddress(0);
-		}
-
-		@Override
-		public void setReadable(boolean readable) {
-			this.readable = readable;
 		}
 
 		@Override

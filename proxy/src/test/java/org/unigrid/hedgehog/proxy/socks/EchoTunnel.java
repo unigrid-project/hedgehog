@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import lombok.Getter;
 import org.unigrid.hedgehog.proxy.session.Datagram;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
@@ -126,7 +127,7 @@ final class EchoTunnel implements Tunnel {
 		final ByteArrayOutputStream written = new ByteArrayOutputStream();
 		final Deque<byte[]> echoes = new ArrayDeque<>();
 		boolean readable = true;
-		boolean writable = true;
+		@Getter(onMethod_ = @Override) boolean writable = true;
 		boolean closed;
 		boolean broken;
 
@@ -163,11 +164,6 @@ final class EchoTunnel implements Tunnel {
 			written.writeBytes(bytes);
 			echoes.add(bytes);
 			echo();
-		}
-
-		@Override
-		public boolean isWritable() {
-			return writable;
 		}
 
 		@Override
