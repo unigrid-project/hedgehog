@@ -40,6 +40,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -125,8 +126,9 @@ public final class BoardKeyChain {
 
 	/* Read when the chain that the release ships is first asked for, which a node, a command line and a util command
 	   do before anything else, and not when the class loads: a release whose chain does not read then says why, each
-	   time it is asked. A test stands in a release of its own. */
-	private static volatile Release release;
+	   time it is asked. A test stands in a release of its own; nothing goes back to the one that the release
+	   ships. */
+	@Setter(AccessLevel.PACKAGE) private static volatile Release release;
 
 	/*
 	    Root format, of which the root is the SHA-512 digest:
@@ -210,11 +212,6 @@ public final class BoardKeyChain {
 
 		release = read;
 		return read;
-	}
-
-	/* What a test stands in for the release; nothing goes back to the one that the release ships */
-	static void setRelease(Release vouching) {
-		release = vouching;
 	}
 
 	/* A chain in the form it travels in, which a node reads from its peers and a release and a record hold */

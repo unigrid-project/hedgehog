@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.NetOptions;
@@ -93,7 +94,7 @@ public class P2PServer extends AbstractServer {
 	private final ConnectionLimiter limiter = new ConnectionLimiter();
 	private final ChannelGroup connections = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 	private TopologyThread topologyThread;
-	private Channel channel;
+	@Getter(onMethod_ = @Override) private Channel channel;
 
 	@Inject
 	private EncryptedTokenHandler encryptedTokenHandler;
@@ -182,11 +183,6 @@ public class P2PServer extends AbstractServer {
 		}
 
 		return schedulers;
-	}
-
-	@Override
-	public Channel getChannel() {
-		return channel;
 	}
 
 	/* A peer drops a connection only once it is closed, and holds one that is not until it idles out, minutes later, so

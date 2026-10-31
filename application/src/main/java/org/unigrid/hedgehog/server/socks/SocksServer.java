@@ -32,6 +32,7 @@ import java.net.BindException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.concurrent.TimeUnit;
+import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.SocksOptions;
@@ -53,7 +54,7 @@ public class SocksServer extends AbstractServer {
 	private Tunnel tunnel;
 
 	private NioEventLoopGroup group;
-	private Channel channel;
+	@Getter(onMethod_ = @Override) private Channel channel;
 
 	@PostConstruct @SneakyThrows
 	void init() {
@@ -111,11 +112,6 @@ public class SocksServer extends AbstractServer {
 
 	public boolean isListening() {
 		return channel != null && channel.isActive();
-	}
-
-	@Override
-	public Channel getChannel() {
-		return channel;
 	}
 
 	@PreDestroy

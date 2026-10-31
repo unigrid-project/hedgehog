@@ -29,6 +29,8 @@ import java.net.UnknownHostException;
 import java.nio.file.NoSuchFileException;
 import java.util.Optional;
 import java.util.function.Supplier;
+import lombok.AccessLevel;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
@@ -39,7 +41,7 @@ import org.unigrid.hedgehog.server.rest.RestToken;
 @RequiredArgsConstructor
 public class RestClientCommand implements Runnable {
 	private final String method;
-	private String location;
+	@Getter(AccessLevel.PROTECTED) private String location;
 	private Optional<Supplier<?>> defaultSupplier = Optional.empty();
 	private Optional<MultivaluedMap<String, Object>> headers = Optional.empty();
 
@@ -153,10 +155,6 @@ public class RestClientCommand implements Runnable {
 
 	protected <T> Entity<T> getEntity() {
 		throw new UnsupportedOperationException();
-	}
-
-	protected String getLocation() {
-		return location;
 	}
 
 	protected void execute(Response response) {
