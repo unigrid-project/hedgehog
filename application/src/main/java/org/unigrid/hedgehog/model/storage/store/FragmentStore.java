@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.Builder;
@@ -64,29 +63,22 @@ public class FragmentStore {
 		private final DeleteProof proof;
 	}
 
-	/* Every entry costs a file, an inode and a heap entry whatever its size, so charging at least this much lets
-	   the quota bound how many entries there are as well as how many bytes they hold */
-	public static final long MIN_ENTRY_COST = 4096;
-	public static final int TOMBSTONE_BUDGET_PERCENT = 1;
+	public static final long MIN_ENTRY_COST = Quota.MIN_ENTRY_COST;
+	public static final int TOMBSTONE_BUDGET_PERCENT = Quota.TOMBSTONE_BUDGET_PERCENT;
 
 	private static final String FRAGMENT_SUFFIX = ".frag";
 	private static final String TEMPORARY_SUFFIX = ".tmp";
 	private static final String TOMBSTONES = "tombstones";
 	private static final int HEX_DIRECTORY = 2;
 	private static final int UNSIGNED_BYTE_MAX = 0xFF;
-	private static final int PERCENT = 100;
 
 	private final Path root;
 	private final Path tombstoneDirectory;
 	private final Clock clock;
 	private final Map<GroupId, Holding> holdings = new HashMap<>();
-	private final TreeMap<Long, GroupId> extrasByAge = new TreeMap<>();
 	private final Map<GroupId, Tombstone> tombstones = new HashMap<>();
+	private final Quota quota = new Quota();
 	private long sequence;
-	private long usedBytes;
-	private long extraBytes;
-	private long maxBytes;
-	private int extraPoolPercent;
 
 	public FragmentStore(Path root, Clock clock) throws IOException {
 		this.root = root;
@@ -99,8 +91,7 @@ public class FragmentStore {
 	}
 
 	public synchronized void limits(long maxBytes, int extraPoolPercent) {
-		this.maxBytes = maxBytes;
-		this.extraPoolPercent = extraPoolPercent;
+		quota.limits(maxBytes, extraPoolPercent);
 	}
 
 	public synchronized PutResult put(GroupId id, StorageFormat format, int slots, Tier tier, int index,
@@ -117,7 +108,7 @@ public class FragmentStore {
 			return PutResult.DUPLICATE;
 		}
 
-		if (!makeRoom(tier, costOf(payload.length))) {
+		if (!quota.makeRoom(tier, payload.length, this::remove)) {
 			return PutResult.QUOTA;
 		}
 
@@ -147,13 +138,7 @@ public class FragmentStore {
 			return false;
 		}
 
-		usedBytes -= costOf(holding.getSize());
-
-		if (holding.getTier() == Tier.EXTRA) {
-			extraBytes -= costOf(holding.getSize());
-			extrasByAge.remove(holding.getSequence());
-		}
-
+		quota.release(holding);
 		Files.deleteIfExists(pathOf(id));
 		return true;
 	}
@@ -165,7 +150,9 @@ public class FragmentStore {
 			throw new IllegalArgumentException("A delete proof has a 32-byte key and a 64-byte signature");
 		}
 
-		if (!holdings.containsKey(id) && !tombstones.containsKey(id) && !admitsTombstone()) {
+		if (!holdings.containsKey(id) && !tombstones.containsKey(id)
+			&& !quota.admitsTombstone(tombstones.size(), this::remove)) {
+
 			return false;
 		}
 
@@ -192,7 +179,7 @@ public class FragmentStore {
 
 		for (GroupId id : expired) {
 			tombstones.remove(id);
-			usedBytes -= MIN_ENTRY_COST;
+			quota.releaseTombstone();
 			Files.deleteIfExists(tombstoneDirectory.resolve(id.toHex()));
 		}
 	}
@@ -202,11 +189,11 @@ public class FragmentStore {
 	}
 
 	public synchronized long usedBytes() {
-		return usedBytes;
+		return quota.usedBytes();
 	}
 
 	public synchronized long extraBytes() {
-		return extraBytes;
+		return quota.extraBytes();
 	}
 
 	private static void requireUnsignedByte(String name, int value) {
@@ -215,59 +202,15 @@ public class FragmentStore {
 		}
 	}
 
-	private static long costOf(long size) {
-		return Math.max(size, MIN_ENTRY_COST);
-	}
-
-	private boolean admitsTombstone() throws IOException {
-		return (tombstones.size() + 1) * MIN_ENTRY_COST <= percentOf(maxBytes, TOMBSTONE_BUDGET_PERCENT)
-			&& makeRoom(Tier.GUARANTEED, MIN_ENTRY_COST);
-	}
-
 	private void keep(GroupId id, Tombstone tombstone) {
 		if (tombstones.put(id, tombstone) == null) {
-			usedBytes += MIN_ENTRY_COST;
+			quota.chargeTombstone();
 		}
-	}
-
-	private long extraLimit() {
-		return percentOf(maxBytes, extraPoolPercent);
-	}
-
-	/* Splits off the whole hundreds first, so even a quota near Long.MAX_VALUE cannot overflow */
-	private static long percentOf(long amount, int percent) {
-		final int bounded = Math.max(0, Math.min(percent, PERCENT));
-		return amount / PERCENT * bounded + amount % PERCENT * bounded / PERCENT;
-	}
-
-	private boolean fits(Tier tier, long size) {
-		final boolean fitsTotal = usedBytes + size <= maxBytes;
-		return tier == Tier.GUARANTEED ? fitsTotal : fitsTotal && extraBytes + size <= extraLimit();
-	}
-
-	private boolean makeRoom(Tier tier, long size) throws IOException {
-		final long room = maxBytes - (usedBytes - extraBytes);
-		final long ceiling = tier == Tier.GUARANTEED ? room : Math.min(room, extraLimit());
-
-		if (size > ceiling) {
-			return false;
-		}
-
-		while (!fits(tier, size)) {
-			remove(extrasByAge.firstEntry().getValue());
-		}
-
-		return true;
 	}
 
 	private void track(GroupId id, Holding holding) {
 		holdings.put(id, holding);
-		usedBytes += costOf(holding.getSize());
-
-		if (holding.getTier() == Tier.EXTRA) {
-			extraBytes += costOf(holding.getSize());
-			extrasByAge.put(holding.getSequence(), id);
-		}
+		quota.charge(id, holding);
 	}
 
 	private Path pathOf(GroupId id) {
