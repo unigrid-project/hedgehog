@@ -169,40 +169,55 @@ public class GroupRepairer {
 		}
 
 		private void relocate(final GroupId groupId, final int width) throws IOException {
-			final Optional<Fragment> local = localFragment(groupId);
+			final Optional<Survey> survey = survey(groupId, width);
 
-			if (local.isPresent()) {
-				final List<Gridnode> window = Placement.window(groupId, active, width);
-				final Map<Gridnode, FragmentStatus.Entry> census = census(local.get(), window);
-				final Optional<DeleteProof> deletion = deletionOf(local.get(), census);
+			if (survey.isPresent() && !tombstoned(survey.get())
+				&& handOver(survey.get().local(), free(survey.get().window(), survey.get().census()))) {
 
-				if (deletion.isPresent()) {
-					tombstone(groupId, deletion.get());
-				} else if (handOver(local.get(), free(window, census))) {
-					store.remove(groupId);
-				}
+				store.remove(groupId);
 			}
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {
-			final Optional<Fragment> local = localFragment(groupId);
+			final Optional<Survey> survey = survey(groupId, width);
 
-			if (local.isEmpty()) {
+			if (survey.isEmpty() || tombstoned(survey.get())) {
 				return;
 			}
 
+			final Fragment local = survey.get().local();
+			final Map<Gridnode, Integer> claims = claimsOf(survey.get().census());
+
+			if (isShort(local, claims) || (isSpotCheckDue(groupId, epoch, width) && !spotCheck(local, claims))) {
+				rebuild(local, claims, free(survey.get().window(), survey.get().census()));
+			}
+		}
+
+		/* What a relocation and a repair both start from: the fragment held here, the window of its group and
+		   what the members of the window say they hold of it */
+		private record Survey(Fragment local, List<Gridnode> window, Map<Gridnode, FragmentStatus.Entry> census) {
+		}
+
+		private Optional<Survey> survey(final GroupId groupId, final int width) throws IOException {
+			final Optional<Fragment> local = localFragment(groupId);
+
+			if (local.isEmpty()) {
+				return Optional.empty();
+			}
+
 			final List<Gridnode> window = Placement.window(groupId, active, width);
-			final Map<Gridnode, FragmentStatus.Entry> census = census(local.get(), window);
-			final Optional<DeleteProof> deletion = deletionOf(local.get(), census);
-			final Map<Gridnode, Integer> claims = claimsOf(census);
+			return Optional.of(new Survey(local.get(), window, census(local.get(), window)));
+		}
+
+		/* A group whose deletion the census proves gets a tombstone instead of a relocation or a repair */
+		private boolean tombstoned(final Survey survey) throws IOException {
+			final Optional<DeleteProof> deletion = deletionOf(survey.local(), survey.census());
 
 			if (deletion.isPresent()) {
-				tombstone(groupId, deletion.get());
-			} else if (isShort(local.get(), claims)
-				|| (isSpotCheckDue(groupId, epoch, width) && !spotCheck(local.get(), claims))) {
-
-				rebuild(local.get(), claims, free(window, census));
+				tombstone(survey.local().groupId(), deletion.get());
 			}
+
+			return deletion.isPresent();
 		}
 
 		private boolean isShort(final Fragment local, final Map<Gridnode, Integer> claims) {
