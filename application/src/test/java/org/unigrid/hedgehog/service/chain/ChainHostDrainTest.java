@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.service.chain;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,13 +41,17 @@ import net.jqwik.api.Example;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.sameInstance;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.proxy.chain.Chain;
@@ -57,6 +65,7 @@ public class ChainHostDrainTest {
 	private static final long GRACE_MILLIS = ChainHost.DRAIN_GRACE_MILLIS;
 	private static final String MEMBER = "gn-0";
 	private static final int WAIT_SECONDS = 5;
+	private static final String FAILURE_DETAIL = "10.9.8.7:52883 turned the stream down";
 
 	/* Sessions of this node on some chains, which note what the host told them */
 	private static final class Sessions implements ChainDrain {
@@ -499,6 +508,61 @@ public class ChainHostDrainTest {
 		host.tick();
 		assertThat(host.retiredChains(), is(empty()));
 		assertThat(sessions.expired, equalTo(List.of(kept)));
+	}
+
+	/* The refresh of the tick warns of a spork that cannot be read, so the drain after it tells the same failure at
+	   debug and nothing more, by the class of the failure alone */
+	@Example
+	public void tellsAnUnreadableSporkAtDebugInTheDrainAfterTheRefreshWarnedOfIt() {
+		final ChainFleet fleet = ChainFleet.group();
+		final AtomicBoolean unreadable = new AtomicBoolean();
+		final ChainHost host = new ChainHost(() -> {
+			if (unreadable.get()) {
+				throw new IllegalStateException(FAILURE_DETAIL);
+			}
+
+			return fleet.settings.get();
+		}, fleet.directory(MEMBER), fleet.transport(MEMBER), fleet.clock::get, new Random(1), new ManualScheduler());
+
+		host.refresh();
+		host.addDrain(new Sessions(host, fleet.chain()));
+		fleet.clock.addAndGet(EPOCH_MILLIS);
+		host.refresh();
+		unreadable.set(true);
+
+		final List<ILoggingEvent> logged = loggedWhile(host::tick);
+		final List<ILoggingEvent> warnings = logged.stream().filter(event -> event.getLevel() == Level.WARN).toList();
+		final List<ILoggingEvent> debugs = logged.stream().filter(event -> event.getLevel() == Level.DEBUG).toList();
+
+		assertThat(warnings, hasSize(1));
+		assertThat(warnings.get(0).getFormattedMessage(), containsString("refresh"));
+		assertThat(debugs, hasSize(1));
+		assertThat(debugs.get(0).getFormattedMessage(), containsString(IllegalStateException.class.getName()));
+		assertThat(debugs.get(0).getFormattedMessage(), not(containsString(FAILURE_DETAIL)));
+		assertThat(debugs.get(0).getThrowableProxy(), is(nullValue()));
+	}
+
+	/* What the host tells the log at debug and above while the action runs */
+	private static List<ILoggingEvent> loggedWhile(final Runnable action) {
+		ChainHostDrainTest.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core")
+			.orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(ChainHost.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		final Level level = logger.getLevel();
+
+		appender.start();
+		logger.addAppender(appender);
+		logger.setLevel(Level.DEBUG);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+			logger.setLevel(level);
+		}
+
+		return List.copyOf(appender.list);
 	}
 
 	/* Whether the node is given other chains when the gridnode leaves */

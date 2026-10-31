@@ -878,11 +878,13 @@ public class ChainHost implements ChainService {
 		previous.settings().ifPresent(built -> dropDone(previous, spork, spork.orElse(built), clock.getAsLong()));
 	}
 
-	/* A spork that cannot be read fails the refresh of the same tick, which logs it */
+	/* A spork that cannot be read fails the refresh of the same tick, which warns of it, so it is told here at debug
+	   only, by the class of the failure alone, as a message may name an address */
 	private Optional<ProxySettings> sporkNow() {
 		try {
 			return settings.current();
 		} catch (RuntimeException ex) {
+			log.debug("Reading the spork for the drain failed with {}", ex.getClass().getName());
 			return Optional.empty();
 		}
 	}
