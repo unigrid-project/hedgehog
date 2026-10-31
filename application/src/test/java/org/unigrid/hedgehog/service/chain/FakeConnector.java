@@ -24,6 +24,7 @@ import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.Setter;
 import org.unigrid.hedgehog.proxy.exit.ExitConnector;
 import org.unigrid.hedgehog.proxy.exit.Target;
 import org.unigrid.hedgehog.proxy.exit.TargetListener;
@@ -38,7 +39,7 @@ final class FakeConnector implements ExitConnector {
 	static final class FakeTarget implements Target {
 		final ByteArrayOutputStream written = new ByteArrayOutputStream();
 		final AtomicInteger closes = new AtomicInteger();
-		volatile boolean readable;
+		@Setter(onMethod_ = @Override) volatile boolean readable;
 		volatile boolean closed;
 		volatile boolean failingWrites;
 		volatile boolean failingClose;
@@ -62,11 +63,6 @@ final class FakeConnector implements ExitConnector {
 		@Override
 		public long backlogBytes() {
 			return 0;
-		}
-
-		@Override
-		public void setReadable(final boolean readable) {
-			this.readable = readable;
 		}
 
 		@Override

@@ -39,6 +39,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import lombok.Getter;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -96,7 +97,7 @@ public class ChainAssociationTest {
 		private volatile Connect connect;
 		private volatile Optional<String> country;
 		private volatile SessionListener listener;
-		private volatile boolean writable = true;
+		@Getter(onMethod_ = @Override) private volatile boolean writable = true;
 		private volatile boolean underLock;
 		private int maxData = MAX_DATA;
 		private int opens;
@@ -126,11 +127,6 @@ public class ChainAssociationTest {
 			}
 
 			sent.add(message);
-		}
-
-		@Override
-		public boolean isWritable() {
-			return writable;
 		}
 
 		@Override
