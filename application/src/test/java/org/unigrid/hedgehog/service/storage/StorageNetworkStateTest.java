@@ -136,9 +136,9 @@ public class StorageNetworkStateTest {
 
 	@Property(tries = 25)
 	public void keepsEveryLiveFileReadableThroughChurn(
-		@ForAll("churn") ActionSequence<StorageNetworkModel> actions) {
+		@ForAll("churn") ActionSequence<StorageNetworkModel> actions, @ForAll long seed) {
 
 		actions.withInvariant("live files read back unchanged", StorageNetworkModel::assertLiveFilesReadBack)
-			.run(new StorageNetworkModel());
+			.run(new StorageNetworkModel(seed));
 	}
 }

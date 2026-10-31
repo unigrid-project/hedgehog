@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.service.storage;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Random;
@@ -63,8 +62,8 @@ public class StorageBlobStoreTest {
 		return new StorageFleet(parameters, parameters.window());
 	}
 
-	private static BlobStore store(final StorageFleet fleet) {
-		return new StorageBlobStore(fleet.service(new SecureRandom()));
+	private static BlobStore store(final StorageFleet fleet, final long seed) {
+		return new StorageBlobStore(fleet.service(new SeededSecureRandom(seed)));
 	}
 
 	private static BlobId store(final BlobStore store, final byte[] file) throws Exception {
@@ -79,10 +78,10 @@ public class StorageBlobStoreTest {
 	}
 
 	@Property(tries = 30)
-	public void readsBackWhatItStored(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario)
-		throws Exception {
+	public void readsBackWhatItStored(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
+		@ForAll final long seed) throws Exception {
 
-		final BlobStore store = store(fleet(scenario.get1()));
+		final BlobStore store = store(fleet(scenario.get1()), seed);
 		final Blob blob = store.open(store(store, scenario.get2()));
 
 		assertThat(blob.size(), equalTo((long) scenario.get2().length));
@@ -90,10 +89,10 @@ public class StorageBlobStoreTest {
 	}
 
 	@Property(tries = 20)
-	public void forgetsADeletedBlob(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario)
-		throws Exception {
+	public void forgetsADeletedBlob(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
+		@ForAll final long seed) throws Exception {
 
-		final BlobStore store = store(fleet(scenario.get1()));
+		final BlobStore store = store(fleet(scenario.get1()), seed);
 		final BlobId id = store(store, scenario.get2());
 
 		store.delete(id);
@@ -102,24 +101,28 @@ public class StorageBlobStoreTest {
 	}
 
 	@Property(tries = 20)
-	public void findsNothingBehindIdsItNeverHandedOut(@ForAll("parameters") final StorageSpork.SporkData parameters) {
-		final BlobStore store = store(fleet(parameters));
+	public void findsNothingBehindIdsItNeverHandedOut(@ForAll("parameters") final StorageSpork.SporkData parameters,
+		@ForAll final long seed) {
+
+		final BlobStore store = store(fleet(parameters), seed);
 
 		assertThrows(BlobNotFoundException.class, () -> store.open(new BlobId("not a fingerprint")));
 		assertThrows(BlobNotFoundException.class, () -> store.open(new BlobId(Fingerprint
-			.generate(new SecureRandom()).encode())));
+			.generate(new SeededSecureRandom(seed)).encode())));
 	}
 
 	@Property(tries = 20)
-	public void reportsTooFewGridnodesOrNoSporkAsUnavailable(@ForAll("parameters") final StorageSpork.SporkData parameters) {
+	public void reportsTooFewGridnodesOrNoSporkAsUnavailable(@ForAll("parameters") final StorageSpork.SporkData parameters,
+		@ForAll final long seed) {
+
 		final StorageFleet small = new StorageFleet(parameters, parameters.layout().guaranteedFragments() - 1);
 		final BlobStore disabled = new StorageBlobStore(new StorageService(small.directory("client"),
-			small.getTransport(), Optional::empty, new SecureRandom(), Duration.ZERO));
+			small.getTransport(), Optional::empty, new SeededSecureRandom(seed), Duration.ZERO));
 
-		assertThrows(BlobUnavailableException.class, () -> store(store(small), new byte[1]));
+		assertThrows(BlobUnavailableException.class, () -> store(store(small, seed), new byte[1]));
 		assertThrows(BlobUnavailableException.class, () -> store(disabled, new byte[1]));
 		assertThrows(BlobUnavailableException.class, () -> disabled.open(new BlobId(Fingerprint
-			.generate(new SecureRandom()).encode())));
+			.generate(new SeededSecureRandom(seed)).encode())));
 	}
 
 	@Property(tries = 20)
@@ -127,7 +130,7 @@ public class StorageBlobStoreTest {
 		@ForAll final long seed) throws Exception {
 
 		final StorageFleet fleet = fleet(scenario.get1());
-		final BlobStore store = store(fleet);
+		final BlobStore store = store(fleet, seed);
 		final BlobId id = store(store, scenario.get2());
 		final FingerprintKeys keys = new FingerprintKeys(Fingerprint.parse(id.value()));
 		final StorageLayout layout = StorageLayout.of(scenario.get1().layout(), scenario.get2().length);

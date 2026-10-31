@@ -23,7 +23,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -111,7 +110,8 @@ public class StorageServiceTest {
 	public void roundTripsAnyFileUnderAnyLayout(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
-		final StorageService service = fleet(scenario.get1(), new Random(seed)).service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageService service = fleet(scenario.get1(), random).service(SeededSecureRandom.from(random));
 
 		assertThat(retrieve(service, store(service, scenario.get2())), equalTo(scenario.get2()));
 	}
@@ -124,7 +124,7 @@ public class StorageServiceTest {
 		final int stripe = payload * parameters.getMaxOuterDataChunks();
 		final int size = new int[] { 0, payload, payload + 1, stripe, stripe + 1 }[pick];
 		final Random random = new Random(seed);
-		final StorageService service = fleet(parameters, random).service(new SecureRandom());
+		final StorageService service = fleet(parameters, random).service(SeededSecureRandom.from(random));
 		final byte[] file = bytes(random, size);
 
 		assertThat(retrieve(service, store(service, file)), equalTo(file));
@@ -136,7 +136,7 @@ public class StorageServiceTest {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = fleet(scenario.get1(), random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final List<Gridnode> victims = new ArrayList<>(fleet.getGridnodes());
 
@@ -153,7 +153,7 @@ public class StorageServiceTest {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = fleet(scenario.get1(), random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 
 		fleet.getGridnodes().stream().filter(gridnode -> random.nextInt(3) == 0)
@@ -177,7 +177,7 @@ public class StorageServiceTest {
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(change.get1(),
 			Math.max(change.get1().window(), change.get2().window()) + random.nextInt(4));
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final byte[] file = bytes(random, random.nextInt(4 * change.get1().layout().payloadSize()));
 		final Fingerprint fingerprint = store(service, file);
 
@@ -195,7 +195,7 @@ public class StorageServiceTest {
 		parameters.setManifestCopies(Math.max(2, parameters.getManifestCopies()));
 
 		final StorageFleet fleet = fleet(parameters, random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 
 		fleet.forget(new GroupKey(new FingerprintKeys(fingerprint).manifestSeed(0)).groupId());
@@ -212,7 +212,7 @@ public class StorageServiceTest {
 		final Random random = new Random(seed);
 		final StorageSpork.SporkData parameters = scenario.get1();
 		final StorageFleet fleet = fleet(parameters, random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final GroupKey key = new GroupKey(new FingerprintKeys(fingerprint).chunkSeed(0, 0));
 		final List<Gridnode> ranked = Placement.rank(key.groupId(), fleet.getGridnodes());
@@ -233,8 +233,9 @@ public class StorageServiceTest {
 		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
 
 		final StorageSpork.SporkData parameters = scenario.get1();
-		final StorageFleet fleet = fleet(parameters, new Random(seed));
-		final StorageService service = fleet.service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(parameters, random);
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
 		final byte[] manifest = Arrays.copyOf(new Manifest(keys.format(), Long.MAX_VALUE,
@@ -257,7 +258,8 @@ public class StorageServiceTest {
 	public void findsNothingBehindAManifestOfAnotherFormat(
 		@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario, @ForAll final long seed) {
 
-		final StorageService service = fleet(scenario.get1(), new Random(seed)).service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageService service = fleet(scenario.get1(), random).service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final AtomicBoolean foreign = new AtomicBoolean(true);
 
@@ -284,7 +286,7 @@ public class StorageServiceTest {
 		final Random random = new Random(seed);
 		final StorageSpork.SporkData parameters = scenario.get1();
 		final StorageFleet fleet = fleet(parameters, random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final int spare = parameters.window() - parameters.layout().guaranteedFragments();
 
@@ -300,8 +302,9 @@ public class StorageServiceTest {
 	public void deletesEveryGroupOfAFile(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
-		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
-		final StorageService service = fleet.service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(scenario.get1(), random);
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 
 		service.delete(fingerprint);
@@ -319,7 +322,7 @@ public class StorageServiceTest {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = fleet(scenario.get1(), random);
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
 		final StorageLayout layout = StorageLayout.of(scenario.get1().layout(), scenario.get2().length);
@@ -352,8 +355,9 @@ public class StorageServiceTest {
 		throws StorageException {
 
 		final StorageSpork.SporkData parameters = scenario.get1();
-		final StorageFleet fleet = fleet(parameters, new Random(seed));
-		final StorageService service = fleet.service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(parameters, random);
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final Fingerprint fingerprint = store(service, scenario.get2());
 		final FingerprintKeys keys = new FingerprintKeys(fingerprint);
 		final byte[] decoded = Base58.decodeChecked(fingerprint.encode());
@@ -388,8 +392,9 @@ public class StorageServiceTest {
 
 		final StorageSpork.SporkData parameters = scenario.get1();
 		final byte[] file = scenario.get2();
-		final StorageFleet fleet = fleet(parameters, new Random(seed));
-		final FingerprintKeys keys = new FingerprintKeys(store(fleet.service(new SecureRandom()), file));
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(parameters, random);
+		final FingerprintKeys keys = new FingerprintKeys(store(fleet.service(SeededSecureRandom.from(random)), file));
 		final StorageLayout layout = StorageLayout.of(parameters.layout(), file.length);
 		final ChunkCipher chunkCipher = ChunkCipher.forChunks(keys);
 		final ChunkCipher manifestCipher = ChunkCipher.forManifest(keys);
@@ -425,33 +430,41 @@ public class StorageServiceTest {
 	public void findsNothingForUnknownFingerprints(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
 		@ForAll final long seed) {
 
-		final StorageFleet fleet = fleet(scenario.get1(), new Random(seed));
-		final StorageService service = fleet.service(new SecureRandom());
+		final Random random = new Random(seed);
+		final StorageFleet fleet = fleet(scenario.get1(), random);
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 
 		store(service, scenario.get2());
-		assertThrows(FingerprintNotFoundException.class, () -> service.open(Fingerprint.generate(new SecureRandom())));
+		assertThrows(FingerprintNotFoundException.class,
+			() -> service.open(Fingerprint.generate(SeededSecureRandom.from(random))));
 	}
 
 	@Property(tries = 30)
-	public void rollsBackUploadsThatCannotBePlaced(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario) {
+	public void rollsBackUploadsThatCannotBePlaced(@ForAll("scenarios") final Tuple2<StorageSpork.SporkData, byte[]> scenario,
+		@ForAll final long seed) {
+
+		final Random random = new Random(seed);
 		final StorageSpork.SporkData parameters = scenario.get1();
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
 		final int spare = parameters.window() - parameters.layout().guaranteedFragments();
 
 		fleet.getGridnodes().subList(0, spare + 1).forEach(g -> fleet.getTransport().offline(g.getId()));
 
-		assertThrows(StorageException.class, () -> fleet.service(new SecureRandom())
+		assertThrows(StorageException.class, () -> fleet.service(SeededSecureRandom.from(random))
 			.store(new ByteArrayInputStream(scenario.get2())));
 		assertThat(fleet.groups().isEmpty(), is(true));
 	}
 
 	@Property(tries = 20)
-	public void refusesWithoutEnoughGridnodesOrSpork(@ForAll("parameters") final StorageSpork.SporkData parameters) {
+	public void refusesWithoutEnoughGridnodesOrSpork(@ForAll("parameters") final StorageSpork.SporkData parameters,
+		@ForAll final long seed) {
+
+		final Random random = new Random(seed);
 		final StorageFleet small = new StorageFleet(parameters, parameters.layout().guaranteedFragments() - 1);
 		final StorageService disabled = new StorageService(small.directory("client"), small.getTransport(),
-			Optional::empty, new SecureRandom(), Duration.ZERO);
+			Optional::empty, SeededSecureRandom.from(random), Duration.ZERO);
 
-		assertThrows(InsufficientGridnodesException.class, () -> small.service(new SecureRandom())
+		assertThrows(InsufficientGridnodesException.class, () -> small.service(SeededSecureRandom.from(random))
 			.store(new ByteArrayInputStream(new byte[1])));
 		assertThrows(StorageDisabledException.class, () -> disabled.store(new ByteArrayInputStream(new byte[1])));
 	}

@@ -20,7 +20,6 @@ package org.unigrid.hedgehog.service.storage;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,10 +38,14 @@ public class StorageNetworkModel {
 	static final StorageSpork.SporkData PARAMETERS = eagerRepair();
 
 	private final StorageFleet fleet = new StorageFleet(PARAMETERS, PARAMETERS.window() + 8);
-	private final StorageService service = fleet.service(new SecureRandom());
+	private final StorageService service;
 	private final Map<Fingerprint, byte[]> live = new LinkedHashMap<>();
 	private final List<Fingerprint> deleted = new ArrayList<>();
 	private int damage;
+
+	StorageNetworkModel(final long seed) {
+		this.service = fleet.service(new SeededSecureRandom(seed));
+	}
 
 	/* Repair on the first missing fragment, so a heal restores full redundancy and the damage budget can reset.
 	   Without extras, outer parity or spare manifest copies, the inner parity is the whole tolerance. */

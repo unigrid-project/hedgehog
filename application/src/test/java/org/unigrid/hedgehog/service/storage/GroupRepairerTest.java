@@ -22,7 +22,6 @@ import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -90,7 +89,7 @@ public class GroupRepairerTest {
 
 	@SneakyThrows
 	private static Fingerprint storeSomething(StorageFleet fleet, Random random) {
-		return fleet.service(new SecureRandom()).store(new ByteArrayInputStream(fileOf(fleet, random)));
+		return fleet.service(SeededSecureRandom.from(random)).store(new ByteArrayInputStream(fileOf(fleet, random)));
 	}
 
 	private static byte[] chunkOf(StorageFleet fleet, Random random) {
@@ -393,7 +392,7 @@ public class GroupRepairerTest {
 		Collections.shuffle(absent, random);
 		absent.subList(0, random.nextInt(parameters.layout().parityFragments()) + 1)
 			.forEach(g -> fleet.getTransport().offline(g.getId()));
-		fleet.service(new SecureRandom()).delete(fingerprint);
+		fleet.service(SeededSecureRandom.from(random)).delete(fingerprint);
 		absent.forEach(g -> fleet.getTransport().online(g.getId()));
 		fleet.runRepairEpochs(2 * parameters.window());
 
@@ -482,7 +481,7 @@ public class GroupRepairerTest {
 
 		final Random random = new Random(seed);
 		final StorageFleet fleet = new StorageFleet(parameters, parameters.window());
-		final StorageService service = fleet.service(new SecureRandom());
+		final StorageService service = fleet.service(SeededSecureRandom.from(random));
 		final byte[] file = fileOf(fleet, random);
 		final Fingerprint fingerprint = service.store(new ByteArrayInputStream(file));
 		final ByteArrayOutputStream output = new ByteArrayOutputStream();

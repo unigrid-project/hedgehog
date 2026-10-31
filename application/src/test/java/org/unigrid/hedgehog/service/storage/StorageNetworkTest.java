@@ -21,7 +21,6 @@ import com.google.common.jimfs.Jimfs;
 import jakarta.enterprise.inject.spi.CDI;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -130,7 +129,7 @@ public class StorageNetworkTest extends BaseServerTest {
 	}
 
 	@SneakyThrows
-	private void join() {
+	private void join(long seed) {
 		if (!members.isEmpty()) {
 			return;
 		}
@@ -159,7 +158,7 @@ public class StorageNetworkTest extends BaseServerTest {
 
 		service = new StorageService(new TopologyGridnodeDirectory(() -> gridnodes, () -> "client"),
 			new NettyFragmentTransport(() -> reachable, pending, Optional::empty, StorageNetworkTest::noLocalKeeper),
-			() -> Optional.of(PARAMETERS), new SecureRandom(), Duration.ZERO);
+			() -> Optional.of(PARAMETERS), new SeededSecureRandom(seed), Duration.ZERO);
 	}
 
 	private static FragmentKeeper noLocalKeeper() {
@@ -247,8 +246,8 @@ public class StorageNetworkTest extends BaseServerTest {
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
-	public void readsBackStoredFileAcrossTheNetwork(@ForAll("files") byte[] file) {
-		join();
+	public void readsBackStoredFileAcrossTheNetwork(@ForAll("files") byte[] file, @ForAll long seed) {
+		join(seed);
 
 		assertThat(retrieve(store(file)), equalTo(file));
 		assertThat(holders(), greaterThanOrEqualTo((long) PARAMETERS.layout().guaranteedFragments()));
@@ -256,7 +255,7 @@ public class StorageNetworkTest extends BaseServerTest {
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
 	public void readsBackWithGridnodesUnreachable(@ForAll("files") byte[] file, @ForAll long seed) {
-		join();
+		join(seed);
 
 		final Fingerprint fingerprint = store(file);
 
@@ -265,8 +264,8 @@ public class StorageNetworkTest extends BaseServerTest {
 	}
 
 	@Property(tries = 2, shrinking = ShrinkingMode.OFF)
-	public void restoresFragmentsOfWipedGridnodes(@ForAll("files") byte[] file) {
-		join();
+	public void restoresFragmentsOfWipedGridnodes(@ForAll("files") byte[] file, @ForAll long seed) {
+		join(seed);
 
 		final int parity = PARAMETERS.layout().parityFragments();
 		final Fingerprint fingerprint = store(file);
@@ -282,8 +281,10 @@ public class StorageNetworkTest extends BaseServerTest {
 	}
 
 	@Property(tries = 3, shrinking = ShrinkingMode.OFF)
-	public void deleteRemovesEveryFragment(@ForAll("files") byte[] file) throws StorageException {
-		join();
+	public void deleteRemovesEveryFragment(@ForAll("files") byte[] file, @ForAll long seed)
+		throws StorageException {
+
+		join(seed);
 
 		final Set<GroupId> before = groups();
 		final Fingerprint fingerprint = store(file);

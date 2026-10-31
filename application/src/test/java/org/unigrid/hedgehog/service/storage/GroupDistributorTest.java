@@ -126,14 +126,14 @@ public class GroupDistributorTest {
 	}
 
 	@Property
-	public void acceptsOnlyAJitterItCanDraw(@ForAll long jitterMillis) {
+	public void acceptsOnlyAJitterItCanDraw(@ForAll long jitterMillis, @ForAll long seed) {
 		final Duration jitter = Duration.ofMillis(jitterMillis);
 
 		if (jitterMillis < 0 || jitterMillis >= Integer.MAX_VALUE) {
 			assertThrows(IllegalArgumentException.class, () -> new GroupDistributor(new InMemoryTransport(),
-				new Random(), jitter));
+				new Random(seed), jitter));
 		} else {
-			new GroupDistributor(new InMemoryTransport(), new Random(), jitter);
+			new GroupDistributor(new InMemoryTransport(), new Random(seed), jitter);
 		}
 	}
 
