@@ -18,8 +18,7 @@
 
 package org.unigrid.hedgehog.model.storage.crypto;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import org.unigrid.hedgehog.common.crypto.Digests;
 
 public final class Hashes {
 	private Hashes() {
@@ -27,16 +26,6 @@ public final class Hashes {
 	}
 
 	public static byte[] sha256(byte[]... parts) {
-		try {
-			final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-
-			for (byte[] part : parts) {
-				digest.update(part);
-			}
-
-			return digest.digest();
-		} catch (NoSuchAlgorithmException ex) {
-			throw new IllegalStateException("SHA-256 is mandatory on every Java platform", ex);
-		}
+		return Digests.sha256(parts);
 	}
 }

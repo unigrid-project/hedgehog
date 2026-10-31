@@ -20,17 +20,17 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.bouncycastle.crypto.digests.RIPEMD160Digest;
+import org.unigrid.hedgehog.common.crypto.Digests;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Hashing {
 	public static final int HASH_SIZE = 32;
 	public static final int ADDRESS_HASH_SIZE = 20;
 
-	private static final ThreadLocal<MessageDigest> SHA256 = ThreadLocal.withInitial(Hashing::createSha256);
+	private static final ThreadLocal<MessageDigest> SHA256 = ThreadLocal.withInitial(Digests::newSha256);
 
 	public static byte[] doubleSha256(ByteBuffer input) {
 		final MessageDigest digest = SHA256.get();
@@ -48,13 +48,5 @@ public final class Hashing {
 		ripemd.update(sha, 0, sha.length);
 		ripemd.doFinal(result, 0);
 		return result;
-	}
-
-	private static MessageDigest createSha256() {
-		try {
-			return MessageDigest.getInstance("SHA-256");
-		} catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is required but unavailable", e);
-		}
 	}
 }
