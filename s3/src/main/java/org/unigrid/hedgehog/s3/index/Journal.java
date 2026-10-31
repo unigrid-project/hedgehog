@@ -184,17 +184,19 @@ final class Journal implements Closeable {
 
 			channel.force(false);
 		} catch (IOException failure) {
-			takeBack(start);
+			takeBack(start, failure);
 			throw failure;
 		}
 	}
 
-	/* A record left half written would hide every record appended after it from the next replay */
-	private void takeBack(final long start) {
+	/* A record left half written would hide every record appended after it from the next replay. A failure to take
+	   it back goes with the failure of the write. */
+	private void takeBack(final long start, final IOException failure) {
 		try {
 			channel.truncate(start);
 			channel.position(start);
 		} catch (IOException exception) {
+			failure.addSuppressed(exception);
 			broken = true;
 		}
 	}
