@@ -118,9 +118,9 @@ public final class Consensus {
 	private long resendTurn;
 	private Step step = Step.PROPOSE;
 	private Block lockedBlock;
-	private int lockedView = -1;
+	private int lockedView = Proposal.NO_ROUND;
 	private Block validBlock;
-	private int validView = -1;
+	private int validView = Proposal.NO_ROUND;
 	/* Ordered by view, so that when two views have a quorum the same one is found first on every run */
 	private final TreeMap<Integer, Proposal> proposals = new TreeMap<>();
 	private final Set<ByteBuffer> validBlocks = new HashSet<>();
@@ -360,9 +360,9 @@ public final class Consensus {
 		resendUntil = Long.MIN_VALUE;
 		step = Step.PROPOSE;
 		lockedBlock = null;
-		lockedView = -1;
+		lockedView = Proposal.NO_ROUND;
 		validBlock = null;
-		validView = -1;
+		validView = Proposal.NO_ROUND;
 		proposals.clear();
 		validBlocks.clear();
 		refusedBlocks.clear();
@@ -430,7 +430,8 @@ public final class Consensus {
 	   none above it. */
 	private static void requireViewsKept(SignState state) {
 		final int signedIn = IntStream.concat(state.proposals().stream().mapToInt(Proposal::view),
-			state.ballots().stream().mapToInt(Ballot::view)).max().orElse(-1);
+			state.ballots().stream().mapToInt(Ballot::view)).max()
+			.orElse(Proposal.NO_ROUND);
 		final boolean aboveSigned = state.nextView() > signedIn || state.view() == Integer.MAX_VALUE;
 
 		if (!aboveSigned || state.nextView() < state.view()) {
@@ -758,7 +759,8 @@ public final class Consensus {
 	private static boolean headerAgrees(Proposal proposal) {
 		final int headerView = proposal.block().getView();
 
-		return proposal.validRound() == -1 ? headerView == proposal.view() : headerView <= proposal.validRound();
+		return proposal.validRound() == Proposal.NO_ROUND ? headerView == proposal.view()
+			: headerView <= proposal.validRound();
 	}
 
 	private boolean accept(Decision other) {
@@ -866,7 +868,7 @@ public final class Consensus {
 	}
 
 	private boolean readyToVote(Proposal proposal) {
-		return proposal.validRound() == -1
+		return proposal.validRound() == Proposal.NO_ROUND
 			|| box.quorumFor(Ballot.Type.PREVOTE, proposal.validRound(), proposal.block().hash())
 			|| proofHolds(proposal);
 	}

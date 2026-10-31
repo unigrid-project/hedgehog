@@ -63,7 +63,8 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 	}
 
 	public static SignState empty(long height) {
-		return new SignState(height, false, 0, Consensus.Step.PROPOSE, 0, null, -1, null, -1, List.of(), List.of());
+		return new SignState(height, false, 0, Consensus.Step.PROPOSE, 0, null, Proposal.NO_ROUND, null,
+			Proposal.NO_ROUND, List.of(), List.of());
 	}
 
 	/* The most bytes a state can take up in a set of that many validators, when its view is at most `maxView`. A
@@ -115,7 +116,7 @@ public record SignState(long height, boolean running, int view, Consensus.Step s
 	private static void requireBlock(String name, Block block, int blockView, int view, long height) {
 		final boolean viewFits = blockView >= 0 && blockView <= view;
 
-		if (block == null ? blockView != -1 : !viewFits) {
+		if (block == null ? blockView != Proposal.NO_ROUND : !viewFits) {
 			throw new IllegalArgumentException("The " + name + " block goes with a view from 0 up to " + view
 				+ ", and no block with -1, found " + blockView);
 		}

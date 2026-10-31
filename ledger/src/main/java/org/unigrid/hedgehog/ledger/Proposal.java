@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-/* The proposer of a view puts a block forward. `validRound` is -1 for a block that is new, or the earlier view in
+/* The proposer of a view puts a block forward. `validRound` is NO_ROUND for a block that is new, or the earlier view in
    which the block already got more than 2/3 of the prevotes, when the proposer puts it forward again; the block
    keeps its own header, so it keeps its identity. The sender signs the chain id, the height, the view, the valid
    round, the block hash, which covers the header, and a digest of `polka`, the prevotes that prove that quorum, for
@@ -35,13 +35,17 @@ import java.util.stream.Stream;
    IllegalArgumentException, which the wire codec has to catch when it reads a proposal off the network. */
 public record Proposal(long height, int view, int validRound, Block block, List<Ballot> polka, AccountKey sender,
 	byte[] signature) implements Message {
+	/* Stands for no view at all: the valid round of a new block, and the locked or valid view of a node with no
+	   such block. It is written as -1 in a proposal on the wire and in a sign state on disk, so the value must
+	   not change. */
+	public static final int NO_ROUND = -1;
 	private static final byte[] TAG = "Unigrid proposal v2".getBytes(StandardCharsets.US_ASCII);
 
 	public Proposal {
 		Objects.requireNonNull(block);
 		Objects.requireNonNull(sender);
 
-		if (height < 1 || view < 0 || validRound < -1 || validRound >= view) {
+		if (height < 1 || view < 0 || validRound < NO_ROUND || validRound >= view) {
 			throw new IllegalArgumentException("A proposal has a height from 1, a view from 0 and a valid round "
 				+ "from -1 below its view, found " + height + ", " + view + " and " + validRound);
 		}
@@ -101,7 +105,7 @@ public record Proposal(long height, int view, int validRound, Block block, List<
 				+ " ballots, found " + polka.size());
 		}
 
-		if (validRound == -1) {
+		if (validRound == NO_ROUND) {
 			throw new IllegalArgumentException("A new block has no earlier prevotes to prove");
 		}
 
