@@ -28,7 +28,6 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Set;
@@ -48,10 +47,6 @@ public class NodeResource extends CDIBridgeResource {
 
 	@CDIBridgeInject
 	private Topology topology;
-
-	private URI getURIFromString(String address) throws URISyntaxException {
-		return new URI(null, address, null, null, null).parseServerAuthority();
-	}
 
 	@GET
 	public Response list() {
