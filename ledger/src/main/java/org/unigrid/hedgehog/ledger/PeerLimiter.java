@@ -96,6 +96,10 @@ public final class PeerLimiter {
 		PLAUSIBLE, JUNK
 	}
 
+	/* What a peer shares its limits with besides its own, such as the IPv6 site it is in (see LedgerPeer.quota) */
+	public record Quota(String key) {
+	}
+
 	public record Rate(int capacity, int refillPerSecond) {
 		public Rate {
 			if (capacity < 1 || refillPerSecond < 1) {
@@ -275,7 +279,7 @@ public final class PeerLimiter {
 	private final Map<Kind, Bucket> junk = new EnumMap<>(Kind.class);
 	private final Map<Kind, Bucket> reserve = new EnumMap<>(Kind.class);
 	private final Map<String, Vouch> vouched = new LinkedHashMap<>();
-	private final Map<String, Map<Kind, Bucket>> quotas = new LinkedHashMap<>();
+	private final Map<Quota, Map<Kind, Bucket>> quotas = new LinkedHashMap<>();
 	private long epoch;
 	private long lastReading;
 	private long time;
@@ -303,7 +307,7 @@ public final class PeerLimiter {
 
 	   `quota` is what the peer shares its limits with besides its own (see LedgerPeer.quota); a peer that shares
 	   them with no one has its id as its quota. */
-	public boolean allow(String id, String quota, Kind kind, Grade grade) {
+	public boolean allow(String id, Quota quota, Kind kind, Grade grade) {
 		final long now = advance();
 
 		return ownToken(id, kind, now).map(own -> switch (grade) {
@@ -314,7 +318,7 @@ public final class PeerLimiter {
 
 	/* A token of what all peers share and of the quota of the peer, or else one of the reserve, which the quota does
 	   not bound: the peers of a site that keep its quota empty must not silence a relay among them */
-	private boolean takePlausible(String id, String quota, Kind kind, Bucket own, long now) {
+	private boolean takePlausible(String id, Quota quota, Kind kind, Bucket own, long now) {
 		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
 		final Bucket everyone = refilled(shared, kind, policy.global().get(kind), now);
 
@@ -328,7 +332,7 @@ public final class PeerLimiter {
 
 	/* Junk is bounded by the quota as well, or the addresses of one site would multiply its part of what all junk
 	   shares */
-	private boolean takeJunk(String quota, Kind kind, Bucket own, long now) {
+	private boolean takeJunk(Quota quota, Kind kind, Bucket own, long now) {
 		final Bucket site = refilled(quotaOf(quota), kind, policy.quota(kind), now);
 		final Bucket everyone = refilled(junk, JUNK, policy.junk(), now);
 
@@ -363,7 +367,7 @@ public final class PeerLimiter {
 	   is scored as any other, but it takes nothing that all peers share: the node does no work for it, and the copies
 	   that every neighbour relays of one item must not empty what the new items need. A copy takes nothing that all
 	   peers share, so nothing of the quota either. */
-	public boolean allowCopy(String id, String quota, Kind kind) {
+	public boolean allowCopy(String id, Quota quota, Kind kind) {
 		return ownToken(id, kind, advance()).map(own -> {
 			own.take();
 			return true;
@@ -387,7 +391,7 @@ public final class PeerLimiter {
 		return Optional.of(own);
 	}
 
-	private Map<Kind, Bucket> quotaOf(String quota) {
+	private Map<Kind, Bucket> quotaOf(Quota quota) {
 		final Map<Kind, Bucket> known = quotas.remove(quota);
 
 		if (known == null && quotas.size() >= policy.maxPeers()) {
@@ -534,8 +538,8 @@ public final class PeerLimiter {
 		return peer;
 	}
 
-	private void dropEldest(Map<String, ?> entries) {
-		final Iterator<String> eldest = entries.keySet().iterator();
+	private void dropEldest(Map<?, ?> entries) {
+		final Iterator<?> eldest = entries.keySet().iterator();
 
 		eldest.next();
 		eldest.remove();

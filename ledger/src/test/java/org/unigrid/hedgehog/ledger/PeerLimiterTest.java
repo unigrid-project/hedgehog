@@ -46,6 +46,7 @@ import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Grade;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Policy;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Quota;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Rate;
 
 public class PeerLimiterTest {
@@ -77,12 +78,17 @@ public class PeerLimiterTest {
 
 	/* A plausible item of a peer that has its limits to itself */
 	private static boolean allow(PeerLimiter limiter, String peer, Kind kind) {
-		return limiter.allow(peer, peer, kind, Grade.PLAUSIBLE);
+		return limiter.allow(peer, new Quota(peer), kind, Grade.PLAUSIBLE);
 	}
 
 	/* An item of junk of a peer that has its limits to itself */
 	private static boolean allowJunk(PeerLimiter limiter, String peer, Kind kind) {
-		return limiter.allow(peer, peer, kind, Grade.JUNK);
+		return limiter.allow(peer, new Quota(peer), kind, Grade.JUNK);
+	}
+
+	/* A copy, sent by a peer that has its limits to itself */
+	private static boolean allowCopy(PeerLimiter limiter, String peer, Kind kind) {
+		return limiter.allowCopy(peer, new Quota(peer), kind);
 	}
 
 	private static int granted(PeerLimiter limiter, String peer, Kind kind, int attempts) {
@@ -701,16 +707,18 @@ public class PeerLimiterTest {
 	public void shouldLetThePeersOfOneQuotaShareFourTimesTheBucketOfOne() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(3, 1, 2, 60_000, 100));
 
-		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", "site", Kind.CONSENSUS)), is(true));
+		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", new Quota("site"), Kind.CONSENSUS)),
+			is(true));
 		assertThat(IntStream.range(0, 4).allMatch(peer -> IntStream.range(0, 3)
-			.allMatch(n -> limiter.allow("p" + peer, "site", Kind.CONSENSUS, Grade.PLAUSIBLE))), is(true));
+			.allMatch(n -> limiter.allow("p" + peer, new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE))),
+			is(true));
 		assertThat(IntStream.range(0, 50)
-			.filter(n -> limiter.allow("e", "site", Kind.CONSENSUS, Grade.PLAUSIBLE)).count(), equalTo(0L));
+			.filter(n -> limiter.allow("e", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE)).count(), equalTo(0L));
 		assertThat(limiter.isPenalised("e"), is(false));
-		assertThat(limiter.allow("f", "elsewhere", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
+		assertThat(limiter.allow("f", new Quota("elsewhere"), Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
 
-		limiter.allow("p0", "site", Kind.CONSENSUS, Grade.PLAUSIBLE);
-		limiter.allow("p0", "site", Kind.CONSENSUS, Grade.PLAUSIBLE);
+		limiter.allow("p0", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE);
+		limiter.allow("p0", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE);
 
 		assertThat(limiter.isPenalised("p0"), is(true));
 		assertThat(limiter.isPenalised("p1"), is(false));
@@ -724,11 +732,11 @@ public class PeerLimiterTest {
 			new Policy(same(new Rate(3, 1)), same(new Rate(100_000, 1)), 2, 0, 60_000, 100));
 
 		final long granted = IntStream.range(0, 10).mapToLong(peer -> IntStream.range(0, 3)
-			.filter(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, Grade.JUNK)).count()).sum();
+			.filter(n -> limiter.allow("vm" + peer, new Quota("site"), Kind.CONSENSUS, Grade.JUNK)).count()).sum();
 
 		assertThat(granted, equalTo(12L));
 		assertThat(IntStream.range(0, 10).noneMatch(peer -> limiter.isPenalised("vm" + peer)), is(true));
-		assertThat(limiter.allow("other", "elsewhere", Kind.CONSENSUS, Grade.JUNK), is(true));
+		assertThat(limiter.allow("other", new Quota("elsewhere"), Kind.CONSENSUS, Grade.JUNK), is(true));
 	}
 
 	/* Four peers of a site keep its quota empty: a relay in the same site that brings new items still has its
@@ -740,12 +748,12 @@ public class PeerLimiterTest {
 
 		limiter.vouch("relay");
 		IntStream.range(0, 4).forEach(peer -> IntStream.range(0, 3)
-			.forEach(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, Grade.PLAUSIBLE)));
+			.forEach(n -> limiter.allow("vm" + peer, new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE)));
 
-		assertThat(limiter.allow("stranger", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
+		assertThat(limiter.allow("stranger", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
+		assertThat(limiter.allow("relay", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
+		assertThat(limiter.allow("relay", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
+		assertThat(limiter.allow("relay", new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
 	}
 
 	/* A copy of what the node holds already is dropped without any work, so it is no one's cost but its sender's */
@@ -754,24 +762,24 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START,
 			new Policy(same(new Rate(3, 1)), same(new Rate(1, 1)), 100, 0, 60_000, 100));
 
-		assertThat(IntStream.range(0, 3).allMatch(copy -> limiter.allowCopy("a", "a", Kind.CONSENSUS)), is(true));
-		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
+		assertThat(IntStream.range(0, 3).allMatch(copy -> allowCopy(limiter, "a", Kind.CONSENSUS)), is(true));
+		assertThat(allowCopy(limiter, "a", Kind.CONSENSUS), is(false));
 		assertThat(allow(limiter, "a", Kind.CONSENSUS), is(false));
 		assertThat(allow(limiter, "b", Kind.CONSENSUS), is(true));
-		assertThat(limiter.allowCopy("c", "c", Kind.CONSENSUS), is(true));
+		assertThat(allowCopy(limiter, "c", Kind.CONSENSUS), is(true));
 	}
 
 	@Example
 	public void shouldPenaliseAPeerWhoseCopiesRunOutOfItsTokensOneHundredTimes() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(1, 1, 100, 60_000, 100));
 
-		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(true));
-		IntStream.range(0, 99).forEach(copy -> limiter.allowCopy("a", "a", Kind.CONSENSUS));
+		assertThat(allowCopy(limiter, "a", Kind.CONSENSUS), is(true));
+		IntStream.range(0, 99).forEach(copy -> allowCopy(limiter, "a", Kind.CONSENSUS));
 
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
+		assertThat(allowCopy(limiter, "a", Kind.CONSENSUS), is(false));
 		assertThat(limiter.isPenalised("a"), is(true));
-		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
+		assertThat(allowCopy(limiter, "a", Kind.CONSENSUS), is(false));
 	}
 
 	/* The reserve is a quarter of what all peers share, here one token of four */

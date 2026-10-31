@@ -30,6 +30,7 @@ import java.util.function.Predicate;
 import org.unigrid.hedgehog.ledger.Door.Admission;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Grade;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Quota;
 
 /* The two lanes into the serial executor. What the driver does itself, and what its caller asks of it, is in the
    control lane and runs ahead of the items of peers, which wait in a lane of their own, bounded in items and in bytes,
@@ -41,7 +42,7 @@ import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 final class InboundLanes {
 	private static final int INBOUND_PER_RUN = 64;
 
-	private record Sender(String id, String quota) {
+	private record Sender(String id, Quota quota) {
 	}
 
 	private final Serial serial;
@@ -134,11 +135,11 @@ final class InboundLanes {
 	}
 
 	/* A peer that cannot say what it shares its limits with has them to itself */
-	private static String quotaOf(LedgerPeer peer, String id) {
+	private static Quota quotaOf(LedgerPeer peer, String id) {
 		try {
-			return Objects.requireNonNullElse(peer.quota(), id);
+			return new Quota(Objects.requireNonNullElse(peer.quota(), id));
 		} catch (RuntimeException e) {
-			return id;
+			return new Quota(id);
 		}
 	}
 
