@@ -172,12 +172,8 @@ public final class Namespace implements AutoCloseable {
 	public ObjectVersion put(final ObjectVersion version, final Predicate<Optional<ObjectVersion>> guard)
 		throws IOException, BlobStoreException, NamespaceException {
 
-		return write((transaction, references) -> {
-			final Bucket bucket = requireBucket(transaction, version.bucket());
-
-			check(guard.test(latest(transaction, version.bucket(), version.key())));
-			return store(transaction, references, bucket, version);
-		});
+		return write((transaction, references) -> store(transaction, references,
+			guarded(transaction, version.bucket(), version.key(), guard), version));
 	}
 
 	/* Stores a copy of a version once the guard accepts the newest version of the target key. The source is read
@@ -189,10 +185,9 @@ public final class Namespace implements AutoCloseable {
 
 		return write((transaction, references) -> {
 			final ObjectVersion version = build.apply(find(transaction, source));
-			final Bucket bucket = requireBucket(transaction, version.bucket());
 
-			check(guard.test(latest(transaction, version.bucket(), version.key())));
-			return store(transaction, references, bucket, version);
+			return store(transaction, references, guarded(transaction, version.bucket(), version.key(), guard),
+				version);
 		});
 	}
 
@@ -203,9 +198,7 @@ public final class Namespace implements AutoCloseable {
 		final Predicate<Optional<ObjectVersion>> guard) throws IOException, BlobStoreException, NamespaceException {
 
 		return write((transaction, references) -> {
-			final Bucket found = requireBucket(transaction, bucket);
-
-			check(guard.test(latest(transaction, bucket, key)));
+			final Bucket found = guarded(transaction, bucket, key, guard);
 
 			if (found.versioning() == Versioning.UNVERSIONED) {
 				dropNullVersion(transaction, references, bucket, key);
@@ -222,16 +215,16 @@ public final class Namespace implements AutoCloseable {
 		final Predicate<ObjectVersion> guard) throws IOException, BlobStoreException, ConditionFailedException {
 
 		return write((transaction, references) -> {
-			final Optional<Slot> found = findVersion(transaction, bucket, key, versionId);
+			final Optional<Found> found = found(transaction, bucket, key, versionId);
 
 			if (found.isEmpty()) {
 				return Optional.empty();
 			}
 
-			final ObjectVersion version = version(found.get());
+			final ObjectVersion version = found.get().version();
 
 			check(guard.test(version));
-			transaction.delete(found.get().key());
+			transaction.delete(found.get().slot().key());
 			references.release(version.blobs());
 			return Optional.of(version);
 		});
@@ -242,20 +235,20 @@ public final class Namespace implements AutoCloseable {
 		final UnaryOperator<ObjectVersion> change) throws IOException, BlobStoreException {
 
 		return write((transaction, references) -> {
-			final Optional<Slot> found = findVersion(transaction, bucket, key, versionId);
+			final Optional<Found> found = found(transaction, bucket, key, versionId);
 
 			if (found.isEmpty()) {
 				return Optional.empty();
 			}
 
-			final ObjectVersion current = version(found.get());
+			final ObjectVersion current = found.get().version();
 			final ObjectVersion changed = change.apply(current);
 
 			if (!identity(current).equals(identity(changed))) {
 				throw new IllegalArgumentException("An update keeps the identity and content of a version");
 			}
 
-			transaction.put(found.get().key(), Records.version(changed));
+			transaction.put(found.get().slot().key(), Records.version(changed));
 			return Optional.of(changed);
 		});
 	}
@@ -527,6 +520,27 @@ public final class Namespace implements AutoCloseable {
 		NoSuchBucketException {
 
 		return bucket(view, name).orElseThrow(() -> new NoSuchBucketException("No bucket " + name));
+	}
+
+	/* The bucket of a write, once its guard accepts the newest version of the key as found under the writer lock */
+	private static Bucket guarded(final View view, final String bucket, final String key,
+		final Predicate<Optional<ObjectVersion>> guard) throws IOException, BlobStoreException, NamespaceException {
+
+		final Bucket found = requireBucket(view, bucket);
+
+		check(guard.test(latest(view, bucket, key)));
+		return found;
+	}
+
+	/* A version found by its id, with the slot that holds it */
+	private record Found(Slot slot, ObjectVersion version) {
+	}
+
+	private static Optional<Found> found(final View view, final String bucket, final String key,
+		final String versionId) throws IOException, BlobStoreException {
+
+		final Optional<Slot> slot = findVersion(view, bucket, key, versionId);
+		return slot.isPresent() ? Optional.of(new Found(slot.get(), version(slot.get()))) : Optional.empty();
 	}
 
 	private static boolean any(final View view, final byte[] prefix) throws IOException, BlobStoreException {
