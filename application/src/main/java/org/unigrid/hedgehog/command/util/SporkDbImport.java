@@ -132,6 +132,8 @@ public class SporkDbImport implements Callable<Integer> {
 			return Files.exists(target) ? Optional.ofNullable(SporkDatabase.load(target).getBoardKeys())
 				.filter(keys -> keys.chainKeys().isPresent()) : Optional.empty();
 		} catch (IOException | RuntimeException ex) {
+			System.err.println("The spork database of the node, " + target + ", could not be read ("
+				+ ex.getClass().getSimpleName() + "): the import goes on without the guard against a fork");
 			return Optional.empty();
 		}
 	}

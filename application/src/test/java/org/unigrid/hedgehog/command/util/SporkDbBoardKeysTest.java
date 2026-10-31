@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.util;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +45,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
@@ -207,6 +209,29 @@ public class SporkDbBoardKeysTest {
 
 			assertThat(run(fs, "import", written(fs.getPath("/same.db"), ofTheNewBoard(), supply(key(1), key(2)))
 				.toString()).exitCode(), equalTo(0));
+		}
+	}
+
+	/* A database of the node that cannot be read holds no chain to guard, so the import goes on and says that it did
+	   so without the guard against a fork */
+	@Example
+	@SneakyThrows
+	public void importsOverADatabaseOfTheNodeThatCannotBeReadAndSaysThatItHadNoGuardAgainstAFork() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path node = fs.getPath(NODE, SporkDatabase.SPORK_DB_FILE);
+			final Path file = written(fs.getPath("/new.db"), ofTheNewBoard(), supply(key(1), key(2)));
+
+			Files.createDirectories(node.getParent());
+			Files.write(node, "not a spork database".getBytes(StandardCharsets.UTF_8));
+
+			final HedgehogCli.Result result = run(fs, "import", file.toString());
+
+			assertThat(result.err(), result.exitCode(), equalTo(0));
+			assertThat(result.out(), containsString("imported: " + node));
+			assertThat(SporkDatabase.load(node).getBoardKeys(), notNullValue());
+			assertThat(result.err(), containsString("The spork database of the node, " + node
+				+ ", could not be read (StreamCorruptedException)"));
+			assertThat(result.err(), containsString("the import goes on without the guard against a fork"));
 		}
 	}
 
