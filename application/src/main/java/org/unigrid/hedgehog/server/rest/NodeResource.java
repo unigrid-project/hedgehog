@@ -33,6 +33,7 @@ import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.network.Node;
@@ -63,10 +64,18 @@ public class NodeResource extends CDIBridgeResource {
 		return Response.ok().entity(nodes).build();
 	}
 
+	/* An address that does not parse, or a host that does not resolve, is a bad request */
+	private Response withNode(String address, Function<Node, Response> action) {
+		try {
+			return action.apply(Node.fromAddress(address));
+		} catch (URISyntaxException | UnknownHostException ex) {
+			return Response.status(Response.Status.BAD_REQUEST).build();
+		}
+	}
+
 	@Path("/{address}") @GET
 	public Response get(@NotNull @PathParam("address") String address) {
-		try {
-			final Node nodeToFind = Node.fromAddress(address);
+		return withNode(address, nodeToFind -> {
 			final AtomicReference<Response> response = new AtomicReference<>(
 				Response.status(Response.Status.NOT_FOUND).build()
 			);
@@ -78,37 +87,25 @@ public class NodeResource extends CDIBridgeResource {
 			});
 
 			return response.get();
-
-		} catch (URISyntaxException | UnknownHostException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).build();
-		}
+		});
 	}
 
 	/* A node that a peer told of first is the operator's all the same, and only one that the operator configured before
 	   is a conflict */
 	@POST
 	public Response add(@NotNull String address) {
-		try {
-			final Node node = Node.fromAddress(address);
-
-			return switch (topology.addConfigured(node)) {
-				case ADDED -> Response.created(node.getURI()).build();
-				case PROMOTED -> Response.ok(ALREADY_KNOWN, MediaType.TEXT_PLAIN_TYPE)
-					.location(node.getURI()).build();
-				case BEFORE -> Response.status(Response.Status.CONFLICT).build();
-				case REFUSED -> Response.notModified().build();
-			};
-
-		} catch (URISyntaxException | UnknownHostException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).build();
-		}
+		return withNode(address, node -> switch (topology.addConfigured(node)) {
+			case ADDED -> Response.created(node.getURI()).build();
+			case PROMOTED -> Response.ok(ALREADY_KNOWN, MediaType.TEXT_PLAIN_TYPE)
+				.location(node.getURI()).build();
+			case BEFORE -> Response.status(Response.Status.CONFLICT).build();
+			case REFUSED -> Response.notModified().build();
+		});
 	}
 
 	@Path("/{address}") @DELETE
 	public Response remove(@NotNull @PathParam("address") String address) {
-		try {
-			final Node nodeToFind = Node.fromAddress(address);
-
+		return withNode(address, nodeToFind -> {
 			if (!topology.containsNode(nodeToFind)) {
 				return Response.status(Response.Status.NOT_FOUND).build();
 			}
@@ -121,9 +118,6 @@ public class NodeResource extends CDIBridgeResource {
 
 			topology.removeConfigured(nodeToFind);
 			return Response.ok().build();
-
-		} catch (URISyntaxException | UnknownHostException ex) {
-			return Response.status(Response.Status.BAD_REQUEST).build();
-		}
+		});
 	}
 }
