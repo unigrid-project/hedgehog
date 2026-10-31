@@ -515,20 +515,14 @@ public class GroupRepairerTest {
 		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
 
 		final Random random = new Random(seed);
-		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 1);
-		final GroupKey key = StorageTestData.key(random);
-		final List<Fragment> sealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
-			parameters.layout());
-		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
-		final Gridnode outsider = fleet.getGridnodes().stream().filter(g -> !window.contains(g)).findFirst().get();
+		final Scene scene = Scene.of(parameters, random, 1);
 
-		IntStream.range(0, window.size()).forEach(rank -> keep(fleet, window.get(rank),
-			sealed.get(rank % sealed.size())));
-		keep(fleet, outsider, sealed.get(random.nextInt(sealed.size())));
-		fleet.runRepairEpochs(2 * parameters.window());
+		scene.fill(scene.window(), scene.sealed());
+		scene.keep(scene.outsider(), random.nextInt(scene.sealed().size()));
+		scene.fleet().runRepairEpochs(2 * parameters.window());
 
-		assertThat(fleet.getStores().get(outsider.getId()).groups().isEmpty(), is(true));
-		assertThat(fleet.distinctIndicesOf(key.groupId(), parameters.window()), equalTo((long) sealed.size()));
+		assertThat(scene.holds(scene.outsider()), is(false));
+		assertThat(scene.distinctIndices(), equalTo((long) scene.sealed().size()));
 	}
 
 	/* The same group key can seal a group again, so a fragment at the same index from another seal is no copy of
@@ -538,20 +532,148 @@ public class GroupRepairerTest {
 		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
 
 		final Random random = new Random(seed);
-		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 1);
-		final GroupKey key = StorageTestData.key(random);
-		final List<Fragment> sealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
-			parameters.layout());
-		final List<Fragment> resealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
-			parameters.layout());
-		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
-		final Gridnode outsider = fleet.getGridnodes().stream().filter(g -> !window.contains(g)).findFirst().get();
+		final Scene scene = Scene.of(parameters, random, 1);
 
-		IntStream.range(0, window.size()).forEach(rank -> keep(fleet, window.get(rank),
-			resealed.get(rank % resealed.size())));
-		keep(fleet, outsider, sealed.get(random.nextInt(sealed.size())));
-		fleet.runRepairEpochs(2 * parameters.window());
+		scene.fill(scene.window(), scene.resealed());
+		scene.keep(scene.outsider(), random.nextInt(scene.sealed().size()));
+		scene.fleet().runRepairEpochs(2 * parameters.window());
 
-		assertThat(fleet.getStores().get(outsider.getId()).groups(), equalTo(Set.of(key.groupId())));
+		assertThat(scene.holds(scene.outsider()), is(true));
+	}
+
+	/* A member that holds nothing still counts as taken while it claims to hold the index */
+	@Property(tries = 30)
+	public void keepsCopiesOutsideTheWindowThatClaimantsCannotServe(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 1);
+		final int index = random.nextInt(scene.sealed().size());
+		final int liars = random.nextInt(scene.window().size()) + 1;
+
+		scene.fill(scene.window().subList(liars, scene.window().size()), scene.sealedWithout(index));
+		scene.window().subList(0, liars).forEach(liar -> lieAbout(scene.fleet(), liar.getId(), index));
+		scene.keep(scene.outsider(), index);
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		assertThat(scene.holds(scene.outsider()), is(true));
+	}
+
+	@Property(tries = 30)
+	public void keepsCopiesOutsideTheWindowThatClaimantsServeAtAnotherIndex(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 1);
+		final int index = random.nextInt(scene.sealed().size());
+		final int liars = random.nextInt(scene.window().size()) + 1;
+
+		scene.fill(scene.window(), scene.sealedWithout(index));
+		scene.window().subList(0, liars).forEach(liar -> lieAbout(scene.fleet(), liar.getId(), index));
+		scene.keep(scene.outsider(), index);
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		assertThat(scene.holds(scene.outsider()), is(true));
+	}
+
+	@Property(tries = 30)
+	public void keepsCopiesOutsideTheWindowThatClaimantsServeTampered(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 1);
+		final int index = random.nextInt(scene.sealed().size());
+		final Gridnode claimant = scene.window().get(random.nextInt(scene.window().size()));
+
+		scene.fill(scene.window().stream().filter(member -> !member.equals(claimant)).collect(Collectors.toList()),
+			scene.sealedWithout(index));
+		scene.keep(claimant, index);
+		scene.fleet().getTransport().tamper(claimant.getId(), bytes -> {
+			bytes[bytes.length - 1] ^= 1;
+			return bytes;
+		});
+		scene.keep(scene.outsider(), index);
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		assertThat(scene.holds(scene.outsider()), is(true));
+	}
+
+	/* A copy the window already serves only goes, rather than taking up a free member as a duplicate */
+	@Property(tries = 30)
+	public void dropsCopiesOutsideTheWindowWithoutFillingTheSlack(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		Assume.that(parameters.getPlacementSlack() > 0);
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 1);
+
+		scene.fill(scene.window().subList(0, scene.sealed().size()), scene.sealed());
+		scene.keep(scene.outsider(), random.nextInt(scene.sealed().size()));
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		assertThat(scene.holds(scene.outsider()), is(false));
+		assertThat(scene.fleet().holdersOf(scene.key().groupId()), equalTo((long) scene.sealed().size()));
+	}
+
+	@Property(tries = 30)
+	public void dropsEveryCopyOutsideTheWindowOfAnIndexTheWindowHolds(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 2);
+		final int index = random.nextInt(scene.sealed().size());
+
+		scene.fill(scene.window(), scene.sealed());
+		scene.outsiders().forEach(outsider -> scene.keep(outsider, index));
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		scene.outsiders().forEach(outsider -> assertThat(scene.holds(outsider), is(false)));
+		assertThat(scene.distinctIndices(), equalTo((long) scene.sealed().size()));
+	}
+
+	/* A group sealed twice under one key and a fleet with the given number of gridnodes beyond its window, where
+	   nothing is stored until a test keeps it */
+	private record Scene(StorageSpork.SporkData parameters, StorageFleet fleet, GroupKey key, List<Fragment> sealed,
+		List<Fragment> resealed, List<Gridnode> window, List<Gridnode> outsiders) {
+
+		static Scene of(StorageSpork.SporkData parameters, Random random, int outsiders) {
+			final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + outsiders);
+			final GroupKey key = StorageTestData.key(random);
+			final List<Fragment> sealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
+				parameters.layout());
+			final List<Fragment> resealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
+				parameters.layout());
+			final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+
+			return new Scene(parameters, fleet, key, sealed, resealed, window, fleet.getGridnodes().stream()
+				.filter(gridnode -> !window.contains(gridnode)).collect(Collectors.toList()));
+		}
+
+		Gridnode outsider() {
+			return outsiders.get(0);
+		}
+
+		List<Fragment> sealedWithout(int index) {
+			return sealed.stream().filter(fragment -> fragment.getIndex() != index).collect(Collectors.toList());
+		}
+
+		/* Hands the members the fragments in turn, starting over once every fragment is out */
+		void fill(List<Gridnode> members, List<Fragment> fragments) {
+			IntStream.range(0, members.size()).forEach(i -> GroupRepairerTest.keep(fleet, members.get(i),
+				fragments.get(i % fragments.size())));
+		}
+
+		void keep(Gridnode gridnode, int index) {
+			GroupRepairerTest.keep(fleet, gridnode, sealed.get(index));
+		}
+
+		boolean holds(Gridnode gridnode) {
+			return fleet.getStores().get(gridnode.getId()).holding(key.groupId()).isPresent();
+		}
+
+		long distinctIndices() {
+			return fleet.distinctIndicesOf(key.groupId(), parameters.window());
+		}
 	}
 }
