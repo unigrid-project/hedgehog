@@ -71,7 +71,7 @@ public class GridSpork implements Serializable, Signable {
 
 	private ChunkData data;
 	private ChunkData previousData; /* Flag.DELTA controls the content */
-	@Getter private byte[] signature;
+	private byte[] signature;
 	private byte[] cosignature;
 
 	@JsonIgnore
@@ -130,7 +130,7 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	/* Sporks stored by builds from before the log existed deserialize with a null log */
-	public SignatureLog getSignatureLog() {
+	public final SignatureLog getSignatureLog() {
 		if (Objects.isNull(signatureLog)) {
 			signatureLog = new SignatureLog();
 		}
@@ -138,11 +138,11 @@ public class GridSpork implements Serializable, Signable {
 		return signatureLog;
 	}
 
-	public <T extends ChunkData> T getData() {
+	public final <T extends ChunkData> T getData() {
 		return (T) data;
 	}
 
-	public <T extends ChunkData> T getPreviousData() {
+	public final <T extends ChunkData> T getPreviousData() {
 		return (T) previousData;
 	}
 
