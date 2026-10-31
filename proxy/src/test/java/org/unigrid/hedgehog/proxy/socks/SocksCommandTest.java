@@ -33,7 +33,9 @@ import io.netty.handler.codec.socksx.v5.Socks5CommandStatus;
 import io.netty.handler.codec.socksx.v5.Socks5CommandType;
 import io.netty.util.NetUtil;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayDeque;
 import java.util.Optional;
+import java.util.Queue;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -44,6 +46,9 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.slf4j.event.Level;
+import org.slf4j.event.SubstituteLoggingEvent;
+import org.slf4j.helpers.SubstituteLogger;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
@@ -290,6 +295,41 @@ public class SocksCommandTest {
 		assertReply(client.readOutbound(), Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED);
 		assertThat(client.readOutbound(), is(nullValue()));
 		assertThat(client.isOpen(), is(false));
+	}
+
+	/* The message of the failure names the tunnel; only its class is logged */
+	@Example
+	public void shouldLogOnlyTheClassOfATunnelThatThrowsOnACommand() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final EmbeddedChannel client = new EmbeddedChannel(new Socks5CommandRequestDecoder(),
+			new SocksCommandHandler((destination, country, listener) -> {
+				throw new IllegalStateException("The tunnel is down");
+			}, UdpBinder.NIO, new SubstituteLogger("socks", events, false)));
+
+		client.writeInbound(request(Socks5CommandType.CONNECT, TARGET));
+
+		assertReply(client.readOutbound(), Socks5CommandStatus.FAILURE, SocksAddress.UNSPECIFIED);
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { IllegalStateException.class.getName() }));
+	}
+
+	@Example
+	public void shouldLogOnlyTheClassOfAStreamThatBreaksOnAWrite() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final EmbeddedChannel client = new EmbeddedChannel(new Socks5CommandRequestDecoder(),
+			new SocksCommandHandler(tunnel, UdpBinder.NIO, new SubstituteLogger("socks", events, false)));
+
+		client.writeInbound(request(Socks5CommandType.CONNECT, TARGET));
+		tunnel.stream().connect(BOUND);
+		client.runPendingTasks();
+		tunnel.stream().broken = true;
+		client.writeInbound(Unpooled.wrappedBuffer(new byte[] { 1 }));
+
+		assertThat(client.isOpen(), is(false));
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { IllegalStateException.class.getName() }));
 	}
 
 	@Example

@@ -35,6 +35,8 @@ import io.netty.util.concurrent.EventExecutor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 
 /* Serves the one command of a SOCKS5 connection: CONNECT opens a tunnel stream, the client hears the tunnel's
@@ -48,8 +50,11 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	   64 KiB with Netty's default allocator. More than twice that means reads did not stop. */
 	static final int MAX_EARLY_BYTES = 128 * 1024;
 
+	private static final Logger LOG = LoggerFactory.getLogger(SocksCommandHandler.class);
+
 	private final Tunnel tunnel;
 	private final UdpBinder binder;
+	private final Logger log;
 	private final List<byte[]> early = new ArrayList<>();
 	private int earlyBytes;
 	private ChannelHandlerContext context;
@@ -64,8 +69,13 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 	}
 
 	SocksCommandHandler(Tunnel tunnel, UdpBinder binder) {
+		this(tunnel, binder, LOG);
+	}
+
+	SocksCommandHandler(Tunnel tunnel, UdpBinder binder, Logger log) {
 		this.tunnel = tunnel;
 		this.binder = binder;
+		this.log = log;
 	}
 
 	UdpAssociation association() {
@@ -164,11 +174,14 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		return Optional.ofNullable(context.channel().attr(SocksPasswordHandler.COUNTRY).get());
 	}
 
-	/* A tunnel that throws has no stream to give, and the client hears so rather than waiting for a reply */
+	/* A tunnel that throws has no stream to give, and the client hears so rather than waiting for a reply. The
+	   class of the failure is logged and its message is left out, as it may name the destination. */
 	private void openStream(SocksAddress destination) {
 		try {
 			stream = tunnel.open(destination, country(), new Listener(context.executor()));
 		} catch (RuntimeException ex) {
+			log.warn("Refusing a SOCKS command after an unexpected {} while opening its stream",
+				ex.getClass().getName());
 			fail(TunnelFailure.GENERAL_FAILURE);
 		}
 	}
@@ -244,11 +257,14 @@ final class SocksCommandHandler extends ChannelInboundHandlerAdapter {
 		}
 	}
 
-	/* A stream that throws on a write is broken, and the client is hung up on rather than left sending into it */
+	/* A stream that throws on a write is broken, and the client is hung up on rather than left sending into it.
+	   Only the class of the failure is logged, as its message may name the destination. */
 	private void relay(byte[] bytes) {
 		try {
 			stream.write(bytes);
 		} catch (RuntimeException ex) {
+			log.warn("Closing a SOCKS connection after an unexpected {} while writing to its stream",
+				ex.getClass().getName());
 			context.close();
 		}
 	}
