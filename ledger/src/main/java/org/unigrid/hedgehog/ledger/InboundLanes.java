@@ -28,6 +28,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import org.unigrid.hedgehog.ledger.Door.Admission;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Grade;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 
 /* The two lanes into the serial executor. What the driver does itself, and what its caller asks of it, is in the
@@ -160,7 +161,7 @@ final class InboundLanes {
 			return false;
 		}
 
-		return limiter.allow(sender.id(), sender.quota(), kind, !junk);
+		return limiter.allow(sender.id(), sender.quota(), kind, junk ? Grade.JUNK : Grade.PLAUSIBLE);
 	}
 
 	/* What the driver does itself, and what its caller asks of it, runs ahead of the items of peers: a tick, a timer

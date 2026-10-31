@@ -91,6 +91,11 @@ public final class PeerLimiter {
 		TRANSACTION, HEARTBEAT, CONSENSUS, STATUS, BLOCK_REQUEST
 	}
 
+	/* What the door made of an item: plausible, or junk that it could not take for plausible */
+	public enum Grade {
+		PLAUSIBLE, JUNK
+	}
+
 	public record Rate(int capacity, int refillPerSecond) {
 		public Rate {
 			if (capacity < 1 || refillPerSecond < 1) {
@@ -288,26 +293,23 @@ public final class PeerLimiter {
 	}
 
 	/* A refusal because the peer has used up its own bucket costs it score and takes nothing from the shared one.
-	   A refusal because the shared bucket is empty costs it neither: it took no more than it may. */
-	public boolean allow(String id, Kind kind) {
-		return allow(id, kind, true);
-	}
+	   A refusal because the shared bucket is empty costs it neither: it took no more than it may.
 
-	/* What the door could not take for plausible takes its token from the one bucket that all of it shares, a small
+	   What the door could not take for plausible takes its token from the one bucket that all of it shares, a small
 	   one, and not from the bucket of its kind: it cannot empty what the plausible items of that kind need. It costs
 	   the sender a token of its own bucket whether that small bucket has room or not, so that a sender of junk
 	   that outruns its own rate is refused for it and scored, and the peers that send junk at a rate of their own
-	   are only refused. */
-	public boolean allow(String id, Kind kind, boolean plausible) {
-		return allow(id, id, kind, plausible);
-	}
+	   are only refused.
 
-	/* `quota` is what the peer shares its limits with besides its own (see LedgerPeer.quota) */
-	public boolean allow(String id, String quota, Kind kind, boolean plausible) {
+	   `quota` is what the peer shares its limits with besides its own (see LedgerPeer.quota); a peer that shares
+	   them with no one has its id as its quota. */
+	public boolean allow(String id, String quota, Kind kind, Grade grade) {
 		final long now = advance();
 
-		return ownToken(id, kind, now).map(own -> plausible ? takePlausible(id, quota, kind, own, now)
-			: takeJunk(quota, kind, own, now)).orElse(false);
+		return ownToken(id, kind, now).map(own -> switch (grade) {
+			case PLAUSIBLE -> takePlausible(id, quota, kind, own, now);
+			case JUNK -> takeJunk(quota, kind, own, now);
+		}).orElse(false);
 	}
 
 	/* A token of what all peers share and of the quota of the peer, or else one of the reserve, which the quota does
@@ -359,12 +361,8 @@ public final class PeerLimiter {
 
 	/* A copy of an item that the node holds already costs its sender a token of its own bucket, and a refusal for it
 	   is scored as any other, but it takes nothing that all peers share: the node does no work for it, and the copies
-	   that every neighbour relays of one item must not empty what the new items need */
-	public boolean allowCopy(String id, Kind kind) {
-		return allowCopy(id, id, kind);
-	}
-
-	/* A copy takes nothing that all peers share, so nothing of the quota either */
+	   that every neighbour relays of one item must not empty what the new items need. A copy takes nothing that all
+	   peers share, so nothing of the quota either. */
 	public boolean allowCopy(String id, String quota, Kind kind) {
 		return ownToken(id, kind, advance()).map(own -> {
 			own.take();

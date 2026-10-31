@@ -43,6 +43,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
+import org.unigrid.hedgehog.ledger.PeerLimiter.Grade;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Kind;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Policy;
 import org.unigrid.hedgehog.ledger.PeerLimiter.Rate;
@@ -74,8 +75,18 @@ public class PeerLimiterTest {
 		return uniform(capacity, refill, NEVER, 60_000, 100);
 	}
 
+	/* A plausible item of a peer that has its limits to itself */
+	private static boolean allow(PeerLimiter limiter, String peer, Kind kind) {
+		return limiter.allow(peer, peer, kind, Grade.PLAUSIBLE);
+	}
+
+	/* An item of junk of a peer that has its limits to itself */
+	private static boolean allowJunk(PeerLimiter limiter, String peer, Kind kind) {
+		return limiter.allow(peer, peer, kind, Grade.JUNK);
+	}
+
 	private static int granted(PeerLimiter limiter, String peer, Kind kind, int attempts) {
-		return (int) IntStream.range(0, attempts).filter(attempt -> limiter.allow(peer, kind)).count();
+		return (int) IntStream.range(0, attempts).filter(attempt -> allow(limiter, peer, kind)).count();
 	}
 
 	private static void penalise(PeerLimiter limiter, String peer) {
@@ -90,15 +101,15 @@ public class PeerLimiterTest {
 		limiter.ban("a");
 
 		assertThat(limiter.isPenalised("a"), is(true));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
-		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "b", Kind.TRANSACTION), is(true));
 
 		clock.addAndGet(59_999);
 		assertThat(limiter.isPenalised("a"), is(true));
 
 		clock.addAndGet(1);
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 	}
 
 	@Example
@@ -119,7 +130,7 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, buckets(5, 1));
 
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 5), equalTo(5));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 	}
 
 	@Example
@@ -139,10 +150,10 @@ public class PeerLimiterTest {
 
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 10), equalTo(10));
 		clock.addAndGet(999);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		clock.addAndGet(1);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 	}
 
 	@Example
@@ -160,7 +171,7 @@ public class PeerLimiterTest {
 		final AtomicLong clock = new AtomicLong(START);
 		final PeerLimiter limiter = new PeerLimiter(clock::get, buckets(5, 1));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 		clock.addAndGet(3000);
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 10), equalTo(5));
 	}
@@ -191,7 +202,7 @@ public class PeerLimiterTest {
 		limiter.misbehaved("a", 60);
 		limiter.misbehaved("a", 39);
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allow("a", Kind.STATUS), is(true));
+		assertThat(allow(limiter, "a", Kind.STATUS), is(true));
 		limiter.misbehaved("a", 1);
 		assertThat(limiter.isPenalised("a"), is(true));
 		assertThat(limiter.isPenalised("b"), is(false));
@@ -206,10 +217,10 @@ public class PeerLimiterTest {
 		clock.addAndGet(59_999);
 
 		assertThat(limiter.isPenalised("a"), is(true));
-		Arrays.stream(Kind.values()).forEach(kind -> assertThat(limiter.allow("a", kind), is(false)));
+		Arrays.stream(Kind.values()).forEach(kind -> assertThat(allow(limiter, "a", kind), is(false)));
 		clock.addAndGet(1);
 		assertThat(limiter.isPenalised("a"), is(false));
-		Arrays.stream(Kind.values()).forEach(kind -> assertThat(limiter.allow("a", kind), is(true)));
+		Arrays.stream(Kind.values()).forEach(kind -> assertThat(allow(limiter, "a", kind), is(true)));
 	}
 
 	@Example
@@ -231,10 +242,10 @@ public class PeerLimiterTest {
 	public void shouldPenaliseAPeerThatRunsOutOfTokensOneHundredTimes() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(1, 1, 100, 60_000, 100));
 
-		assertThat(limiter.allow("a", Kind.CONSENSUS), is(true));
+		assertThat(allow(limiter, "a", Kind.CONSENSUS), is(true));
 		assertThat(granted(limiter, "a", Kind.CONSENSUS, 99), equalTo(0));
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allow("a", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "a", Kind.CONSENSUS), is(false));
 		assertThat(limiter.isPenalised("a"), is(true));
 	}
 
@@ -273,7 +284,7 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 50));
 
 		for (int peer = 0; peer < 50 + 1000; peer++) {
-			limiter.allow("peer" + peer, Kind.TRANSACTION);
+			allow(limiter, "peer" + peer, Kind.TRANSACTION);
 			assertThat(limiter.tracked(), lessThanOrEqualTo(50));
 		}
 
@@ -284,15 +295,15 @@ public class PeerLimiterTest {
 	public void shouldDropTheLeastRecentlyActivePeerFirst() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(1, 1, NEVER, 60_000, 3));
 
-		limiter.allow("a", Kind.TRANSACTION);
-		limiter.allow("b", Kind.TRANSACTION);
-		limiter.allow("c", Kind.TRANSACTION);
-		limiter.allow("a", Kind.TRANSACTION);
-		limiter.allow("d", Kind.TRANSACTION);
+		allow(limiter, "a", Kind.TRANSACTION);
+		allow(limiter, "b", Kind.TRANSACTION);
+		allow(limiter, "c", Kind.TRANSACTION);
+		allow(limiter, "a", Kind.TRANSACTION);
+		allow(limiter, "d", Kind.TRANSACTION);
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
-		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
-		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "d", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "b", Kind.TRANSACTION), is(true));
 	}
 
 	/* No flood of new peers frees a penalised one: only the end of the penalty does, or a full map of penalties */
@@ -304,7 +315,7 @@ public class PeerLimiterTest {
 		penalise(limiter, "bad");
 
 		for (int peer = 0; peer < 50 + 1000; peer++) {
-			limiter.allow("peer" + peer, Kind.TRANSACTION);
+			allow(limiter, "peer" + peer, Kind.TRANSACTION);
 			assertThat(limiter.isPenalised("bad"), is(true));
 		}
 
@@ -321,8 +332,8 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(5, 1, 100, 60_000, 2));
 
 		limiter.misbehaved("b", 99);
-		limiter.allow("c", Kind.TRANSACTION);
-		limiter.allow("d", Kind.TRANSACTION);
+		allow(limiter, "c", Kind.TRANSACTION);
+		allow(limiter, "d", Kind.TRANSACTION);
 		limiter.misbehaved("b", 99);
 		assertThat(limiter.isPenalised("b"), is(false));
 	}
@@ -396,12 +407,12 @@ public class PeerLimiterTest {
 
 		IntStream.range(0, 10_000).forEach(peer -> penalise(limiter, "bad" + peer));
 		IntStream.range(0, 100_000)
-			.forEach(peer -> assertThat(limiter.allow("fresh" + peer, Kind.TRANSACTION), is(true)));
+			.forEach(peer -> assertThat(allow(limiter, "fresh" + peer, Kind.TRANSACTION), is(true)));
 
 		assertThat(limiter.isPenalised("bad0"), is(true));
 		assertThat(limiter.isPenalised("bad9999"), is(true));
 		clock.addAndGet(60_000);
-		assertThat(limiter.allow("fresh", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "fresh", Kind.TRANSACTION), is(true));
 		assertThat(limiter.isPenalised("bad0"), is(false));
 		assertThat(penalties.steps, lessThanOrEqualTo(3L * (10_000 + 100_000 + 4)));
 	}
@@ -423,7 +434,7 @@ public class PeerLimiterTest {
 		assertThat(limiter.isPenalised("c"), is(true));
 		assertThat(limiter.isPenalised("d"), is(true));
 		assertThat(limiter.tracked(), equalTo(3));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 	}
 
 	@Example
@@ -433,7 +444,7 @@ public class PeerLimiterTest {
 		penalise(limiter, "bad");
 		assertThat(granted(limiter, "bad", Kind.TRANSACTION, 1000), equalTo(0));
 
-		assertThat(IntStream.range(0, 5).filter(peer -> limiter.allow("peer" + peer, Kind.TRANSACTION)).count(),
+		assertThat(IntStream.range(0, 5).filter(peer -> allow(limiter, "peer" + peer, Kind.TRANSACTION)).count(),
 			equalTo(5L));
 	}
 
@@ -459,11 +470,11 @@ public class PeerLimiterTest {
 
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 10), equalTo(10));
 		clock.set(START - 5000);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		clock.set(0);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		clock.set(Long.MIN_VALUE);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 	}
 
 	/* A clock that was set back for good must not freeze the bucket until it passes the old reading again */
@@ -474,7 +485,7 @@ public class PeerLimiterTest {
 
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 10), equalTo(10));
 		clock.set(0);
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		clock.set(2000);
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 5), equalTo(2));
 	}
@@ -504,7 +515,7 @@ public class PeerLimiterTest {
 		clock.set(START - 3_600_000);
 
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 	}
 
 	@Example
@@ -525,7 +536,7 @@ public class PeerLimiterTest {
 		penalise(limiter, "a");
 		clock.addAndGet(5);
 		assertThat(limiter.isPenalised("a"), is(true));
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 	}
 
 	@Property(tries = 200)
@@ -536,11 +547,11 @@ public class PeerLimiterTest {
 
 		readings.forEach(reading -> {
 			clock.set(reading);
-			limiter.allow("a", Kind.TRANSACTION);
+			allow(limiter, "a", Kind.TRANSACTION);
 		});
 
 		clock.set(last);
-		limiter.allow("a", Kind.TRANSACTION);
+		allow(limiter, "a", Kind.TRANSACTION);
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 20), lessThanOrEqualTo(6));
 	}
 
@@ -561,7 +572,7 @@ public class PeerLimiterTest {
 			clock.addAndGet(random.nextInt(3000));
 
 			switch (random.nextInt(3)) {
-				case 0 -> outcomes.add(limiter.allow(peer, Kind.values()[random.nextInt(Kind.values().length)]));
+				case 0 -> outcomes.add(allow(limiter, peer, Kind.values()[random.nextInt(Kind.values().length)]));
 				case 1 -> limiter.misbehaved(peer, 1 + random.nextInt(40));
 				default -> outcomes.add(limiter.isPenalised(peer));
 			}
@@ -642,12 +653,12 @@ public class PeerLimiterTest {
 		final AtomicLong clock = new AtomicLong(START);
 		final PeerLimiter limiter = new PeerLimiter(clock::get, shared(5, 1));
 
-		IntStream.range(0, 5).forEach(peer -> assertThat(limiter.allow("peer" + peer, Kind.TRANSACTION), is(true)));
-		assertThat(limiter.allow("peer5", Kind.TRANSACTION), is(false));
-		assertThat(limiter.allow("peer0", Kind.TRANSACTION), is(false));
+		IntStream.range(0, 5).forEach(peer -> assertThat(allow(limiter, "peer" + peer, Kind.TRANSACTION), is(true)));
+		assertThat(allow(limiter, "peer5", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "peer0", Kind.TRANSACTION), is(false));
 		clock.addAndGet(1000);
-		assertThat(limiter.allow("peer6", Kind.TRANSACTION), is(true));
-		assertThat(limiter.allow("peer7", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "peer6", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "peer7", Kind.TRANSACTION), is(false));
 	}
 
 	@Example
@@ -662,9 +673,9 @@ public class PeerLimiterTest {
 	public void shouldNotScoreAPeerForWhatTheLimitForAllPeersRefuses() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(1, 1));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 		assertThat(granted(limiter, "b", Kind.TRANSACTION, 1000), equalTo(0));
-		IntStream.range(0, 1000).forEach(peer -> limiter.allow("peer" + peer, Kind.TRANSACTION));
+		IntStream.range(0, 1000).forEach(peer -> allow(limiter, "peer" + peer, Kind.TRANSACTION));
 
 		assertThat(limiter.isPenalised("b"), is(false));
 		assertThat(IntStream.range(0, 1000).filter(peer -> limiter.isPenalised("peer" + peer)).count(), equalTo(0L));
@@ -676,11 +687,11 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START,
 			new Policy(same(new Rate(1, 1)), same(new Rate(3, 1)), 100, 0, 60_000, 100));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 		assertThat(granted(limiter, "a", Kind.TRANSACTION, 50), equalTo(0));
-		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
-		assertThat(limiter.allow("c", Kind.TRANSACTION), is(true));
-		assertThat(limiter.allow("d", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "b", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "c", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "d", Kind.TRANSACTION), is(false));
 	}
 
 	/* Peers of one quota, such as nodes in one IPv6 site, take together four times what one may take of what all peers
@@ -692,14 +703,14 @@ public class PeerLimiterTest {
 
 		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", "site", Kind.CONSENSUS)), is(true));
 		assertThat(IntStream.range(0, 4).allMatch(peer -> IntStream.range(0, 3)
-			.allMatch(n -> limiter.allow("p" + peer, "site", Kind.CONSENSUS, true))), is(true));
-		assertThat(IntStream.range(0, 50).filter(n -> limiter.allow("e", "site", Kind.CONSENSUS, true)).count(),
-			equalTo(0L));
+			.allMatch(n -> limiter.allow("p" + peer, "site", Kind.CONSENSUS, Grade.PLAUSIBLE))), is(true));
+		assertThat(IntStream.range(0, 50)
+			.filter(n -> limiter.allow("e", "site", Kind.CONSENSUS, Grade.PLAUSIBLE)).count(), equalTo(0L));
 		assertThat(limiter.isPenalised("e"), is(false));
-		assertThat(limiter.allow("f", "elsewhere", Kind.CONSENSUS, true), is(true));
+		assertThat(limiter.allow("f", "elsewhere", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
 
-		limiter.allow("p0", "site", Kind.CONSENSUS, true);
-		limiter.allow("p0", "site", Kind.CONSENSUS, true);
+		limiter.allow("p0", "site", Kind.CONSENSUS, Grade.PLAUSIBLE);
+		limiter.allow("p0", "site", Kind.CONSENSUS, Grade.PLAUSIBLE);
 
 		assertThat(limiter.isPenalised("p0"), is(true));
 		assertThat(limiter.isPenalised("p1"), is(false));
@@ -713,11 +724,11 @@ public class PeerLimiterTest {
 			new Policy(same(new Rate(3, 1)), same(new Rate(100_000, 1)), 2, 0, 60_000, 100));
 
 		final long granted = IntStream.range(0, 10).mapToLong(peer -> IntStream.range(0, 3)
-			.filter(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, false)).count()).sum();
+			.filter(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, Grade.JUNK)).count()).sum();
 
 		assertThat(granted, equalTo(12L));
 		assertThat(IntStream.range(0, 10).noneMatch(peer -> limiter.isPenalised("vm" + peer)), is(true));
-		assertThat(limiter.allow("other", "elsewhere", Kind.CONSENSUS, false), is(true));
+		assertThat(limiter.allow("other", "elsewhere", Kind.CONSENSUS, Grade.JUNK), is(true));
 	}
 
 	/* Four peers of a site keep its quota empty: a relay in the same site that brings new items still has its
@@ -729,12 +740,12 @@ public class PeerLimiterTest {
 
 		limiter.vouch("relay");
 		IntStream.range(0, 4).forEach(peer -> IntStream.range(0, 3)
-			.forEach(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, true)));
+			.forEach(n -> limiter.allow("vm" + peer, "site", Kind.CONSENSUS, Grade.PLAUSIBLE)));
 
-		assertThat(limiter.allow("stranger", "site", Kind.CONSENSUS, true), is(false));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(true));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(true));
-		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, true), is(false));
+		assertThat(limiter.allow("stranger", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(true));
+		assertThat(limiter.allow("relay", "site", Kind.CONSENSUS, Grade.PLAUSIBLE), is(false));
 	}
 
 	/* A copy of what the node holds already is dropped without any work, so it is no one's cost but its sender's */
@@ -743,24 +754,24 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START,
 			new Policy(same(new Rate(3, 1)), same(new Rate(1, 1)), 100, 0, 60_000, 100));
 
-		assertThat(IntStream.range(0, 3).allMatch(copy -> limiter.allowCopy("a", Kind.CONSENSUS)), is(true));
-		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
-		assertThat(limiter.allow("a", Kind.CONSENSUS), is(false));
-		assertThat(limiter.allow("b", Kind.CONSENSUS), is(true));
-		assertThat(limiter.allowCopy("c", Kind.CONSENSUS), is(true));
+		assertThat(IntStream.range(0, 3).allMatch(copy -> limiter.allowCopy("a", "a", Kind.CONSENSUS)), is(true));
+		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "a", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "b", Kind.CONSENSUS), is(true));
+		assertThat(limiter.allowCopy("c", "c", Kind.CONSENSUS), is(true));
 	}
 
 	@Example
 	public void shouldPenaliseAPeerWhoseCopiesRunOutOfItsTokensOneHundredTimes() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(1, 1, 100, 60_000, 100));
 
-		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(true));
-		IntStream.range(0, 99).forEach(copy -> limiter.allowCopy("a", Kind.CONSENSUS));
+		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(true));
+		IntStream.range(0, 99).forEach(copy -> limiter.allowCopy("a", "a", Kind.CONSENSUS));
 
 		assertThat(limiter.isPenalised("a"), is(false));
-		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
 		assertThat(limiter.isPenalised("a"), is(true));
-		assertThat(limiter.allowCopy("a", Kind.CONSENSUS), is(false));
+		assertThat(limiter.allowCopy("a", "a", Kind.CONSENSUS), is(false));
 	}
 
 	/* The reserve is a quarter of what all peers share, here one token of four */
@@ -769,12 +780,12 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, shared(4, 1));
 
 		limiter.vouch("v");
-		IntStream.range(0, 4).forEach(peer -> assertThat(limiter.allow("peer" + peer, Kind.CONSENSUS), is(true)));
+		IntStream.range(0, 4).forEach(peer -> assertThat(allow(limiter, "peer" + peer, Kind.CONSENSUS), is(true)));
 
-		assertThat(limiter.allow("other", Kind.CONSENSUS), is(false));
-		assertThat(limiter.allow("v", Kind.CONSENSUS), is(true));
-		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
-		assertThat(limiter.allow("other", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "other", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "v", Kind.CONSENSUS), is(true));
+		assertThat(allow(limiter, "v", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "other", Kind.CONSENSUS), is(false));
 	}
 
 	@Example
@@ -784,7 +795,7 @@ public class PeerLimiterTest {
 		limiter.vouch("v");
 
 		assertThat(granted(limiter, "v", Kind.TRANSACTION, 10), equalTo(5));
-		assertThat(limiter.allow("other", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "other", Kind.TRANSACTION), is(false));
 	}
 
 	@Example
@@ -796,14 +807,14 @@ public class PeerLimiterTest {
 		clock.addAndGet(30_000);
 		limiter.vouch("v");
 		clock.addAndGet(59_999);
-		IntStream.range(0, 4).forEach(peer -> limiter.allow("a" + peer, Kind.CONSENSUS));
+		IntStream.range(0, 4).forEach(peer -> allow(limiter, "a" + peer, Kind.CONSENSUS));
 
-		assertThat(limiter.allow("v", Kind.CONSENSUS), is(true));
+		assertThat(allow(limiter, "v", Kind.CONSENSUS), is(true));
 
 		clock.addAndGet(10_000);
-		IntStream.range(0, 4).forEach(peer -> limiter.allow("b" + peer, Kind.CONSENSUS));
+		IntStream.range(0, 4).forEach(peer -> allow(limiter, "b" + peer, Kind.CONSENSUS));
 
-		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "v", Kind.CONSENSUS), is(false));
 	}
 
 	/* A peer that relays what others signed can be the first to bring it, so a vouch is no proof of honesty: what it
@@ -819,7 +830,7 @@ public class PeerLimiterTest {
 		limiter.vouch("v");
 
 		assertThat(granted(limiter, "v", Kind.CONSENSUS, 100), equalTo(2));
-		assertThat(limiter.allow("w", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "w", Kind.CONSENSUS), is(false));
 	}
 
 	/* Two peers took every place and brought nothing new after, while a relay brings new items every ten seconds, as
@@ -839,10 +850,10 @@ public class PeerLimiterTest {
 			clock.addAndGet(10_000);
 			limiter.vouch("relay");
 			limiter.vouch("newcomer" + step);
-			IntStream.range(0, 4).forEach(peer -> limiter.allow("drain" + peer, Kind.CONSENSUS));
+			IntStream.range(0, 4).forEach(peer -> allow(limiter, "drain" + peer, Kind.CONSENSUS));
 
-			assertThat(limiter.allow("x", Kind.CONSENSUS), is(step < 3));
-			assertThat(limiter.allow("relay", Kind.CONSENSUS), is(step >= 3));
+			assertThat(allow(limiter, "x", Kind.CONSENSUS), is(step < 3));
+			assertThat(allow(limiter, "relay", Kind.CONSENSUS), is(step >= 3));
 		}
 	}
 
@@ -857,16 +868,16 @@ public class PeerLimiterTest {
 		limiter.vouch("c");
 		clock.addAndGet(30_000);
 		limiter.vouch("a");
-		IntStream.range(0, 4).forEach(peer -> limiter.allow("x" + peer, Kind.CONSENSUS));
+		IntStream.range(0, 4).forEach(peer -> allow(limiter, "x" + peer, Kind.CONSENSUS));
 
-		assertThat(limiter.allow("c", Kind.CONSENSUS), is(false));
-		assertThat(limiter.allow("b", Kind.CONSENSUS), is(true));
+		assertThat(allow(limiter, "c", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "b", Kind.CONSENSUS), is(true));
 
 		clock.addAndGet(30_000);
 		limiter.vouch("c");
-		IntStream.range(0, 4).forEach(peer -> limiter.allow("y" + peer, Kind.CONSENSUS));
+		IntStream.range(0, 4).forEach(peer -> allow(limiter, "y" + peer, Kind.CONSENSUS));
 
-		assertThat(limiter.allow("c", Kind.CONSENSUS), is(true));
+		assertThat(allow(limiter, "c", Kind.CONSENSUS), is(true));
 	}
 
 	@Example
@@ -879,10 +890,10 @@ public class PeerLimiterTest {
 		limiter.ban("v");
 		limiter.vouch("v");
 		clock.addAndGet(1000);
-		IntStream.range(0, 4).forEach(peer -> limiter.allow("peer" + peer, Kind.CONSENSUS));
+		IntStream.range(0, 4).forEach(peer -> allow(limiter, "peer" + peer, Kind.CONSENSUS));
 
 		assertThat(limiter.isPenalised("v"), is(false));
-		assertThat(limiter.allow("v", Kind.CONSENSUS), is(false));
+		assertThat(allow(limiter, "v", Kind.CONSENSUS), is(false));
 	}
 
 	@Example
@@ -891,8 +902,8 @@ public class PeerLimiterTest {
 
 		limiter.vouch("v");
 
-		assertThat(limiter.allow("v", Kind.CONSENSUS, false), is(true));
-		assertThat(limiter.allow("v", Kind.CONSENSUS, false), is(false));
+		assertThat(allowJunk(limiter, "v", Kind.CONSENSUS), is(true));
+		assertThat(allowJunk(limiter, "v", Kind.CONSENSUS), is(false));
 	}
 
 	@Example
@@ -901,10 +912,10 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(clock::get,
 			new Policy(same(new Rate(1, 1)), same(new Rate(1, 1000)), 100, 0, 60_000, 100));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
-		assertThat(limiter.allow("b", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "b", Kind.TRANSACTION), is(false));
 		clock.addAndGet(1);
-		assertThat(limiter.allow("b", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "b", Kind.TRANSACTION), is(true));
 	}
 
 	@Example
@@ -1041,11 +1052,11 @@ public class PeerLimiterTest {
 		final Policy policy = new Policy(same(new Rate(100, 100)), same(new Rate(100, 20)), 100, 0, 60_000, 100);
 		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
 
-		assertThat(IntStream.range(0, 20).filter(n -> limiter.allow("a" + n, Kind.CONSENSUS, false)).count(),
+		assertThat(IntStream.range(0, 20).filter(n -> allowJunk(limiter, "a" + n, Kind.CONSENSUS)).count(),
 			equalTo(5L));
-		assertThat(IntStream.range(0, 100).filter(n -> limiter.allow("b" + n, Kind.CONSENSUS, true)).count(),
+		assertThat(IntStream.range(0, 100).filter(n -> allow(limiter, "b" + n, Kind.CONSENSUS)).count(),
 			equalTo(100L));
-		assertThat(IntStream.range(0, 100).filter(n -> limiter.allow("c" + n, Kind.CONSENSUS)).count(),
+		assertThat(IntStream.range(0, 100).filter(n -> allow(limiter, "c" + n, Kind.CONSENSUS)).count(),
 			equalTo(0L));
 	}
 
@@ -1054,7 +1065,7 @@ public class PeerLimiterTest {
 		final Policy policy = new Policy(same(new Rate(10, 1)), same(new Rate(100, 20)), 5, 0, 60_000, 100);
 		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
 
-		IntStream.range(0, 20).forEach(n -> limiter.allow("flooder", Kind.CONSENSUS, false));
+		IntStream.range(0, 20).forEach(n -> allowJunk(limiter, "flooder", Kind.CONSENSUS));
 
 		assertThat(limiter.isPenalised("flooder"), is(true));
 	}
@@ -1064,7 +1075,7 @@ public class PeerLimiterTest {
 		final Policy policy = new Policy(same(new Rate(10, 1)), same(new Rate(5, 1)), 5, 0, 60_000, 100);
 		final PeerLimiter limiter = new PeerLimiter(() -> START, policy);
 
-		IntStream.range(0, 5).forEach(n -> limiter.allow("other" + n, Kind.CONSENSUS, true));
+		IntStream.range(0, 5).forEach(n -> allow(limiter, "other" + n, Kind.CONSENSUS));
 
 		assertThat(granted(limiter, "a", Kind.CONSENSUS, 20), equalTo(0));
 		assertThat(limiter.isPenalised("a"), is(false));
@@ -1101,14 +1112,14 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START,
 			new Policy(same(new Rate(1, 1)), same(UNLIMITED), 100, 0, 60_000, 100, 250));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 
 		for (int refusals = 1; refusals < 400; refusals++) {
-			assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+			assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 			assertThat(limiter.isPenalised("a"), is(false));
 		}
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		assertThat(limiter.isPenalised("a"), is(true));
 	}
 
@@ -1117,14 +1128,14 @@ public class PeerLimiterTest {
 		final PeerLimiter limiter = new PeerLimiter(() -> START,
 			new Policy(same(new Rate(1, 1)), same(UNLIMITED), 100, 0, 60_000, 100));
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(true));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(true));
 
 		for (int refusals = 1; refusals < 100; refusals++) {
-			assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+			assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 			assertThat(limiter.isPenalised("a"), is(false));
 		}
 
-		assertThat(limiter.allow("a", Kind.TRANSACTION), is(false));
+		assertThat(allow(limiter, "a", Kind.TRANSACTION), is(false));
 		assertThat(limiter.isPenalised("a"), is(true));
 	}
 
@@ -1181,7 +1192,7 @@ public class PeerLimiterTest {
 
 		for (int item = 0; item < items; item++) {
 			for (int copy = 0; copy < 9; copy++) {
-				refused += limiter.allow("peer" + (item + copy) % 39, kind) ? 0 : 1;
+				refused += allow(limiter, "peer" + (item + copy) % 39, kind) ? 0 : 1;
 			}
 		}
 
