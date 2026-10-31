@@ -117,23 +117,42 @@ public final class LedgerState {
 		snapshot = other.snapshot;
 		chainId = other.chainId;
 		verified = other.verified;
+		adopt(other);
+
+		/* adopt takes the collections as they are, so every one of them is copied here, or the copy would share it
+		   with the state it was made from */
 		accounts = new HashMap<>(other.accounts);
 		redirects = new HashMap<>(other.redirects);
 		nonces = new HashMap<>(other.nonces);
 		minted = new HashSet<>(other.minted);
 		mintedTo = new HashMap<>(other.mintedTo);
 		votes = new TreeSet<>(other.votes);
-		validators = other.validators;
-		previousValidators = other.previousValidators;
-		height = other.height;
-		supply = other.supply;
-		unclaimed = other.unclaimed;
-		pool = other.pool;
-		tipHash = other.tipHash;
-		tipTime = other.tipTime;
-		tipCertificate = other.tipCertificate;
 		authorityTime = other.authorityTime;
-		round = other.round;
+	}
+
+	/* The one list of what makes up the state a block leads to, taken from `next` as it is: the collections are
+	   shared, not copied, so `next` must not be used afterwards. Left out: the fields that never change (genesis,
+	   authority, snapshot, chainId, verified); `vouched`, which is set only on the scratch copy a block is checked
+	   against, so the state that takes over keeps asking its own authority; and authorityTime, the time the owner
+	   of the state sets before asking the authority. Applying a block never sets it, so the scratch copy still holds
+	   the time of the state it was made from. */
+	private void adopt(LedgerState next) {
+		accounts = next.accounts;
+		redirects = next.redirects;
+		nonces = next.nonces;
+		minted = next.minted;
+		mintedTo = next.mintedTo;
+		votes = next.votes;
+		validators = next.validators;
+		previousValidators = next.previousValidators;
+		height = next.height;
+		supply = next.supply;
+		unclaimed = next.unclaimed;
+		pool = next.pool;
+		tipHash = next.tipHash;
+		tipTime = next.tipTime;
+		tipCertificate = next.tipCertificate;
+		round = next.round;
 	}
 
 	public LedgerState copy() {
@@ -300,22 +319,7 @@ public final class LedgerState {
 			throw new InvalidBlockException(rejection.get());
 		}
 
-		accounts = next.accounts;
-		redirects = next.redirects;
-		nonces = next.nonces;
-		minted = next.minted;
-		mintedTo = next.mintedTo;
-		votes = next.votes;
-		validators = next.validators;
-		previousValidators = next.previousValidators;
-		height = next.height;
-		supply = next.supply;
-		unclaimed = next.unclaimed;
-		pool = next.pool;
-		tipHash = next.tipHash;
-		tipTime = next.tipTime;
-		tipCertificate = next.tipCertificate;
-		round = next.round;
+		adopt(next);
 	}
 
 	/* The candidates that can go in one block of this time, in order: each is kept if it is still valid after the
