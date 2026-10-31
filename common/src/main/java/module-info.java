@@ -21,5 +21,6 @@ module org.unigrid.hedgehog.common {
 	requires org.slf4j;
 	requires net.harawata.appdirs;
 
+	exports org.unigrid.hedgehog.common.crypto;
 	exports org.unigrid.hedgehog.common.model;
 }
