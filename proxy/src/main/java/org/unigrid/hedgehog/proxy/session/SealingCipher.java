@@ -24,7 +24,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.unigrid.hedgehog.proxy.session.SealException.Reason;
 
@@ -36,7 +35,7 @@ import org.unigrid.hedgehog.proxy.session.SealException.Reason;
    associated data is the handshake hash the session was bound to. A per-writer feed delivers a session's entries
    in order and without loss, so a skipped or replayed message fails authentication like a forged one. */
 public final class SealingCipher {
-	private static final int TAG_SIZE = 16;
+	private static final int TAG_SIZE = AesGcm.TAG_SIZE;
 	public static final int OVERHEAD = TAG_SIZE + Integer.BYTES;
 	private static final int KEY_SIZE = 32;
 	private static final int NONCE_SIZE = 12;
@@ -104,7 +103,7 @@ public final class SealingCipher {
 				counter++;
 				return sealed;
 			} catch (GeneralSecurityException ex) {
-				throw new IllegalStateException("AES-GCM is mandatory on every Java platform", ex);
+				throw AesGcm.unavailable(ex);
 			}
 		}
 	}
@@ -133,7 +132,7 @@ public final class SealingCipher {
 				throw new SealException(Reason.TAMPERED, "Sealed message " + counter
 					+ " fails authentication");
 			} catch (GeneralSecurityException ex) {
-				throw new IllegalStateException("AES-GCM is mandatory on every Java platform", ex);
+				throw AesGcm.unavailable(ex);
 			}
 
 			counter++;
@@ -150,12 +149,9 @@ public final class SealingCipher {
 	}
 
 	private Cipher cipher(int mode, long counter) throws GeneralSecurityException {
-		final Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
 		final byte[] nonce = ByteBuffer.allocate(NONCE_SIZE).put(direction.code())
 			.putLong(NONCE_SIZE - Long.BYTES, counter).array();
 
-		cipher.init(mode, key, new GCMParameterSpec(TAG_SIZE * Byte.SIZE, nonce));
-		cipher.updateAAD(binding);
-		return cipher;
+		return AesGcm.cipher(mode, key, nonce, binding);
 	}
 }

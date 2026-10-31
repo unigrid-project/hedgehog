@@ -27,7 +27,6 @@ import java.util.HexFormat;
 import java.util.Optional;
 import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.bouncycastle.crypto.agreement.X25519Agreement;
 import org.bouncycastle.crypto.digests.SHA256Digest;
@@ -46,7 +45,7 @@ import org.bouncycastle.crypto.params.X25519PublicKeyParameters;
    the handshake hash as input. */
 public final class NoiseNk {
 	public static final int KEY_SIZE = X25519PublicKeyParameters.KEY_SIZE;
-	public static final int TAG_SIZE = 16;
+	public static final int TAG_SIZE = AesGcm.TAG_SIZE;
 	public static final int MESSAGE_SIZE = KEY_SIZE + TAG_SIZE;
 
 	private static final byte[] PROTOCOL_NAME = "Noise_NK_25519_AESGCM_SHA256".getBytes(StandardCharsets.US_ASCII);
@@ -435,7 +434,7 @@ public final class NoiseNk {
 				mixHash(ciphertext);
 				return ciphertext;
 			} catch (GeneralSecurityException ex) {
-				throw new IllegalStateException("AES-GCM is mandatory on every Java platform", ex);
+				throw AesGcm.unavailable(ex);
 			}
 		}
 
@@ -448,7 +447,7 @@ public final class NoiseNk {
 			} catch (AEADBadTagException ex) {
 				return Optional.empty();
 			} catch (GeneralSecurityException ex) {
-				throw new IllegalStateException("AES-GCM is mandatory on every Java platform", ex);
+				throw AesGcm.unavailable(ex);
 			}
 
 			nonce++;
@@ -472,12 +471,9 @@ public final class NoiseNk {
 
 		/* ENCRYPT and DECRYPT of AESGCM: the nonce is 4 zero bytes and the u64 counter, the associated data h */
 		private Cipher cipher(int mode) throws GeneralSecurityException {
-			final Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
 			final byte[] iv = ByteBuffer.allocate(NONCE_SIZE).putLong(NONCE_SIZE - Long.BYTES, nonce).array();
 
-			cipher.init(mode, new SecretKeySpec(key, "AES"), new GCMParameterSpec(TAG_SIZE * Byte.SIZE, iv));
-			cipher.updateAAD(hash);
-			return cipher;
+			return AesGcm.cipher(mode, new SecretKeySpec(key, "AES"), iv, hash);
 		}
 	}
 }
