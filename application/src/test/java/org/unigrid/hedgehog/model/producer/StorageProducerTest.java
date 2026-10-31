@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.model.producer;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.List;
@@ -34,6 +38,7 @@ import net.jqwik.api.statistics.Statistics;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.slf4j.LoggerFactory;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
@@ -60,6 +65,34 @@ public class StorageProducerTest {
 		return producerOf(database).storageSpork();
 	}
 
+	private static StorageSpork sporkOf(final SporkData data) {
+		final StorageSpork spork = new StorageSpork();
+
+		spork.setData(data);
+		return spork;
+	}
+
+	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
+	private static List<String> warningsWhile(final Runnable action) {
+		StorageProducerTest.class.getModule()
+			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(StorageProducer.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel() == Level.WARN)
+			.map(ILoggingEvent::getFormattedMessage).toList();
+	}
+
 	@Provide
 	public Arbitrary<SporkData> sporkData() {
 		return StorageSporkTest.sporkDataAcrossTheBounds();
@@ -84,6 +117,51 @@ public class StorageProducerTest {
 	@Example
 	public void disablesStorageWithoutAStorageSpork() {
 		assertThat(storageSporkOf(SporkDatabase.builder().build()), equalTo(Optional.empty()));
+	}
+
+	@Example
+	public void warnsOnceThatStorageStaysOffForARefusedSpork() {
+		final SporkData refused = new SporkData();
+
+		refused.setManifestCopies(0);
+
+		final StorageProducer producer = producerOf(SporkDatabase.builder().storageSpork(sporkOf(refused)).build());
+
+		assertThat(warningsWhile(() -> producer.storageSpork()), equalTo(List.of(
+			"The storage spork is refused, so storage stays off: manifestCopies must be 1-16")));
+		assertThat(warningsWhile(() -> producer.storageSpork()), equalTo(List.<String>of()));
+	}
+
+	@Example
+	public void warnsAgainForARefusalWithAnotherMessage() {
+		final SporkDatabase database = SporkDatabase.builder().build();
+		final StorageProducer producer = producerOf(database);
+		final SporkData first = new SporkData();
+		final SporkData second = new SporkData();
+
+		first.setManifestCopies(0);
+		second.setTombstoneDays(0);
+
+		assertThat(warningsWhile(() -> {
+			database.setStorageSpork(sporkOf(first));
+			producer.storageSpork();
+			database.setStorageSpork(sporkOf(second));
+			producer.storageSpork();
+			database.setStorageSpork(sporkOf(first));
+			producer.storageSpork();
+		}), equalTo(List.of(
+			"The storage spork is refused, so storage stays off: manifestCopies must be 1-16",
+			"The storage spork is refused, so storage stays off: tombstoneDays must be 1-65535")));
+	}
+
+	@Example
+	public void staysSilentForASporkThatStorageAccepts() {
+		final StorageProducer producer = producerOf(SporkDatabase.builder().storageSpork(sporkOf(new SporkData()))
+			.build());
+
+		assertThat(warningsWhile(() -> producer.storageSpork()), equalTo(List.<String>of()));
+		assertThat(warningsWhile(() -> producerOf(SporkDatabase.builder().build()).storageSpork()),
+			equalTo(List.<String>of()));
 	}
 
 	@Example

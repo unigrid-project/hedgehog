@@ -28,6 +28,9 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.network.PendingRequests;
@@ -43,10 +46,15 @@ import org.unigrid.hedgehog.service.storage.GroupRepairer;
 import org.unigrid.hedgehog.service.storage.NettyFragmentTransport;
 import org.unigrid.hedgehog.service.storage.StorageService;
 
+@Slf4j
 @ApplicationScoped
 public class StorageProducer {
 	private static final String FRAGMENT_DIRECTORY = "fragments";
 	private static final Duration SEND_JITTER = Duration.ofMillis(25);
+	private static final int MAX_REPORTED = 256;
+	private static final String REFUSED = "The storage spork is refused, so storage stays off: {}";
+
+	private final Set<String> reported = ConcurrentHashMap.newKeySet();
 
 	@Inject
 	private ApplicationDirectory applicationDirectory;
@@ -97,15 +105,23 @@ public class StorageProducer {
 	Optional<StorageSpork.SporkData> storageSpork() {
 		return Optional.ofNullable(sporkDatabase.getStorageSpork())
 			.<StorageSpork.SporkData>map(StorageSpork::getData)
-			.filter(StorageProducer::isValid);
+			.filter(this::isValid);
 	}
 
-	private static boolean isValid(final StorageSpork.SporkData data) {
+	private boolean isValid(final StorageSpork.SporkData data) {
 		try {
 			data.validate();
 			return true;
 		} catch (IllegalArgumentException ex) {
+			reportOnce(String.valueOf(ex.getMessage()));
 			return false;
+		}
+	}
+
+	/* The spork is read again whenever storage is used, and one that stays as it is would fill the log */
+	private void reportOnce(final String refusal) {
+		if (reported.size() < MAX_REPORTED && reported.add(refusal)) {
+			log.atWarn().addArgument(refusal).log(REFUSED);
 		}
 	}
 }
