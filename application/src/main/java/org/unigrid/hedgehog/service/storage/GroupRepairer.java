@@ -179,12 +179,14 @@ public class GroupRepairer {
 		}
 
 		/* A repair counts only the window, so it may already have rebuilt the index held here. Moving that copy
-		   would only fill the slack with a duplicate, and once the window is full it could never move at all. */
+		   would only fill the slack with a duplicate, and once the window is full it could never move at all. The
+		   same group key can seal a group again, so only a fragment of the same seal counts. */
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
 
 			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
-				.anyMatch(claim -> servesBack(claim.getKey(), local));
+				.anyMatch(claim -> verified(transport.fetch(claim.getKey(), local.groupId()), local, local.getIndex())
+					.filter(served -> served.getDescriptor().equals(local.getDescriptor())).isPresent());
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {

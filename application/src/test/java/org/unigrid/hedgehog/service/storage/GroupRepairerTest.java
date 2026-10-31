@@ -530,4 +530,28 @@ public class GroupRepairerTest {
 		assertThat(fleet.getStores().get(outsider.getId()).groups().isEmpty(), is(true));
 		assertThat(fleet.distinctIndicesOf(key.groupId(), parameters.window()), equalTo((long) sealed.size()));
 	}
+
+	/* The same group key can seal a group again, so a fragment at the same index from another seal is no copy of
+	   the one held outside the window */
+	@Property(tries = 30)
+	public void keepsCopiesOutsideTheWindowThatOnlyAnotherSealHolds(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		final Random random = new Random(seed);
+		final StorageFleet fleet = new StorageFleet(parameters, parameters.window() + 1);
+		final GroupKey key = StorageTestData.key(random);
+		final List<Fragment> sealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
+			parameters.layout());
+		final List<Fragment> resealed = ChunkGroups.seal(chunkOf(fleet, random), key, StorageFormat.current(),
+			parameters.layout());
+		final List<Gridnode> window = Placement.window(key.groupId(), fleet.getGridnodes(), parameters.window());
+		final Gridnode outsider = fleet.getGridnodes().stream().filter(g -> !window.contains(g)).findFirst().get();
+
+		IntStream.range(0, window.size()).forEach(rank -> keep(fleet, window.get(rank),
+			resealed.get(rank % resealed.size())));
+		keep(fleet, outsider, sealed.get(random.nextInt(sealed.size())));
+		fleet.runRepairEpochs(2 * parameters.window());
+
+		assertThat(fleet.getStores().get(outsider.getId()).groups(), equalTo(Set.of(key.groupId())));
+	}
 }
