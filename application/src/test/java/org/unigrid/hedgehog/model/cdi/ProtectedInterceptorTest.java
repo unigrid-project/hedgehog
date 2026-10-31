@@ -20,6 +20,9 @@ package org.unigrid.hedgehog.model.cdi;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.EnumSet;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Data;
@@ -51,6 +54,8 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		}
 	}
 
+	private static final long TIMEOUT_SECONDS = 10;
+
 	@Inject
 	private LockModeProtected lockModeProtected;
 
@@ -60,62 +65,123 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		Awaitility.setDefaultPollDelay(5, TimeUnit.MILLISECONDS);
 	}
 
-	@Example
-	public void shoulBeAbleToWriteProtectMethods() throws InterruptedException {
-		final AtomicInteger counter = new AtomicInteger();
+	/* A body that runs on a thread of its own, with the failure of it handed back through a future */
+	private record Background(Thread thread, CompletableFuture<Void> done) { }
 
-		new Thread(() -> {
-			lockModeProtected.writeProtect(() -> {
-				counter.incrementAndGet();
-				Thread.sleep(200);
-
-				/* 1, because we should not have been able to lock from the main thread */
-				assertThat(counter.get(), is(1));
-				counter.incrementAndGet();
-			});
-		}).start();
-
-		/* Make sure the above thread has started and is locking */
-		await().untilAtomic(counter, is(1));
-
-		lockModeProtected.writeProtect(() -> {
-			counter.incrementAndGet();
+	private static Background background(VoidFunctionE<Exception> body) {
+		final CompletableFuture<Void> done = new CompletableFuture<>();
+		final Thread thread = new Thread(() -> {
+			try {
+				body.apply();
+				done.complete(null);
+			} catch (Throwable t) {
+				done.completeExceptionally(t);
+			}
 		});
 
-		await().untilAtomic(counter, is(3));
+		thread.start();
+		return new Background(thread, done);
+	}
+
+	private static void reach(CountDownLatch latch) throws InterruptedException {
+		if (!latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+			throw new IllegalStateException("The other thread did not get there in time");
+		}
+	}
+
+	/* A thread that waits for the lock is parked, which is as near as anyone can get to knowing that it waits */
+	private static void awaitWaiting(Thread thread) {
+		await().until(() -> EnumSet.of(Thread.State.WAITING, Thread.State.TIMED_WAITING, Thread.State.BLOCKED)
+			.contains(thread.getState()));
 	}
 
 	@Example
-	public void shoulBeAbleToReadProtectMethods() throws InterruptedException {
+	public void shoulBeAbleToWriteProtectMethods() throws Exception {
 		final AtomicInteger counter = new AtomicInteger();
+		final CountDownLatch holding = new CountDownLatch(1);
+		final CountDownLatch contenderWaits = new CountDownLatch(1);
+		final CompletableFuture<Integer> seenWhileHolding = new CompletableFuture<>();
 
-		new Thread(() -> {
+		final Background holder = background(() -> {
 			lockModeProtected.writeProtect(() -> {
 				counter.incrementAndGet();
-				Thread.sleep(200);
+				holding.countDown();
+				reach(contenderWaits);
+				seenWhileHolding.complete(counter.get());
+				counter.incrementAndGet();
+			});
+		});
 
-				/* 1, because we should not have been able to lock from the main thread */
-				assertThat(counter.get(), is(1));
+		/* Make sure the above thread has started and is locking */
+		reach(holding);
+
+		final Background contender = background(() -> {
+			lockModeProtected.writeProtect(() -> {
+				counter.incrementAndGet();
+			});
+		});
+
+		awaitWaiting(contender.thread());
+		contenderWaits.countDown();
+		await().untilAtomic(counter, is(3));
+
+		holder.done().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+		contender.done().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+		/* 1, because we should not have been able to lock from the other thread */
+		assertThat(seenWhileHolding.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(1));
+	}
+
+	@Example
+	public void shoulBeAbleToReadProtectMethods() throws Exception {
+		final AtomicInteger counter = new AtomicInteger();
+		final CountDownLatch holding = new CountDownLatch(1);
+		final CountDownLatch contenderWaits = new CountDownLatch(1);
+		final CountDownLatch contenderReads = new CountDownLatch(1);
+		final CountDownLatch holderReads = new CountDownLatch(1);
+		final CompletableFuture<Integer> seenWhileWriting = new CompletableFuture<>();
+		final CompletableFuture<Integer> seenWhileReading = new CompletableFuture<>();
+
+		final Background holder = background(() -> {
+			lockModeProtected.writeProtect(() -> {
+				counter.incrementAndGet();
+				holding.countDown();
+				reach(contenderWaits);
+				seenWhileWriting.complete(counter.get());
 				counter.incrementAndGet();
 			});
 
 			lockModeProtected.readProtect(() -> {
-				Thread.sleep(200);
-
-				/* 3, because the read lock below should have passed */
-				assertThat(counter.get(), is(3));
+				holderReads.countDown();
+				reach(contenderReads);
+				seenWhileReading.complete(counter.get());
 				counter.incrementAndGet();
 			});
-		}).start();
-
-		/* Make sure the above thread has started and is locking */
-		await().untilAtomic(counter, is(1));
-
-		lockModeProtected.readProtect(() -> {
-			counter.incrementAndGet();
-			Thread.sleep(200);
 		});
 
+		/* Make sure the above thread has started and is locking */
+		reach(holding);
+
+		/* Holds its read lock until the other thread has passed the read lock as well */
+		final Background contender = background(() -> {
+			lockModeProtected.readProtect(() -> {
+				counter.incrementAndGet();
+				contenderReads.countDown();
+				reach(holderReads);
+			});
+		});
+
+		awaitWaiting(contender.thread());
+		contenderWaits.countDown();
 		await().untilAtomic(counter, is(4));
+
+		holder.done().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+		contender.done().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+		/* 1, because we should not have been able to lock from the other thread */
+		assertThat(seenWhileWriting.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(1));
+
+		/* 3, because the read lock below should have passed */
+		assertThat(seenWhileReading.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(3));
 	}
 }
