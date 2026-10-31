@@ -45,6 +45,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.ToString;
 import lombok.experimental.Tolerate;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.SerializationUtils;
@@ -55,6 +56,7 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;
 
 @Data
+@Slf4j
 public class GridSpork implements Serializable, Signable {
 	private static final long serialVersionUID = 3180522314476687567L;
 
@@ -433,11 +435,18 @@ public class GridSpork implements Serializable, Signable {
 		return isTakenBy(logKeys());
 	}
 
+	/* A spork of no known type, or with data or a key that does not encode, fails with an IllegalArgumentException, as
+	   what a peer or a file holds can: it is none the network took. Any other failure is one of the checks themselves,
+	   and is told of by its class only. */
 	private boolean isTakenBy(Set<String> keys) {
 		try {
 			return isWithinBounds() && isDoublySignedBy(keys) && isNewerThanLog()
 				&& getSignatureLog().isValidFrom(0, logKeys());
+		} catch (ChecksSpentException | IllegalArgumentException ex) {
+			return false;
 		} catch (RuntimeException ex) {
+			log.warn("Checking whether the network took the {} spork failed with {}", type,
+				ex.getClass().getName());
 			return false;
 		}
 	}
