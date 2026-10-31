@@ -25,11 +25,17 @@ import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
@@ -54,7 +60,8 @@ import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class NodeResourceTest extends BaseRestClientTest {
 	/* A port that is no number, and a host that does not resolve */
-	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", "no-such-host.invalid");
+	private static final String UNRESOLVABLE = "no-such-host.invalid";
+	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", UNRESOLVABLE);
 
 	@Mocked
 	private Connection emptyConnection;
@@ -207,19 +214,35 @@ public class NodeResourceTest extends BaseRestClientTest {
 		assertThat(refusal.getBody(), is(emptyString()));
 	}
 
+	/* The host is refused without a lookup, which is slow or never answers when the network is down, and any other
+	   address is parsed and resolved as the node does it */
+	private void assertBadRequests(Function<String, Expect.Action> request) {
+		new MockUp<Node>() {
+			@Mock public /* static */ Node fromAddress(String address) throws URISyntaxException, UnknownHostException {
+				if (UNRESOLVABLE.equals(address)) {
+					throw new UnknownHostException(address);
+				}
+
+				return Node.fromURI(new URI(null, address, null, null, null).parseServerAuthority());
+			}
+		};
+
+		BAD_ADDRESSES.forEach(address -> assertBadRequest(request.apply(address)));
+	}
+
 	@Example
 	public void shouldAnswerABadRequestWhenLookingForAnAddressThatIsNoNode() {
-		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.get("/node/" + address)));
+		assertBadRequests(address -> () -> client.get("/node/" + address));
 	}
 
 	@Example
 	public void shouldAnswerABadRequestWhenAddingAnAddressThatIsNoNode() {
-		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.post("/node", Entity.text(address))));
+		assertBadRequests(address -> () -> client.post("/node", Entity.text(address)));
 	}
 
 	@Example
 	public void shouldAnswerABadRequestWhenRemovingAnAddressThatIsNoNode() {
-		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.delete("/node/" + address)));
+		assertBadRequests(address -> () -> client.delete("/node/" + address));
 	}
 
 	@SneakyThrows
