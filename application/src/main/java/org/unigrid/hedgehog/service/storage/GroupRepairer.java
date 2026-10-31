@@ -185,7 +185,8 @@ public class GroupRepairer {
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
 
-			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
+			return claimsOf(survey.census()).entrySet().stream()
+				.filter(claim -> claim.getValue() == local.getIndex())
 				.anyMatch(claim -> servesBack(claim.getKey(), local));
 		}
 
