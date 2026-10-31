@@ -30,8 +30,10 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -42,12 +44,17 @@ import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterProperty;
+import org.slf4j.event.Level;
+import org.slf4j.event.SubstituteLoggingEvent;
+import org.slf4j.helpers.SubstituteLogger;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 /* Real sockets, all of them on 127.0.0.1 */
 public class NettyUdpConnectorTest {
@@ -193,6 +200,26 @@ public class NettyUdpConnectorTest {
 	}
 
 	/* Dropped like any datagram the socket cannot send, and not sent from some other address instead */
+	/* A port no datagram has makes the address fail to build, which drops the datagram; the log names the class of
+	   the failure alone, as its message quotes the port and the address of a destination */
+	@Example
+	public void shouldDropADatagramItCannotAddressAndLogOnlyTheClass() throws Exception {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final UdpConnector logging = new NettyUdpConnector(() -> group, Optional.empty(),
+			new SubstituteLogger("udp", events, false));
+		final Heard heard = new Heard();
+
+		logging.open(heard);
+
+		final UdpConnector.Socket socket = heard.socket();
+
+		assertThat(socket.send(EchoServer.LOOPBACK, 70_000, new byte[] { 1 }), is(false));
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { IllegalArgumentException.class.getName() }));
+		assertThat(events.peek().getMessage(), not(containsString("70000")));
+	}
+
 	@Example
 	public void shouldDropDatagramsToAnotherFamilyThanTheLocalAddress() throws Exception {
 		final UdpConnector bound = new NettyUdpConnector(() -> group, Optional.of(EchoServer.loopback(2)));

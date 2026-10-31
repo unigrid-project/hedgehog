@@ -50,11 +50,11 @@ import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.Resolver;
 import org.unigrid.hedgehog.proxy.session.SocksAddress;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
-import static org.hamcrest.Matchers.containsString;
 
 public class DatagramDestinationsTest {
 	private static final int PORT = 53;

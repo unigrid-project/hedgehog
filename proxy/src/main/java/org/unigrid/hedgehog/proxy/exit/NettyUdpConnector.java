@@ -38,6 +38,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /* Datagram sockets with Netty on an NIO event loop group. Each is bound to an ephemeral port of the local address
    it is given, so the destination sees that address. Without one it is the wildcard address, because the exit
@@ -45,10 +47,12 @@ import java.util.function.Supplier;
    datagram: Netty's default would cut a longer one without a word. */
 public final class NettyUdpConnector implements UdpConnector {
 	private static final int LARGEST_DATAGRAM = 64 * 1024;
+	private static final Logger LOG = LoggerFactory.getLogger(NettyUdpConnector.class);
 
 	private final Supplier<EventLoopGroup> group;
 	private final SocketAddress bound;
 	private final Predicate<InetAddress> reachable;
+	private final Logger log;
 
 	public NettyUdpConnector(EventLoopGroup group) {
 		this(() -> group);
@@ -60,6 +64,11 @@ public final class NettyUdpConnector implements UdpConnector {
 
 	/* The group may be handed over lazily, so that a node which never relays a datagram starts no event loops */
 	public NettyUdpConnector(Supplier<EventLoopGroup> group, Optional<InetAddress> local) {
+		this(group, local, LOG);
+	}
+
+	NettyUdpConnector(Supplier<EventLoopGroup> group, Optional<InetAddress> local, Logger log) {
+		this.log = log;
 		this.group = Objects.requireNonNull(group, "group");
 		bound = Objects.requireNonNull(local, "local").<SocketAddress>map(
 			address -> new InetSocketAddress(address, 0)).orElseGet(() -> new InetSocketAddress(0));
@@ -79,7 +88,7 @@ public final class NettyUdpConnector implements UdpConnector {
 				.option(ChannelOption.RCVBUF_ALLOCATOR, new FixedRecvByteBufAllocator(LARGEST_DATAGRAM))
 				.handler(new Receiver(listener)).bind(bound).addListener((ChannelFutureListener) done -> {
 					if (done.isSuccess()) {
-						listener.opened(new NettySocket(done.channel(), reachable));
+						listener.opened(new NettySocket(done.channel(), reachable, log));
 					} else {
 						listener.failed(Socks5CommandStatus.FAILURE);
 					}
@@ -90,10 +99,12 @@ public final class NettyUdpConnector implements UdpConnector {
 	private static final class NettySocket implements Socket {
 		private final Channel channel;
 		private final Predicate<InetAddress> reachable;
+		private final Logger log;
 
-		NettySocket(Channel channel, Predicate<InetAddress> reachable) {
+		NettySocket(Channel channel, Predicate<InetAddress> reachable, Logger log) {
 			this.channel = channel;
 			this.reachable = reachable;
+			this.log = log;
 		}
 
 		/* An InetSocketAddress built from an InetAddress resolves nothing, but one of a null address is the
@@ -110,6 +121,7 @@ public final class NettyUdpConnector implements UdpConnector {
 					new InetSocketAddress(address, port)));
 				return true;
 			} catch (RuntimeException ex) {
+				log.warn("Writing a datagram failed with {}", ex.getClass().getName());
 				return false;
 			}
 		}
