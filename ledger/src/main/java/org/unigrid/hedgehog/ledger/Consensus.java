@@ -99,6 +99,7 @@ public final class Consensus {
 	private final byte[] seed;
 	private final AccountKey self;
 	private final Timeouts timeouts;
+	private final SignStateCheck signStateCheck;
 	private final List<BooleanSupplier> rules = List.of(this::decide, this::skip, this::voteOnProposal,
 		this::lockOnPolka, this::precommitNil, this::armPrevoteTimer, this::armPrecommitTimer);
 
@@ -145,6 +146,7 @@ public final class Consensus {
 		this.seed = seed == null ? null : seed.clone();
 		this.self = seed == null ? null : Ed25519.publicKey(seed);
 		this.timeouts = timeouts;
+		this.signStateCheck = new SignStateCheck(this.chainId, this.self);
 	}
 
 	/* Begins a height. The first view starts at once when there is work; otherwise nothing runs until work turns up
@@ -250,7 +252,7 @@ public final class Consensus {
 	   view, or, when it runs and is the proposer of its view without a proposal, proposes, as onWork() does. A state
 	   that this node could not have written is refused, and then nothing is changed. */
 	public List<Action> restore(SignState state, ValidatorSet newValidators, long at) {
-		requireRestorable(state, newValidators);
+		signStateCheck.requireRestorable(state, newValidators);
 
 		return run(at, () -> {
 			reset(state.height(), newValidators);
@@ -374,93 +376,6 @@ public final class Consensus {
 		ballotViews.clear();
 		lastLoneWake = null;
 		resendTurn = 0;
-	}
-
-	private void requireRestorable(SignState state, ValidatorSet newValidators) {
-		if (state.height() == 0) {
-			throw new IllegalArgumentException("A state of height 0 holds nothing to restore");
-		}
-
-		requireOwnMessages(state, newValidators);
-		requireViewsKept(state);
-		requireLocksKept(state);
-	}
-
-	/* What the state holds as signed is taken for this node's word when it is said again, so it has to be its own */
-	private void requireOwnMessages(SignState state, ValidatorSet newValidators) {
-		final boolean holdsNothing = state.proposals().isEmpty() && state.ballots().isEmpty();
-
-		if (!holdsNothing && !canSignIn(newValidators)) {
-			throw new IllegalArgumentException("This node cannot sign at height " + state.height()
-				+ ", yet the state holds messages it signed");
-		}
-
-		requireOwnProposals(state, newValidators);
-		requireOwnBallots(state);
-	}
-
-	private boolean canSignIn(ValidatorSet set) {
-		return seed != null && set.contains(self);
-	}
-
-	private void requireOwnProposals(SignState state, ValidatorSet newValidators) {
-		if (!state.proposals().stream().allMatch(proposal -> signedAsProposer(proposal, newValidators))) {
-			throw new IllegalArgumentException(
-				"A proposal of the state is not signed by this node as the proposer of its view");
-		}
-	}
-
-	private boolean signedAsProposer(Proposal proposal, ValidatorSet newValidators) {
-		return proposal.sender().equals(self) && proposal.hasValidSignature(chainId)
-			&& proposal.sender().equals(newValidators.proposerAt(proposal.height(), proposal.view()));
-	}
-
-	private void requireOwnBallots(SignState state) {
-		if (!state.ballots().stream().allMatch(this::signedAsVoter)) {
-			throw new IllegalArgumentException("A ballot of the state is not signed by this node");
-		}
-	}
-
-	private boolean signedAsVoter(Ballot ballot) {
-		return ballot.validator().equals(self) && ballot.hasValidSignature(chainId);
-	}
-
-	/* The next view is where a node at rest begins again, so a state in which it is not above every view the node signed
-	   in, or is below the view of the state, would take the node back to a view it has been in. Only the last view has
-	   none above it. */
-	private static void requireViewsKept(SignState state) {
-		final int signedIn = IntStream.concat(state.proposals().stream().mapToInt(Proposal::view),
-			state.ballots().stream().mapToInt(Ballot::view)).max()
-			.orElse(Proposal.NO_ROUND);
-		final boolean aboveSigned = state.nextView() > signedIn || state.view() == Integer.MAX_VALUE;
-
-		if (!aboveSigned || state.nextView() < state.view()) {
-			throw new IllegalArgumentException("The next view " + state.nextView() + " is not above the views "
-				+ "signed in (" + signedIn + ") and the view " + state.view());
-		}
-	}
-
-	/* A precommit for a block binds the node to it from that view on, so the lock is on that block in that view or on
-	   some block in a later one; a state without it would let the node vote for another block after this one was
-	   decided */
-	private static void requireLocksKept(SignState state) {
-		final boolean kept = state.ballots().stream().filter(Consensus::isPrecommitForBlock)
-			.allMatch(precommit -> locksOn(state, precommit));
-
-		if (!kept) {
-			throw new IllegalArgumentException("The state holds a precommit for a block it does not lock on");
-		}
-	}
-
-	private static boolean isPrecommitForBlock(Ballot ballot) {
-		return ballot.type() == Ballot.Type.PRECOMMIT && !ballot.isNil();
-	}
-
-	private static boolean locksOn(SignState state, Ballot precommit) {
-		final Block locked = state.lockedBlock();
-
-		return locked != null && (state.lockedView() > precommit.view()
-			|| state.lockedView() == precommit.view() && Arrays.equals(locked.hash(), precommit.blockHash()));
 	}
 
 	private void install(SignState state) {
