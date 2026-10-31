@@ -632,6 +632,29 @@ public class GroupRepairerTest {
 		assertThat(scene.distinctIndices(), equalTo((long) scene.sealed().size()));
 	}
 
+	/* A target that stores the copy but serves another seal at its index has not taken it over */
+	@Property(tries = 30)
+	public void keepsCopiesOutsideTheWindowThatTargetsServeOfAnotherSeal(
+		@ForAll("parameters") StorageSpork.SporkData parameters, @ForAll long seed) {
+
+		Assume.that(parameters.getPlacementSlack() > 0);
+
+		final Random random = new Random(seed);
+		final Scene scene = Scene.of(parameters, random, 1);
+		final int index = random.nextInt(scene.sealed().size());
+		final int taken = scene.sealed().size();
+		final byte[] other = scene.resealed().get(index).encode();
+
+		scene.fill(scene.window().subList(0, taken - 1), scene.sealedWithout(index));
+		scene.fill(scene.window().subList(taken - 1, taken), List.of(scene.resealed().get(index)));
+		scene.window().subList(taken, scene.window().size())
+			.forEach(target -> scene.fleet().getTransport().tamper(target.getId(), bytes -> other.clone()));
+		scene.keep(scene.outsider(), index);
+		scene.fleet().runRepairEpochs(2 * parameters.window());
+
+		assertThat(scene.holds(scene.outsider()), is(true));
+	}
+
 	/* A group sealed twice under one key and a fleet with the given number of gridnodes beyond its window, where
 	   nothing is stored until a test keeps it */
 	private record Scene(StorageSpork.SporkData parameters, StorageFleet fleet, GroupKey key, List<Fragment> sealed,

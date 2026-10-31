@@ -179,14 +179,12 @@ public class GroupRepairer {
 		}
 
 		/* A repair counts only the window, so it may already have rebuilt the index held here. Moving that copy
-		   would only fill the slack with a duplicate, and once the window is full it could never move at all. The
-		   same group key can seal a group again, so only a fragment of the same seal counts. */
+		   would only fill the slack with a duplicate, and once the window is full it could never move at all. */
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
 
 			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
-				.anyMatch(claim -> verified(transport.fetch(claim.getKey(), local.groupId()), local, local.getIndex())
-					.filter(served -> served.getDescriptor().equals(local.getDescriptor())).isPresent());
+				.anyMatch(claim -> servesBack(claim.getKey(), local));
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {
@@ -308,8 +306,7 @@ public class GroupRepairer {
 		}
 
 		private boolean servesBack(final Gridnode target, final Fragment fragment) {
-			final CompletableFuture<FragmentReply> reply = transport.fetch(target, fragment.groupId());
-			return verified(reply, fragment, fragment.getIndex()).isPresent();
+			return isSameSeal(transport.fetch(target, fragment.groupId()), fragment);
 		}
 
 		private boolean deliver(final Fragment fragment, final Iterator<Gridnode> targets) {
@@ -385,6 +382,13 @@ public class GroupRepairer {
 		} catch (CompletionException ex) {
 			return Optional.empty();
 		}
+	}
+
+	/* The same group key can seal a group again, so a fragment at the same index only stands in for the one held
+	   here when it comes from the same seal */
+	private static boolean isSameSeal(final CompletableFuture<FragmentReply> reply, final Fragment local) {
+		return verified(reply, local, local.getIndex())
+			.filter(served -> served.getDescriptor().equals(local.getDescriptor())).isPresent();
 	}
 
 	private static Optional<DeleteProof> deletionOf(final Fragment local,
