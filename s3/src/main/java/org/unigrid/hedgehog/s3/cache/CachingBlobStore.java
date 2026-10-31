@@ -54,6 +54,7 @@ import org.unigrid.hedgehog.s3.spi.BlobStoreException;
    Blobs never change, so a cached copy never goes stale. */
 public final class CachingBlobStore implements BlobStore {
 	private static final String PARTIAL = ".partial";
+	private static final long NO_LIMIT = Long.MAX_VALUE;
 	private static final Pattern NAME = Pattern.compile("[0-9a-f]{64}");
 	private static final Set<PosixFilePermission> OWNER_ONLY = PosixFilePermissions.fromString("rwx------");
 
@@ -162,7 +163,7 @@ public final class CachingBlobStore implements BlobStore {
 
 		try {
 			if (claim.fresh()) {
-				load(claim.entry(), id, Long.MAX_VALUE);
+				load(claim.entry(), id, NO_LIMIT);
 			}
 
 			claim.entry().await();
@@ -212,11 +213,12 @@ public final class CachingBlobStore implements BlobStore {
 		}
 	}
 
+	/* A lease claims its entry pinned, so it stays on disk while the lease is open; an open only reads it */
 	@Synchronized
-	private Claim claim(final String name, final boolean reading) throws IOException {
+	private Claim claim(final String name, final boolean pinned) throws IOException {
 		final CacheEntry existing = index().get(name);
-		final Claim claim = existing != null && (!reading || pin(existing)) ? new Claim(existing, false)
-			: new Claim(register(name, reading), true);
+		final Claim claim = existing != null && (!pinned || pin(existing)) ? new Claim(existing, false)
+			: new Claim(register(name, pinned), true);
 
 		claim.entry().hit(clock.instant(), halfLife);
 		return claim;
@@ -233,12 +235,12 @@ public final class CachingBlobStore implements BlobStore {
 		}
 	}
 
-	private CacheEntry register(final String name, final boolean reading) throws IOException {
+	private CacheEntry register(final String name, final boolean pinned) throws IOException {
 		final CacheEntry entry = entry(name, 0);
 
 		entries.put(name, entry);
 
-		if (reading) {
+		if (pinned) {
 			entry.pin();
 		}
 
