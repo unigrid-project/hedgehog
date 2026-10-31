@@ -45,7 +45,67 @@ final class SporkSuccession {
 		return spork.isPending() && succeeds(spork, stored, mayVerify, spork::isValidSignature);
 	}
 
-	static boolean succeeds(final GridSpork spork, final GridSpork stored, final BooleanSupplier mayVerify,
+	/* As GridSpork.isProposalOver(GridSpork, BooleanSupplier) decides */
+	static boolean isProposalOver(final GridSpork spork, final GridSpork stored, final BooleanSupplier mayVerify) {
+		return spork.isPending() && isMadeFrom(spork, stored)
+			&& succeeds(spork, stored, mayVerify, spork::isValidSignature);
+	}
+
+	/* As GridSpork.isRenewalOf(GridSpork) decides */
+	static boolean isRenewalOf(final GridSpork spork, final GridSpork stored) {
+		final SignatureLog storedLog = stored.getSignatureLog();
+
+		return isRenewalOver(spork, stored) && spork.getSignatureLog().size() == storedLog.size() + 1
+			&& storedLog.isPrefixOf(spork.getSignatureLog()) && endsWithTheHeadOf(spork, stored);
+	}
+
+	/* The previous data and time stamp of a version over a forged one, renewed, are those of the stored spork, so what
+	   it was made from is told by the head that its log ends with, which is the stored head for every version that
+	   archive() or renew() made from it. Over nothing that is a log of nothing, as a renewal of a forged first version
+	   has no previous version either. */
+	private static boolean isMadeFrom(final GridSpork spork, final GridSpork stored) {
+		if (Objects.isNull(stored)) {
+			return Instant.EPOCH.equals(spork.getPreviousTimeStamp()) && spork.getSignatureLog().isEmpty();
+		}
+
+		final boolean isNextVersion = isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(),
+			stored.getTimeStamp(), stored.getData());
+
+		return (isNextVersion || isRenewalOver(spork, stored)) && endsWithTheHeadOf(spork, stored);
+	}
+
+	private static boolean isRenewalOver(final GridSpork spork, final GridSpork stored) {
+		return Arrays.equals(encoded(spork, spork.getData()), encoded(spork, stored.getData()))
+			&& isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(),
+				stored.getPreviousTimeStamp(), stored.getPreviousData());
+	}
+
+	private static boolean endsWithTheHeadOf(final GridSpork spork, final GridSpork stored) {
+		final SignatureLog log = spork.getSignatureLog();
+
+		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.getTimeStamp())
+			&& goesOnWithTheHeadOf(spork, stored, log.size() - 1);
+	}
+
+	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
+	   the scale it was written with and a time stamp its nanoseconds, while the wire carries units and milliseconds */
+	private static boolean isSameVersion(final GridSpork spork, final Instant stamp, final ChunkData chunk,
+		final Instant otherStamp, final ChunkData otherChunk) {
+
+		return millisOf(stamp) == millisOf(otherStamp)
+			&& Arrays.equals(encoded(spork, chunk), encoded(spork, otherChunk));
+	}
+
+	private static long millisOf(final Instant stamp) {
+		return Objects.requireNonNullElse(stamp, Instant.EPOCH).toEpochMilli();
+	}
+
+	private static byte[] encoded(final GridSpork spork, final ChunkData chunk) {
+		return SporkContentEncoder.encode(spork.getType(), Objects.requireNonNullElseGet(chunk,
+			() -> GridSpork.create(spork.getType()).<ChunkData>getData().empty()));
+	}
+
+	private static boolean succeeds(final GridSpork spork, final GridSpork stored, final BooleanSupplier mayVerify,
 		final BooleanSupplier isSignedHead) {
 
 		final GridSpork anchor = anchorAmong(stored);
@@ -138,7 +198,7 @@ final class SporkSuccession {
 	/* An entry may carry a single signature, which one key alone can make, so a version that the network never took
 	   could follow the stored log as an entry, and a version over it would pass for one over the stored spork. A node
 	   that missed versions still finds its own head where its log ends. */
-	static boolean goesOnWithTheHeadOf(final GridSpork spork, final GridSpork stored, final int index) {
+	private static boolean goesOnWithTheHeadOf(final GridSpork spork, final GridSpork stored, final int index) {
 		if (Objects.isNull(stored)) {
 			return true;
 		}
