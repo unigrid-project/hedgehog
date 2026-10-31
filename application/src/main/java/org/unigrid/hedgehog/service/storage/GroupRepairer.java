@@ -182,9 +182,11 @@ public class GroupRepairer {
 		   would only fill the slack with a duplicate, and once the window is full it could never move at all. */
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
+			final List<CompletableFuture<FragmentReply>> replies = claimsOf(survey.census()).entrySet().stream()
+				.filter(claim -> claim.getValue() == local.getIndex())
+				.map(claim -> transport.fetch(claim.getKey(), local.groupId())).collect(Collectors.toList());
 
-			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
-				.anyMatch(claim -> servesBack(claim.getKey(), local));
+			return replies.stream().anyMatch(reply -> isSameSeal(reply, local));
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {
