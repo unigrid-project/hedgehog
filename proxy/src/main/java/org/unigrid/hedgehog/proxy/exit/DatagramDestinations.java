@@ -30,6 +30,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.LongSupplier;
 import java.util.function.Predicate;
+import org.slf4j.Logger;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.DestinationRefusedException;
 import org.unigrid.hedgehog.proxy.session.Resolver;
@@ -73,12 +74,13 @@ final class DatagramDestinations {
 	private final LongSupplier clock;
 	private final Sink sink;
 	private final Predicate<InetAddress> reachable;
+	private final Logger log;
 	private final Map<SocksAddress, Destination> destinations = new HashMap<>();
 	private int lookups;
 	private long dropped;
 
 	DatagramDestinations(DestinationPolicy policy, Resolver resolver, Executor resolving, LongSupplier clock,
-		Sink sink, Predicate<InetAddress> reachable) {
+		Sink sink, Predicate<InetAddress> reachable, Logger log) {
 
 		this.policy = policy;
 		this.resolver = resolver;
@@ -86,6 +88,7 @@ final class DatagramDestinations {
 		this.clock = clock;
 		this.sink = sink;
 		this.reachable = reachable;
+		this.log = log;
 	}
 
 	synchronized long dropped() {
@@ -165,7 +168,10 @@ final class DatagramDestinations {
 	private Optional<InetAddress> check(SocksAddress destination) {
 		try {
 			return policy.admit(destination, resolver).stream().filter(reachable).findFirst();
-		} catch (DestinationRefusedException | RuntimeException ex) {
+		} catch (DestinationRefusedException ex) {
+			return Optional.empty();
+		} catch (RuntimeException ex) {
+			log.warn("Checking a datagram destination failed with {}", ex.getClass().getName());
 			return Optional.empty();
 		}
 	}

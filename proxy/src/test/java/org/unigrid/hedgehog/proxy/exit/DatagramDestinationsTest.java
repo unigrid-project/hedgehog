@@ -24,9 +24,11 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -40,6 +42,9 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.slf4j.event.Level;
+import org.slf4j.event.SubstituteLoggingEvent;
+import org.slf4j.helpers.SubstituteLogger;
 import org.unigrid.hedgehog.proxy.Expect;
 import org.unigrid.hedgehog.proxy.session.DestinationPolicy;
 import org.unigrid.hedgehog.proxy.session.Resolver;
@@ -48,6 +53,8 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
 
 public class DatagramDestinationsTest {
 	private static final int PORT = 53;
@@ -80,6 +87,7 @@ public class DatagramDestinationsTest {
 	private final AtomicLong clock = new AtomicLong(1_000_000);
 	private final List<Sent> sent = new ArrayList<>();
 	private final List<Runnable> lookups = new ArrayList<>();
+	private final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
 	private final AtomicInteger resolutions = new AtomicInteger();
 	private Map<String, List<String>> answers;
 
@@ -88,6 +96,7 @@ public class DatagramDestinationsTest {
 		clock.set(1_000_000);
 		sent.clear();
 		lookups.clear();
+		events.clear();
 		resolutions.set(0);
 		answers = Map.of("example.org", List.of("93.184.215.14", "2606:2800:21f::1"));
 	}
@@ -139,7 +148,8 @@ public class DatagramDestinationsTest {
 		Predicate<InetAddress> reachable) {
 
 		return new DatagramDestinations(policy, resolver, resolving, clock::get,
-			(address, port, bytes) -> sent.add(new Sent(address, port, bytes)), reachable);
+			(address, port, bytes) -> sent.add(new Sent(address, port, bytes)), reachable,
+			new SubstituteLogger("exit", events, false));
 	}
 
 	@Example
@@ -267,6 +277,27 @@ public class DatagramDestinationsTest {
 
 		assertThat(sent, is(empty()));
 		assertThat(unknown.dropped() + failing.dropped(), is(2L));
+	}
+
+	/* A refusal is how the policy answers, and stays unlogged. A failure of the policy or the resolver is a bug, whose
+	   log names the class alone, as its message may quote the destination. */
+	@Example
+	public void shouldLogOnlyTheClassOfAFailureAndNothingOfARefusal() {
+		final DatagramDestinations refusing = over(DestinationPolicy.publicOnly(), NEVER);
+		final DatagramDestinations failing = over(DestinationPolicy.publicOnly(), host -> {
+			throw new IllegalStateException("No room to reach " + host);
+		});
+
+		refusing.send(literal("10.1.2.3"), PAYLOAD);
+		refusing.send(name("localhost"), PAYLOAD);
+		assertThat(events.size(), is(0));
+
+		failing.send(name("example.org"), PAYLOAD);
+		assertThat(sent, is(empty()));
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { IllegalStateException.class.getName() }));
+		assertThat(events.peek().getMessage(), not(containsString("example.org")));
 	}
 
 	@Example
