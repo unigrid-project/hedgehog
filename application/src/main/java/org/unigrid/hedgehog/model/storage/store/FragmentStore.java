@@ -70,7 +70,6 @@ public class FragmentStore {
 	private static final String TEMPORARY_SUFFIX = ".tmp";
 	private static final String TOMBSTONES = "tombstones";
 	private static final int HEX_DIRECTORY = 2;
-	private static final int UNSIGNED_BYTE_MAX = 0xFF;
 
 	private final Path root;
 	private final Path tombstoneDirectory;
@@ -197,8 +196,9 @@ public class FragmentStore {
 	}
 
 	private static void requireUnsignedByte(String name, int value) {
-		if (value < 0 || value > UNSIGNED_BYTE_MAX) {
-			throw new IllegalArgumentException("The " + name + " must be within 0.." + UNSIGNED_BYTE_MAX);
+		if (value < 0 || value > FragmentFormat.UNSIGNED_BYTE_MAX) {
+			throw new IllegalArgumentException("The " + name + " must be within 0.."
+				+ FragmentFormat.UNSIGNED_BYTE_MAX);
 		}
 	}
 

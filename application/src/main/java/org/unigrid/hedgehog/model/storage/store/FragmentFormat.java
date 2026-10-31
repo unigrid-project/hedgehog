@@ -34,8 +34,7 @@ import org.unigrid.hedgehog.model.storage.store.FragmentStore.Tombstone;
 final class FragmentFormat {
 	static final int HEADER_SIZE = 4 + Long.BYTES;
 	static final int TOMBSTONE_SIZE = 2 * Long.BYTES + GroupKey.PUBLIC_KEY_SIZE + GroupKey.SIGNATURE_SIZE;
-
-	private static final int UNSIGNED_BYTE_MAX = 0xFF;
+	static final int UNSIGNED_BYTE_MAX = 0xFF;
 
 	/* [format u8][slots u8][tier u8][index u8][sequence u64][payload] */
 	static byte[] encodeFragment(final Holding holding, final byte[] payload) {
