@@ -58,8 +58,8 @@ public class ChainProducer {
 		return this::proxySettings;
 	}
 
-	/* A spork reloaded from disk may predate the checks of the receive handler, and ProxySettings would throw for
-	   the same values: the proxy stays off instead of failing */
+	/* Nothing validates a spork on receipt, so parameters that its checks or ProxySettings refuse turn the proxy
+	   off instead of failing */
 	Optional<ProxySettings> proxySettings() {
 		return Optional.ofNullable(sporkDatabase.getCommunicationSpork())
 			.<CommunicationSpork.SporkData>map(CommunicationSpork::getData)
