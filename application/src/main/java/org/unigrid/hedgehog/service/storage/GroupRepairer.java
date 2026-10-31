@@ -184,11 +184,9 @@ public class GroupRepairer {
 		   handover target could always do the same, and the spot check finds the loss later. */
 		private boolean isServedInWindow(final Survey survey) {
 			final Fragment local = survey.local();
-			final List<CompletableFuture<FragmentReply>> replies = claimsOf(survey.census()).entrySet().stream()
-				.filter(claim -> claim.getValue() == local.getIndex())
-				.map(claim -> transport.fetch(claim.getKey(), local.groupId())).collect(Collectors.toList());
 
-			return replies.stream().anyMatch(reply -> isSameSeal(reply, local));
+			return claimsOf(survey.census()).entrySet().stream().filter(claim -> claim.getValue() == local.getIndex())
+				.anyMatch(claim -> servesBack(claim.getKey(), local));
 		}
 
 		private void repair(final GroupId groupId, final int width) throws IOException {
