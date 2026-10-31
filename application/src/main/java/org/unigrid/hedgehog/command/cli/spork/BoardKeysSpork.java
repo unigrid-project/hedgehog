@@ -79,9 +79,9 @@ public class BoardKeysSpork extends SporkCommand<ProposedKeyChange> {
 	}
 
 	@Override
-	protected void propose(final GridSporkSet set, final ProposedKeyChange proposed) {
-		SporkProposal.propose(spec().commandLine(), type(), spork -> apply(proposed, spork), set.getBoardKey(),
-			key -> NetworkKey.isOneOf(key, proposed.getChange().getActive()),
+	protected int propose(final GridSporkSet set, final ProposedKeyChange proposed) {
+		return SporkProposal.propose(spec().commandLine(), type(), spork -> apply(proposed, spork),
+			set.getBoardKey(), key -> NetworkKey.isOneOf(key, proposed.getChange().getActive()),
 			sporks -> requireCounting(sporks, proposed), set.isFirstVersion());
 	}
 

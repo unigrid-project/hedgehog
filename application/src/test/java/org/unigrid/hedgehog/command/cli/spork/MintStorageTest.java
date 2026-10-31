@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +45,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.sameInstance;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
@@ -388,5 +390,37 @@ public class MintStorageTest {
 		final CommandSpec unknown = CommandSpec.create().addSubcommand(NAME, new CommandLine(new MintStorage()));
 
 		assertThrows(UnsupportedOperationException.class, () -> subcommand(unknown, NAME).run());
+	}
+
+	private static int exitCodeOf(Runnable command) {
+		return ((CommandLine.IExitCodeGenerator) command).getExitCode();
+	}
+
+	@Property(tries = 5)
+	public void exitsWithUnusableWithoutAnAddressOrAHeight(@ForAll("amounts") String amount,
+		@ForAll boolean withAddress) {
+
+		final Runnable command = grow("--height", amount, withAddress ? Optional.of(OLD) : Optional.empty(),
+			withAddress ? Optional.empty() : Optional.of("5"));
+
+		RestCommandFixture.run(command, Response.ok().build());
+		assertThat(exitCodeOf(command), equalTo(ExitCode.UNUSABLE));
+	}
+
+	@Property(tries = 4)
+	public void exitsWithWhatTheProposalCameTo(@ForAll("amounts") String amount, @ForAll boolean refused) {
+		final Runnable command = grow("--height", amount, Optional.of(OLD), Optional.of("5"));
+		final FakeSporkNode node = new FakeSporkNode();
+
+		RestCommandFixture.run(command, refused ? SporkCommands.refusing(node) : node);
+		assertThat(exitCodeOf(command), equalTo(refused ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	@Property(tries = 4)
+	public void exitsWithWhatTheReadCameTo(@ForAll("sporks") String spork, @ForAll boolean found) {
+		final Runnable command = subcommand(new GridSporkGet(), NAME);
+
+		RestCommandFixture.run(command, Response.status(found ? Status.OK : Status.NOT_FOUND).entity(spork).build());
+		assertThat(exitCodeOf(command), equalTo(found ? ExitCode.OK : ExitCode.FAILED));
 	}
 }

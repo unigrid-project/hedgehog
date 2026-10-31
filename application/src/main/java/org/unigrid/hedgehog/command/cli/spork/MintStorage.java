@@ -27,6 +27,7 @@ import java.time.format.DateTimeParseException;
 import java.util.regex.Pattern;
 import lombok.Getter;
 import org.apache.commons.lang3.ObjectUtils;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.Json;
@@ -37,17 +38,20 @@ import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
 
 @Command(name = "mint-storage")
-public class MintStorage implements Runnable {
+public class MintStorage implements Runnable, IExitCodeGenerator {
 	/* At most eighteen digits, so the number always fits a long before its range is judged */
 	private static final Pattern DIGITS = Pattern.compile("[0-9]{1,18}");
 
 	@Spec
 	private CommandSpec spec;
+
+	@Getter private int exitCode = ExitCode.OK;
 
 	@Getter @CommandLine.Option(names = "--address", scope = CommandLine.ScopeType.INHERIT,
 		description = "Address for the mint: an old-style Unigrid address, or a ledger account written as "
@@ -73,14 +77,17 @@ public class MintStorage implements Runnable {
 	@Override
 	public void run() {
 		if (spec.parent().userObject() instanceof GridSporkGet) {
-			new RestClientCommand(HttpMethod.GET, "/gridspork/mint-storage") {
+			final RestClientCommand get = new RestClientCommand(HttpMethod.GET, "/gridspork/mint-storage") {
 				@Override
 				protected void execute(Response response) {
 					System.out.println(Json.parse(response.readEntity(String.class)));
 				}
-			}.run();
+			};
+
+			get.run();
+			exitCode = get.getExitCode();
 		} else if (spec.parent().userObject() instanceof GridSporkGrow grow) {
-			grow(grow);
+			exitCode = grow(grow);
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();
@@ -88,16 +95,16 @@ public class MintStorage implements Runnable {
 	}
 
 	/* The mint is read before the key, as neither needs the node and a mistake in the mint is the likelier one */
-	private void grow(GridSporkGrow grow) {
+	private int grow(GridSporkGrow grow) {
 		if (ObjectUtils.anyNull(address, number)) {
 			System.out.println("Both the address and its block height or time have to be specified");
-			return;
+			return ExitCode.UNUSABLE;
 		}
 
 		final Location location = new Location(new Address(address), heightOfTheMint());
 		final BigDecimal amount = amountOf(GridSporkGrow.getData());
 
-		SporkProposal.propose(spec.commandLine(), GridSpork.Type.MINT_STORAGE,
+		return SporkProposal.propose(spec.commandLine(), GridSpork.Type.MINT_STORAGE,
 			spork -> spork.<SporkData>getData().getMints().put(location, amount),
 			grow.getBoardKey(), grow.isFirstVersion()
 		);

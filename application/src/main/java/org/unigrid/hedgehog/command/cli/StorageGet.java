@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 import lombok.SneakyThrows;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.server.rest.StorageResource;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,6 +61,7 @@ public class StorageGet extends FingerprintCommand {
 				save(partial);
 			} else {
 				System.err.println(INCOMPLETE);
+				setExitCode(ExitCode.FAILED);
 			}
 		} finally {
 			Files.deleteIfExists(partial);
@@ -81,6 +83,7 @@ public class StorageGet extends FingerprintCommand {
 			Files.move(partial, output, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 		} catch (IOException ex) {
 			System.err.println("The file was read back but could not be saved to " + output);
+			setExitCode(ExitCode.UNUSABLE);
 		}
 	}
 

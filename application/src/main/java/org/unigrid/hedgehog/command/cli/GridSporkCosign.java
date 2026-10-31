@@ -27,10 +27,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import lombok.Getter;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
@@ -42,6 +44,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
@@ -53,7 +56,7 @@ import picocli.CommandLine.Spec;
 	description = "Co-sign sporks awaiting a second board key, naming each by its digest from gridspork-pending. "
 		+ "What each one sets is shown beside what the node holds before it is signed on this machine."
 )
-public class GridSporkCosign implements Runnable {
+public class GridSporkCosign implements Runnable, IExitCodeGenerator {
 	private static final Pattern DIGEST = Pattern.compile("[0-9a-f]{128}");
 
 	@Mixin
@@ -73,6 +76,8 @@ public class GridSporkCosign implements Runnable {
 	@Spec
 	private CommandSpec spec;
 
+	@Getter private int exitCode = ExitCode.OK;
+
 	/* The key is judged once the board keys of the node are known, and by those that a change of the board keys which
 	   waits on the node makes active: a key that the change adds co-signs it */
 	@Override
@@ -89,11 +94,17 @@ public class GridSporkCosign implements Runnable {
 			final String key = boardKey.requireBoardKey(given, candidate -> NetworkKey.isTrusted(candidate)
 				|| NetworkKey.isOneOf(candidate, proposedBoardKeys(sporks)));
 
-			digests.forEach(digest -> cosign(sporks, digest, key));
+			for (String digest : digests) {
+				if (cosign(sporks, digest, key) != ExitCode.OK) {
+					exitCode = ExitCode.FAILED;
+				}
+			}
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
+			exitCode = ExitCode.FAILED;
 		} catch (UntrustedSporkException ex) {
 			System.err.println("Nothing was co-signed: " + TerminalText.printable(ex.getMessage()));
+			exitCode = ExitCode.FAILED;
 		}
 	}
 
@@ -120,8 +131,8 @@ public class GridSporkCosign implements Runnable {
 		}
 	}
 
-	/* Each digest is tried on its own, so one that fails leaves the others to be co-signed */
-	private void cosign(SporkClient sporks, String digest, String key) {
+	/* Each digest is tried on its own, so one that fails leaves the others to be co-signed, and gives FAILED */
+	private int cosign(SporkClient sporks, String digest, String key) {
 		try {
 			final Optional<GridSpork> proposal = sporks.proposal(digest);
 
@@ -131,19 +142,21 @@ public class GridSporkCosign implements Runnable {
 				System.out.println("The node answered " + digest + " with another spork, which was not "
 					+ "co-signed");
 			} else {
-				System.out.println(cosigned(sporks, proposal.get(), digest, key));
+				return cosigned(sporks, proposal.get(), digest, key);
 			}
 		} catch (ResponseOddityException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 		} catch (UntrustedSporkException | SigningException | IllegalArgumentException | IOException ex) {
 			System.out.println("Co-signing " + digest + " refused: " + TerminalText.printable(ex.getMessage()));
 		}
+
+		return ExitCode.FAILED;
 	}
 
 	/* The proposal is co-signed only once it is known to be what a current board key made from the stored spork,
 	   which in turn is known to be what the network took. A stored spork that a key signed which the board switched
 	   off since is signed again only by name, by the second board member as by the first. */
-	private String cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
+	private int cosigned(SporkClient sporks, GridSpork proposal, String digest, String key)
 		throws ResponseOddityException, UntrustedSporkException, SigningException, IOException {
 
 		final GridSpork.Type type = proposal.getType();
@@ -165,9 +178,11 @@ public class GridSporkCosign implements Runnable {
 		proposal.cosign(key);
 
 		final Response answer = sporks.submit(proposal);
+		final boolean taken = answer.getStatus() == Status.OK.getStatusCode();
 
-		return answer.getStatus() == Status.OK.getStatusCode() ? "Co-signed " + digest
-			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer));
+		System.out.println(taken ? "Co-signed " + digest
+			: "Co-signing " + digest + " refused: " + TerminalText.printable(SporkClient.textOf(answer)));
+		return taken ? ExitCode.OK : ExitCode.FAILED;
 	}
 
 	/* A node that holds none of the type may be one that never got it, or one that hides it, and what is co-signed over

@@ -20,10 +20,13 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import lombok.Getter;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Spec;
 
@@ -32,9 +35,11 @@ import picocli.CommandLine.Spec;
    is built with it, signed on this machine with the board key and handed to the node. What differs from one spork to
    the next is where it is shown, how its data is read and what the data changes; the rest is here. */
 @Command
-abstract class SporkCommand<D> implements Runnable {
+abstract class SporkCommand<D> implements Runnable, IExitCodeGenerator {
 	@Spec
 	private CommandSpec spec;
+
+	@Getter private int exitCode = ExitCode.OK;
 
 	protected abstract String location();
 
@@ -54,9 +59,9 @@ abstract class SporkCommand<D> implements Runnable {
 	@Override
 	public final void run() {
 		if (spec.parent().userObject() instanceof GridSporkGet) {
-			get();
+			exitCode = get();
 		} else if (spec.parent().userObject() instanceof GridSporkSet set) {
-			propose(set, read(GridSporkSet.getData()));
+			exitCode = propose(set, read(GridSporkSet.getData()));
 		} else {
 			/* Will only happen if we forget to extend this method */
 			throw new UnsupportedOperationException();
@@ -64,17 +69,20 @@ abstract class SporkCommand<D> implements Runnable {
 	}
 
 	/* The next version, signed with a key that is active on the node */
-	protected void propose(GridSporkSet set, D data) {
-		SporkProposal.propose(spec.commandLine(), type(), spork -> apply(data, spork), set.getBoardKey(),
+	protected int propose(GridSporkSet set, D data) {
+		return SporkProposal.propose(spec.commandLine(), type(), spork -> apply(data, spork), set.getBoardKey(),
 			set.isFirstVersion());
 	}
 
-	private void get() {
-		new RestClientCommand(HttpMethod.GET, location()) {
+	private int get() {
+		final RestClientCommand get = new RestClientCommand(HttpMethod.GET, location()) {
 			@Override
 			protected void execute(final Response response) {
 				System.out.println(Json.parse(response.readEntity(String.class)));
 			}
-		}.run();
+		};
+
+		get.run();
+		return get.getExitCode();
 	}
 }

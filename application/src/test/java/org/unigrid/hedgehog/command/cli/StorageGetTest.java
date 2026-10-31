@@ -53,6 +53,7 @@ import net.jqwik.api.statistics.Statistics;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.server.rest.StorageResource;
 import picocli.CommandLine;
@@ -221,5 +222,36 @@ public class StorageGetTest {
 		}
 
 		assertThat(line.getCommandSpec().findOption("-f").getValue(), equalTo(fingerprint));
+	}
+
+	@SneakyThrows
+	@Property(tries = 30)
+	public void exitsWithFailedUnlessTheWholeFileCameBack(@ForAll @Size(max = 4096) final byte[] file,
+		@ForAll @IntRange(max = 64) final int missing, @ForAll final boolean breaks) {
+
+		final boolean complete = !breaks && (missing == 0 || file.length == 0);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final StorageGet command = storageGet(fs);
+
+			prepare(fs, Optional.empty());
+			body = breaks ? breakingAfter(file) : new ByteArrayInputStream(file, 0,
+				file.length - Math.min(missing, file.length));
+			command.execute(announcing(file.length + (breaks ? missing : 0)));
+			assertThat(command.getExitCode(), equalTo(complete ? ExitCode.OK : ExitCode.FAILED));
+		}
+	}
+
+	@SneakyThrows
+	@Example
+	public void exitsWithUnusableWhenTheOutputCannotBeReplaced() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final StorageGet command = storageGet(fs);
+
+			Files.createDirectories(fs.getPath(OUTPUT).resolve("occupied"));
+			body = new ByteArrayInputStream(new byte[] { 1, 2, 3 });
+			command.execute(announcing(3));
+			assertThat(command.getExitCode(), equalTo(ExitCode.UNUSABLE));
+		}
 	}
 }

@@ -33,6 +33,7 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
@@ -67,16 +68,17 @@ public final class SporkProposal {
 		void check(SporkClient sporks) throws ResponseOddityException, UntrustedSporkException, IOException;
 	}
 
-	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+	public static int propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
 		BoardKeyOptions boardKey, boolean firstVersion) {
 
-		propose(commandLine, type, change, boardKey, NetworkKey::isTrusted, sporks -> { }, firstVersion);
+		return propose(commandLine, type, change, boardKey, NetworkKey::isTrusted, sporks -> { }, firstVersion);
 	}
 
 	/* A node can answer that it holds no spork of a type when the network holds one, and a first version takes the place
 	   of any other first version however old, so one is made only when the operator says so. The key is judged once the
-	   board keys of the node are known, as a key that the board added since the release is one of them. */
-	public static void propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
+	   board keys of the node are known, as a key that the board added since the release is one of them. Gives FAILED
+	   when nothing was proposed or the node refused the proposal. */
+	public static int propose(CommandLine commandLine, GridSpork.Type type, Consumer<GridSpork> change,
 		BoardKeyOptions boardKey, Predicate<String> isSigner, Check check, boolean firstVersion) {
 
 		final String given = boardKey.resolve();
@@ -105,7 +107,7 @@ public final class SporkProposal {
 			show("Stored " + type + " data:", stored);
 			show("Proposed " + type + " data, signed now:", Optional.of(spork));
 			spork.sign(key);
-			print(sporks.submit(spork));
+			return print(sporks.submit(spork));
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 		} catch (UntrustedSporkException ex) {
@@ -113,6 +115,8 @@ public final class SporkProposal {
 		} catch (SigningException | IllegalArgumentException ex) {
 			System.err.println("The spork was not proposed: " + TerminalText.printable(ex.getMessage()));
 		}
+
+		return ExitCode.FAILED;
 	}
 
 	private static void requireFirstVersion(CommandLine commandLine, GridSpork.Type type, boolean firstVersion) {
@@ -167,8 +171,9 @@ public final class SporkProposal {
 	}
 
 	/* The status, and the proposal as the node holds it, with the digest that gridspork-cosign takes. The status says
-	   whether the node took the spork, so an answer too big to read is only said to be so. */
-	public static void print(Response response) throws IOException {
+	   whether the node took the spork, so an answer too big to read is only said to be so. The exit code that this
+	   gives says the same as the status. */
+	public static int print(Response response) throws IOException {
 		System.out.println(TerminalText.printable(String.valueOf(response.getStatusInfo())));
 
 		if (response.hasEntity()) {
@@ -182,5 +187,7 @@ public final class SporkProposal {
 				System.out.println(ex.getMessage());
 			}
 		}
+
+		return RestClientCommand.exitCodeOf(response);
 	}
 }

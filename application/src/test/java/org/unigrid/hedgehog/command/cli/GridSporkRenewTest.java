@@ -25,6 +25,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -40,9 +41,12 @@ import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.ExitCode;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.refusing;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -159,5 +163,54 @@ public class GridSporkRenewTest {
 	public void refusesAKeyThatIsNoBoardKeyOnceItKnowsTheBoardKeysOfTheNode() {
 		assertThat(SporkCommands.refusalOnceAsked(renew(STRANGER.getPrivateKey()), new FakeSporkNode()),
 			containsString("not one of the current"));
+	}
+
+	@Property(tries = 3)
+	public void exitsWithOkOnceEverySporkIsProposedOrNoneIsStored(@ForAll boolean empty) {
+		final FakeSporkNode node = empty ? new FakeSporkNode()
+			: new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf(10)));
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+
+		RestCommandFixture.run(command, node);
+		assertThat(command.getExitCode(), equalTo(ExitCode.OK));
+	}
+
+	@Example
+	public void exitsWithFailedWhenTheNodeRefusesARenewal() {
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+
+		RestCommandFixture.run(command, refusing(new FakeSporkNode().holding(stored(Type.MINT_SUPPLY,
+			supplyOf(10)))));
+
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	@Example
+	public void exitsWithFailedWhenOneSporkCannotBeRenewed() {
+		final GridSpork forged = proposal(Type.LEDGER_FEE, null, new LedgerFee.SporkData(), STRANGER);
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+
+		RestCommandFixture.run(command, new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf(10)), forged));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	@Property(tries = 3)
+	public void exitsWithFailedOnAnOddAnswer(@ForAll Status status) {
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+
+		RestCommandFixture.runWithOddity(command, new ResponseOddityException(status));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* As the shell sees it: through the command line of the application */
+	@Property(tries = 2)
+	public void exitsWithWhatTheRenewalCameToOnTheCommandLine(@ForAll boolean refused) {
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf(10)));
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-renew", "--key",
+			PROPOSER.getPrivateKey())), refused ? refusing(node) : node);
+
+		assertThat(cli.get().exitCode(), equalTo(refused ? ExitCode.FAILED : ExitCode.OK));
 	}
 }

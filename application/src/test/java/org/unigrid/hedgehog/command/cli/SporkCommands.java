@@ -178,6 +178,12 @@ public final class SporkCommands {
 			? Response.noContent().build() : answer.respond(request);
 	}
 
+	/* A node that answers as the one given, but refuses every spork handed to it */
+	public static Answer refusing(Answer node) {
+		return request -> HttpMethod.POST.equals(request.method())
+			? Response.status(Status.CONFLICT).entity("The spork does not follow on").build() : node.respond(request);
+	}
+
 	/* The usage error of a command that asked the node for its board keys first and handed it nothing: a key is
 	   judged by them */
 	public static String refusalOnceAsked(Runnable command, Answer node) {

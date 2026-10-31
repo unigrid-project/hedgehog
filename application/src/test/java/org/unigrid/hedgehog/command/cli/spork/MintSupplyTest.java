@@ -25,6 +25,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -39,17 +40,21 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.lessThan;
+import org.unigrid.hedgehog.command.ExitCode;
+import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.cli.SporkCommands;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.refusal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.refusing;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
@@ -207,5 +212,29 @@ public class MintSupplyTest {
 		final CommandSpec unknown = CommandSpec.create().addSubcommand(NAME, new CommandLine(new MintSupply()));
 
 		assertThrows(UnsupportedOperationException.class, () -> subcommand(unknown, NAME).run());
+	}
+
+	/* As the shell sees it: through the command line of the application */
+	private static int exitCodeOf(Answer node, String... arguments) {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run(arguments)), node);
+		return cli.get().exitCode();
+	}
+
+	@Property(tries = 4)
+	public void exitsWithWhatTheProposalCameTo(@ForAll("supplies") String supply, @ForAll boolean refused) {
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf("10")));
+
+		assertThat(exitCodeOf(refused ? refusing(node) : node, "cli", "gridspork-set", "--data", supply, "--key",
+			PROPOSER.getPrivateKey(), NAME), equalTo(refused ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	@Property(tries = 4)
+	public void exitsWithWhatTheReadCameTo(@ForAll("sporks") String spork, @ForAll boolean found) {
+		final Response answer = Response.status(found ? Status.OK : Status.NOT_FOUND).entity(spork).build();
+
+		assertThat(exitCodeOf(request -> answer, "cli", "gridspork-get", NAME),
+			equalTo(found ? ExitCode.OK : ExitCode.FAILED));
 	}
 }

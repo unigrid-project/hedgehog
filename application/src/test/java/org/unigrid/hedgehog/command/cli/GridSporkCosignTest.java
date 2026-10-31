@@ -43,6 +43,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
@@ -246,5 +247,41 @@ public class GridSporkCosignTest {
 	public void requiresADigest() {
 		assertThrows(CommandLine.MissingParameterException.class,
 			() -> new CommandLine(new GridSporkCosign()).parseArgs("-k", "key"));
+	}
+
+	@Property(tries = 3)
+	public void exitsWithOkOnlyWhenEveryDigestIsCoSigned(@ForAll("digests") List<String> unknown,
+		@ForAll boolean withUnknown) {
+
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(7));
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(8), PROPOSER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored).waitingOn(proposal);
+		final GridSporkCosign command = cosign(COSIGNER.getPrivateKey(), Stream.concat(Stream.of(
+			PendingSporks.digestOf(proposal)), withUnknown ? unknown.stream() : Stream.empty()).toList());
+
+		RestCommandFixture.run(command, node);
+		assertThat(node.stored(Type.MINT_SUPPLY).isDoublySigned(), is(true));
+		assertThat(command.getExitCode(), equalTo(withUnknown ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	@Example
+	public void exitsWithFailedWhenTheCoSignatureIsRefused() {
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, null, supplyOf(5), PROPOSER);
+		final GridSporkCosign command = cosign(PROPOSER.getPrivateKey(), List.of(PendingSporks.digestOf(proposal)));
+
+		RestCommandFixture.run(command, new FakeSporkNode().waitingOn(proposal));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	@Property(tries = 3)
+	public void exitsWithFailedOnAnOddAnswer(@ForAll("digests") List<String> digests, @ForAll Status status) {
+		final ResponseOddityException oddity = new ResponseOddityException(status);
+		final GridSporkCosign command = cosign(COSIGNER.getPrivateKey(), digests);
+
+		RestCommandFixture.run(command, SporkCommands.withoutBoardKeys(request -> {
+			throw oddity;
+		}));
+
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
 	}
 }

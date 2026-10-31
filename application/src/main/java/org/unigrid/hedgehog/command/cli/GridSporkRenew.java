@@ -24,10 +24,12 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import lombok.Getter;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
 import org.unigrid.hedgehog.command.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
@@ -36,6 +38,7 @@ import org.unigrid.hedgehog.model.crypto.SigningException;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 
@@ -44,12 +47,14 @@ import picocli.CommandLine.Option;
 		+ "spork data unchanged. A second board key accepts the proposals with gridspork-cosign. A spork that a "
 		+ "board key signed which the board switched off since is renewed only when --switched-off names its type."
 )
-public class GridSporkRenew implements Runnable {
+public class GridSporkRenew implements Runnable, IExitCodeGenerator {
 	@Mixin
 	private BoardKeyOptions boardKey;
 
 	@Option(names = "--switched-off", paramLabel = "<type>", description = SporkProposal.SWITCHED_OFF)
 	private Set<GridSpork.Type> switchedOff = EnumSet.noneOf(GridSpork.Type.class);
+
+	@Getter private int exitCode = ExitCode.OK;
 
 	/* The key is judged once the board keys of the node are known, as a key that the board added since the release is
 	   one of them */
@@ -70,13 +75,17 @@ public class GridSporkRenew implements Runnable {
 			}
 
 			for (GridSpork spork : renewed) {
-				SporkProposal.print(sporks.submit(spork));
+				if (SporkProposal.print(sporks.submit(spork)) != ExitCode.OK) {
+					exitCode = ExitCode.FAILED;
+				}
 			}
 		} catch (ResponseOddityException | IOException ex) {
 			System.err.println(RestClientCommand.describe(ex));
+			exitCode = ExitCode.FAILED;
 		} catch (UntrustedSporkException | SigningException | IllegalArgumentException ex) {
 			System.err.println("Renewing refused, nothing was proposed: "
 				+ TerminalText.printable(ex.getMessage()));
+			exitCode = ExitCode.FAILED;
 		}
 	}
 
