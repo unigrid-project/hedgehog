@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,6 +43,8 @@ import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import static org.unigrid.hedgehog.command.option.NetOptions.DEFAULT_PORT;
 import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
+import org.unigrid.hedgehog.jqwik.Expect;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Dialed;
@@ -50,6 +53,9 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class NodeResourceTest extends BaseRestClientTest {
+	/* A port that is no number, and a host that does not resolve */
+	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", "no-such-host.invalid");
+
 	@Mocked
 	private Connection emptyConnection;
 
@@ -192,6 +198,28 @@ public class NodeResourceTest extends BaseRestClientTest {
 		} catch (ResponseOddityException ex) {
 			assertThat(ex.getMessage(), containsString("Bad Request"));
 		}
+	}
+
+	private void assertBadRequest(Expect.Action request) {
+		final ResponseOddityException refusal = assertThrows(ResponseOddityException.class, request);
+
+		assertThat(refusal.getStatusCode(), equalTo(Status.BAD_REQUEST.getStatusCode()));
+		assertThat(refusal.getBody(), is(emptyString()));
+	}
+
+	@Example
+	public void shouldAnswerABadRequestWhenLookingForAnAddressThatIsNoNode() {
+		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.get("/node/" + address)));
+	}
+
+	@Example
+	public void shouldAnswerABadRequestWhenAddingAnAddressThatIsNoNode() {
+		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.post("/node", Entity.text(address))));
+	}
+
+	@Example
+	public void shouldAnswerABadRequestWhenRemovingAnAddressThatIsNoNode() {
+		BAD_ADDRESSES.forEach(address -> assertBadRequest(() -> client.delete("/node/" + address)));
 	}
 
 	@SneakyThrows
