@@ -19,11 +19,9 @@
 package org.unigrid.hedgehog.model;
 
 import java.util.Arrays;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
 
-@Slf4j
 public class Network {
 	/* The ledger protocol is offered first: a node that knows it settles on it with another that does, and a node that
 	   does not know it settles on the next one, which is what a node of an earlier release offers first. Whether a
@@ -111,15 +109,6 @@ public class Network {
 	}
 
 	public static String[] getSeeds() {
-		try {
-			if (NetOptions.isSeeds()) {
-				return SEEDS;
-			}
-		} catch (ClassCastException ex) {
-			// TODO: Some weird exception that only seems to happen during testing?
-			log.atError().log("Failed to get seeds {}", ex.getMessage());
-		}
-
-		return new String[0];
+		return NetOptions.isSeeds() ? SEEDS : new String[0];
 	}
 }

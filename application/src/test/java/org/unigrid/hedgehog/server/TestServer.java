@@ -50,8 +50,9 @@ public class TestServer {
 	@Inject @Getter
 	private SocksServer socks;
 
+	/* A server of the tests has no seeds: the mocked NetOptions.isSeeds() gives false, so Network.getSeeds() gives none */
 	public static void mockProperties(TestServer server) {
-		mockProperties();
+		mockOptions();
 
 		CDIUtil.instantiate(server.getP2p());
 		CDIUtil.instantiate(server.getRest());
@@ -70,8 +71,17 @@ public class TestServer {
 		CDIUtil.instantiate(server.getSocks());
 	}
 
+	/* Only for tests that mock Network. Where it is not mocked, recording Network.getSeeds() runs it and so records the
+	   NetOptions.isSeeds() it calls, which then hands out the seeds where a boolean is expected. */
 	public static void mockProperties() {
+		mockOptions();
 
+		new Expectations() {{
+			Network.getSeeds(); result = new String[] { "127.0.200.1", "127.0.200.2", "127.0.200.3" };
+		}};
+	}
+
+	private static void mockOptions() {
 		new Expectations() {{
 			int port = FreePortFinder.findFreeLocalPort();
 
@@ -79,7 +89,6 @@ public class TestServer {
 			NetOptions.getPort(); result = port;
 			RestOptions.getHost(); result = "localhost";
 			RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
-			Network.getSeeds(); result = new String[] { "127.0.200.1", "127.0.200.2", "127.0.200.3" };
 		}};
 	}
 }
