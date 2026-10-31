@@ -101,6 +101,8 @@ final class UdpAssociation implements AssociationListener {
 			clientAddress = ((InetSocketAddress) control.channel().remoteAddress()).getAddress();
 			stream = tunnel.associate(country, this);
 		} catch (RuntimeException ex) {
+			log.warn("Refusing an association after an unexpected {} while starting it",
+				ex.getClass().getName());
 			refuse(Socks5CommandStatus.FAILURE);
 		}
 	}
@@ -173,6 +175,8 @@ final class UdpAssociation implements AssociationListener {
 		try {
 			binder.bind(control.channel(), new Receiver()).addListener((ChannelFutureListener) this::bound);
 		} catch (RuntimeException ex) {
+			log.warn("Refusing an association after an unexpected {} while binding its socket",
+				ex.getClass().getName());
 			fail();
 		}
 	}
@@ -196,6 +200,8 @@ final class UdpAssociation implements AssociationListener {
 		try {
 			reply = success((InetSocketAddress) socket.localAddress());
 		} catch (RuntimeException ex) {
+			log.warn("Refusing an association after an unexpected {} while building its reply",
+				ex.getClass().getName());
 			socket.close();
 			fail();
 			return;
@@ -252,13 +258,16 @@ final class UdpAssociation implements AssociationListener {
 		}
 	}
 
-	/* An association that throws on a send is broken, and the client is hung up on rather than left sending into it */
+	/* An association that throws on a send is broken, and the client is hung up on rather than left sending into
+	   it. Only the class of the failure is logged, as its message may name the destination. */
 	private void relay(Datagram datagram) {
 		try {
 			if (!stream.send(datagram.address(), datagram.bytes())) {
 				drop();
 			}
 		} catch (RuntimeException ex) {
+			log.warn("Closing an association after an unexpected {} while sending a datagram",
+				ex.getClass().getName());
 			control.close();
 		}
 	}

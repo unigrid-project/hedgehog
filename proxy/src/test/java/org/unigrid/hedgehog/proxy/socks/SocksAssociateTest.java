@@ -907,6 +907,85 @@ public class SocksAssociateTest {
 		assertThat(events.size(), is(1));
 	}
 
+	private UdpAssociation logging(Queue<SubstituteLoggingEvent> events) {
+		return new UdpAssociation(control.pipeline().context(handler), binder(SOCKET), 0,
+			new SubstituteLogger("udp", events, false));
+	}
+
+	private static void assertLoggedClassOnly(Queue<SubstituteLoggingEvent> events, Class<?> failure) {
+		assertThat(events.size(), is(1));
+		assertThat(events.peek().getLevel(), is(Level.WARN));
+		assertThat(events.peek().getArgumentArray(), equalTo(new Object[] { failure.getName() }));
+	}
+
+	/* The messages of the failures below name a tunnel and a loop; only the class of each is logged */
+	@Example
+	public void shouldLogOnlyTheClassOfATunnelThatThrowsOnTheAssociation() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final UdpAssociation association = logging(events);
+
+		association.start(new Tunnel() {
+			@Override
+			public TunnelStream open(SocksAddress destination, Optional<String> country, TunnelListener listener) {
+				throw new IllegalStateException("The tunnel is down");
+			}
+
+			@Override
+			public AssociationStream associate(Optional<String> country, AssociationListener listener) {
+				throw new IllegalStateException("The tunnel is down");
+			}
+		}, Optional.of("SE"));
+
+		assertReply(reply(control), Socks5CommandStatus.FAILURE, UNSPECIFIED);
+		assertLoggedClassOnly(events, IllegalStateException.class);
+	}
+
+	@Example
+	public void shouldLogOnlyTheClassOfABinderThatThrows() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final UdpAssociation association = new UdpAssociation(control.pipeline().context(handler),
+			(connection, socketHandler) -> {
+				throw new IllegalStateException("The loop is shutting down");
+			}, 0, new SubstituteLogger("udp", events, false));
+
+		association.start(tunnel, Optional.empty());
+		tunnel.association().open();
+		control.runPendingTasks();
+
+		assertReply(reply(control), Socks5CommandStatus.FAILURE, UNSPECIFIED);
+		assertLoggedClassOnly(events, IllegalStateException.class);
+	}
+
+	@Example
+	public void shouldLogOnlyTheClassOfASocketAddressTheReplyCannotCarry() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final UdpAssociation association = new UdpAssociation(control.pipeline().context(handler),
+			binder(InetSocketAddress.createUnresolved("proxy.test", 40_500)), 0,
+			new SubstituteLogger("udp", events, false));
+
+		association.start(tunnel, Optional.empty());
+		tunnel.association().open();
+		control.runPendingTasks();
+
+		assertReply(reply(control), Socks5CommandStatus.FAILURE, UNSPECIFIED);
+		assertLoggedClassOnly(events, IllegalArgumentException.class);
+	}
+
+	@Example
+	public void shouldLogOnlyTheClassOfAnAssociationThatBreaksOnASend() {
+		final Queue<SubstituteLoggingEvent> events = new ArrayDeque<>();
+		final UdpAssociation association = logging(events);
+
+		association.start(tunnel, Optional.empty());
+		tunnel.association().open();
+		control.runPendingTasks();
+		tunnel.association().broken = true;
+		sendFrom(CLIENT, packet(REMOTE, new byte[] { 1 }));
+
+		assertThat(control.isOpen(), is(false));
+		assertLoggedClassOnly(events, IllegalStateException.class);
+	}
+
 	@Example
 	public void shouldEndWithTheControlConnection() {
 		final EchoTunnel.EchoAssociation association = associated();
