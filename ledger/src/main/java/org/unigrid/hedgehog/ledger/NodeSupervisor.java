@@ -140,6 +140,26 @@ final class NodeSupervisor {
 		return ledger;
 	}
 
+	/* The height of the ledger */
+	long height() {
+		return ledger.height();
+	}
+
+	/* Where the chain of the ledger stands, read at once */
+	Status status() {
+		return ledger.status();
+	}
+
+	/* Whether the ledger holds the transaction already */
+	boolean holds(Transaction transaction) {
+		return ledger.holds(transaction);
+	}
+
+	/* Whether the ledger holds another block at the height of this one (see ChainGuard.conflictsWithHeld) */
+	boolean conflictsWithHeld(Block block) {
+		return ChainGuard.conflictsWithHeld(ledger, block);
+	}
+
 	/* Whether a promotion that failed has waited long enough to be tried again */
 	boolean promotionDue() {
 		return clock.getAsLong() >= nextPromotion;

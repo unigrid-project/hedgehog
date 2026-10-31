@@ -309,7 +309,7 @@ public final class LedgerDriver implements Closeable {
 	/* For the tests of this package: whether the peer claims a chain above the ledger, and the claim stands */
 	boolean claimedAbove(String peer) {
 		return supervisor.ledger() != null
-			&& sync.claimsAbove(peer, supervisor.ledger().height(), clock.getAsLong());
+			&& sync.claimsAbove(peer, supervisor.height(), clock.getAsLong());
 	}
 
 	/* For the tests of this package: the driver stops as it does when what it stands on fails */
@@ -342,7 +342,7 @@ public final class LedgerDriver implements Closeable {
 	/* A transaction that waits here already comes again from every peer that offers what waits for a block, so a copy
 	   is told apart before it takes a token that all peers share */
 	private boolean waitsAlready(Transaction transaction) {
-		return supervisor.ready() && supervisor.ledger().holds(transaction);
+		return supervisor.ready() && supervisor.holds(transaction);
 	}
 
 	public void onHeartbeat(LedgerPeer from, Heartbeat heartbeat, int bytes) {
@@ -383,7 +383,7 @@ public final class LedgerDriver implements Closeable {
 			return false;
 		}
 
-		if (ChainGuard.conflictsWithHeld(supervisor.ledger(), block)) {
+		if (supervisor.conflictsWithHeld(block)) {
 			limiter.misbehaved(item.from().id(), Gossip.MESSAGE_COST);
 			return false;
 		}
@@ -683,7 +683,7 @@ public final class LedgerDriver implements Closeable {
 		final long now = clock.getAsLong();
 
 		if (supervisor.votes() && due(lastHeartbeat, now, options.heartbeatMillis())) {
-			final Status tip = supervisor.ledger().status();
+			final Status tip = supervisor.status();
 			final Heartbeat beat = Heartbeat.signed(seed, tip.chainId(), tip.height(), tip.tipHash(), now);
 
 			lastHeartbeat = now;
@@ -706,7 +706,7 @@ public final class LedgerDriver implements Closeable {
 		if (due(lastSent, now, STATUS_GAP_MILLIS)) {
 			lastSent = now;
 			lastStatus = now;
-			gossip.toAll(supervisor.ledger().status());
+			gossip.toAll(supervisor.status());
 		}
 	}
 

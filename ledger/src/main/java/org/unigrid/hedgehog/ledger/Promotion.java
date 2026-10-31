@@ -87,7 +87,7 @@ final class Promotion {
 	private boolean caughtUp() {
 		final OptionalLong highest = sync.highest(clock.getAsLong());
 
-		return graceElapsed && (highest.isEmpty() || supervisor.ledger().height() >= highest.getAsLong()
+		return graceElapsed && (highest.isEmpty() || supervisor.height() >= highest.getAsLong()
 			|| !sync.holdsBack());
 	}
 

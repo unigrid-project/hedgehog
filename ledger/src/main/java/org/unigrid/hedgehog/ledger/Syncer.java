@@ -101,7 +101,7 @@ final class Syncer {
 	   here a moment later. A claim that is one block above still, a tick later, is. */
 	void startSync(long margin) {
 		if (supervisor.ready() && !sync.running()) {
-			final long height = supervisor.ledger().height();
+			final long height = supervisor.height();
 
 			sync.firstAbove(height + margin - 1, clock.getAsLong()).ifPresent(claim -> {
 				sync.begin(height);
@@ -111,7 +111,7 @@ final class Syncer {
 	}
 
 	private void ask(LedgerPeer peer) {
-		final BlockRequest request = new BlockRequest(supervisor.ledger().height() + 1, BlockBatch.MAX_BLOCKS);
+		final BlockRequest request = new BlockRequest(supervisor.height() + 1, BlockBatch.MAX_BLOCKS);
 		final Object attempt = new Object();
 
 		outstanding = attempt;
@@ -198,7 +198,7 @@ final class Syncer {
 		sync.delivered(peer.id());
 
 		if (answers(request, batch)) {
-			step(peer, batch.blocks(), 0, supervisor.ledger().height());
+			step(peer, batch.blocks(), 0, supervisor.height());
 		} else {
 			blame(peer);
 			abandon(peer);
@@ -235,7 +235,7 @@ final class Syncer {
 			return false;
 		}
 
-		final long before = supervisor.ledger().height();
+		final long before = supervisor.height();
 
 		if (block.getHeight() <= before) {
 			return echoes(peer, block);
@@ -251,7 +251,7 @@ final class Syncer {
 	/* A block the ledger holds is an echo. Another block at that height that no quorum has certified, for if one had
 	   the driver would have halted, is something that no honest peer serves. */
 	private boolean echoes(LedgerPeer peer, Block block) {
-		final boolean conflicting = ChainGuard.conflictsWithHeld(supervisor.ledger(), block);
+		final boolean conflicting = supervisor.conflictsWithHeld(block);
 
 		if (conflicting) {
 			blame(peer);
@@ -261,7 +261,7 @@ final class Syncer {
 	}
 
 	private boolean movedUpByOne(long before, LedgerPeer peer) {
-		final boolean moved = supervisor.ledger().height() == before + 1;
+		final boolean moved = supervisor.height() == before + 1;
 
 		if (!moved) {
 			blame(peer);
@@ -285,7 +285,7 @@ final class Syncer {
 
 	/* Nothing from a peer that said it was ahead is a claim it cannot back up; a batch of echoes only is not a fault */
 	private void carryOn(LedgerPeer peer, boolean empty, long before) {
-		final long height = supervisor.ledger().height();
+		final long height = supervisor.height();
 
 		if (empty) {
 			limiter.misbehaved(peer.id(), EMPTY_BATCH_COST);
@@ -325,7 +325,7 @@ final class Syncer {
 	private void conclude() {
 		final long began = sync.end();
 
-		if (supervisor.ready() && supervisor.ledger().height() > began) {
+		if (supervisor.ready() && supervisor.height() > began) {
 			hooks.sendStatus().run();
 		}
 
