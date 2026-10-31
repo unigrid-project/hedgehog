@@ -469,8 +469,9 @@ public class GridSpork implements Serializable, Signable {
 	}
 
 	/* The generation is read before the keys, so a standing worked out over keys that changed meanwhile is worked out
-	   again. A spork that cannot be encoded to check its signatures over has no signer, while one whose checks were
-	   not paid for has no standing yet. */
+	   again. A spork that cannot be encoded to check its signatures over, or a key that does not decode, makes no
+	   signer, while one whose checks were not paid for has no standing yet. Any other failure is one of the checks
+	   themselves, and is told of by its class only. */
 	private Standing standing() {
 		final long generation = NetworkKey.getGeneration();
 		final Standing known = standing;
@@ -485,7 +486,11 @@ public class GridSpork implements Serializable, Signable {
 			judged = judgedBy(generation, headKeys());
 		} catch (ChecksSpentException ex) {
 			throw ex;
+		} catch (IllegalArgumentException ex) {
+			judged = new Standing(generation, false, false);
 		} catch (RuntimeException ex) {
+			log.warn("Checking which active keys signed the {} spork failed with {}", type,
+				ex.getClass().getName());
 			judged = new Standing(generation, false, false);
 		}
 

@@ -24,8 +24,10 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import mockit.Invocation;
 import mockit.Mock;
@@ -40,6 +42,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import org.slf4j.LoggerFactory;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.ChecksSpentException;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
@@ -59,38 +62,49 @@ public class SporkCheckFailureTest {
 
 	@AfterTry
 	public void after() {
+		FAILING.set(null);
 		NetworkKey.reset();
 	}
 
-	/* A fake outlasts the try that makes it, so the checks of the spork given fail, while those of any other go on */
-	private static void failSignerOf(GridSpork spork, Supplier<RuntimeException> failure) {
-		final byte[] signature = spork.getSignature();
+	/* A fake outlasts the try that makes it, and one made again calls itself where it proceeds, so each fake is made
+	   once and fails the checks of the spork named here only */
+	private record Failing(Object target, Supplier<RuntimeException> failure) {
+	}
 
+	private static final AtomicReference<Failing> FAILING = new AtomicReference<>();
+
+	static {
 		new MockUp<NetworkKey>() {
 			@Mock public Optional<String> signerOf(Invocation invocation, byte[] digest, byte[] headSignature,
 				Collection<String> keys) {
 
-				if (headSignature == signature) {
-					throw failure.get();
-				}
+				failIfAimedAt(headSignature);
+				return invocation.proceed();
+			}
+		};
 
+		new MockUp<SignatureLog>() {
+			@Mock public boolean isValidFrom(Invocation invocation, int index, Set<String> keys) {
+				failIfAimedAt(invocation.getInvokedInstance());
 				return invocation.proceed();
 			}
 		};
 	}
 
+	private static void failIfAimedAt(Object target) {
+		final Failing failing = FAILING.get();
+
+		if (Objects.nonNull(failing) && failing.target() == target) {
+			throw failing.failure().get();
+		}
+	}
+
+	private static void failSignerOf(GridSpork spork, Supplier<RuntimeException> failure) {
+		FAILING.set(new Failing(spork.getSignature(), failure));
+	}
+
 	private static void failLogOf(GridSpork spork, Supplier<RuntimeException> failure) {
-		final SignatureLog signatureLog = spork.getSignatureLog();
-
-		new MockUp<SignatureLog>() {
-			@Mock public boolean isValidFrom(Invocation invocation, int index, Set<String> keys) {
-				if (invocation.getInvokedInstance() == signatureLog) {
-					throw failure.get();
-				}
-
-				return invocation.proceed();
-			}
-		};
+		FAILING.set(new Failing(spork.getSignatureLog(), failure));
 	}
 
 	@Example
@@ -133,6 +147,49 @@ public class SporkCheckFailureTest {
 
 		assertThat(warnings, contains(containsString(IllegalStateException.class.getName())));
 		assertThat(warnings, contains(not(containsString(DETAIL))));
+	}
+
+	@Example
+	public void shouldCountNoSporkThatCannotBeEncodedWithoutAWarning() {
+		final GridSpork unknown = supply(key(0), key(1));
+
+		unknown.setType((short) 0);
+		assertThat(warningsWhile(() -> assertStandsForNothing(unknown)), empty());
+	}
+
+	@Example
+	public void shouldCountNoSporkOverAMalformedKeyWithoutAWarning() {
+		final GridSpork spork = supply(key(0), key(1));
+
+		NetworkKey.install(NetworkKey.getActiveKeys().after(List.of("not a key")));
+		assertThat(warningsWhile(() -> assertStandsForNothing(spork)), empty());
+	}
+
+	/* No standing is worked out of checks that were not paid for, so the next read checks again */
+	@Example
+	public void shouldGiveASporkWhoseChecksAreSpentNoStandingYet() {
+		final GridSpork spork = supply(key(0), key(1));
+
+		failSignerOf(spork, ChecksSpentException::new);
+		assertThrows(ChecksSpentException.class, spork::isCounting);
+		assertThrows(ChecksSpentException.class, spork::isAnchoring);
+	}
+
+	@Example
+	public void shouldCountNoSporkWhoseChecksFailedOtherwiseAndWarnOfTheClassOnce() {
+		final GridSpork spork = supply(key(0), key(1));
+
+		failSignerOf(spork, () -> new IllegalStateException(DETAIL));
+
+		final List<String> warnings = messagesOf(warningsWhile(() -> assertStandsForNothing(spork)));
+
+		assertThat(warnings, contains(containsString(IllegalStateException.class.getName())));
+		assertThat(warnings, contains(not(containsString(DETAIL))));
+	}
+
+	private static void assertStandsForNothing(GridSpork spork) {
+		assertThat(spork.isCounting(), is(false));
+		assertThat(spork.isAnchoring(), is(false));
 	}
 
 	private static List<String> messagesOf(List<ILoggingEvent> warnings) {
