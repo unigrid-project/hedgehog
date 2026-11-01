@@ -41,9 +41,10 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.StorageSpork;
 
-/* Why the sporks of the ledger must never be sent to a node of an earlier release. This is what release 0.0.8 does
-   with a frame of a spork whose type it does not know, as that release is out and cannot be changed.
+/* Why the sporks of the ledger and the storage spork must never be sent to a node of an earlier release. This is what
+   release 0.0.8 does with a frame of a spork whose type it does not know, as that release is out and cannot be changed.
 
    ReleasedSporkReader is a copy of the logic of that release, cut down to what decides the outcome: AbstractGridSporkDecoder
    reads the two bytes of the type, GridSpork.Type.get turns a number it does not list into UNDEFINED, which is logged
@@ -56,6 +57,7 @@ public class ReleasedSporkDecoderTest {
 	private static final short LEDGER_FEE = 1050;
 	private static final short LEDGER_BLACKLIST = 1040;
 	private static final short MINT_SUPPLY = 1010;
+	private static final short STORAGE = 1030;
 
 	/* Times whose two-byte halves are no type that the release knows, so that the count below is exact */
 	private static final long SIGNED_AT = 0x0000_0123_4567_89ABL;
@@ -63,8 +65,7 @@ public class ReleasedSporkDecoderTest {
 
 	private static final class ReleasedSporkReader extends ReplayingDecoder<Object> {
 		/* GridSpork.Type of release 0.0.8 without UNDEFINED */
-		private static final Set<Short> KNOWN = Set.of((short) 1000, (short) 1010, (short) 1020, (short) 1030,
-			(short) 2001);
+		private static final Set<Short> KNOWN = Set.of((short) 1000, (short) 1010, (short) 1020, (short) 2001);
 
 		private final List<Short> unknown = new ArrayList<>();
 		private final List<Short> understood = new ArrayList<>();
@@ -129,6 +130,10 @@ public class ReleasedSporkDecoderTest {
 		return spork;
 	}
 
+	private static GridSpork storage() {
+		return new StorageSpork();
+	}
+
 	private static EmbeddedChannel releasedNode(final ReleasedSporkReader reader) {
 		return new EmbeddedChannel(new FrameDecoder(), reader);
 	}
@@ -166,6 +171,20 @@ public class ReleasedSporkDecoderTest {
 		releasedNode(reader).writeInbound(frame);
 
 		assertThat(reader.unknown.get(0), is(LEDGER_BLACKLIST));
+		assertThat(reader.unknown.size(), equalTo(bytes / 2));
+		assertThat(reader.unknown.size(), greaterThan(30));
+		assertThat(reader.understood, empty());
+	}
+
+	@Example
+	public void shouldReadTheFrameOfTheStorageSporkAsManyTypesOfWhichTheFirstIsTheRealOne() {
+		final ReleasedSporkReader reader = new ReleasedSporkReader();
+		final ByteBuf frame = frameOf(storage(), 60);
+		final int bytes = frame.readableBytes() - FRAME_HEADER;
+
+		releasedNode(reader).writeInbound(frame);
+
+		assertThat(reader.unknown.get(0), is(STORAGE));
 		assertThat(reader.unknown.size(), equalTo(bytes / 2));
 		assertThat(reader.unknown.size(), greaterThan(30));
 		assertThat(reader.understood, empty());

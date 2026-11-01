@@ -46,9 +46,12 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
 public class SporkRecipientsTest {
-	/* The types that release 0.0.8 knows: it cannot read any other, and a frame of one wrecks its stream */
-	private static final Set<Type> KNOWN_TO_RELEASE_0_0_8 = Set.of(Type.UNDEFINED, Type.MINT_STORAGE, Type.MINT_SUPPLY,
-		Type.VESTING_STORAGE, Type.STORAGE, Type.STATISTICS_PUBKEY);
+	/* The types that release 0.0.8 reads: it cannot read any other, and a frame of one wrecks its stream. It knows the
+	   type number of the vesting spork, but not the layout that spork has had since. */
+	private static final Set<Type> READABLE_BY_RELEASE_0_0_8 = Set.of(Type.UNDEFINED, Type.MINT_STORAGE,
+		Type.MINT_SUPPLY, Type.STATISTICS_PUBKEY);
+
+	private static final List<Type> OF_THIS_RELEASE = List.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE);
 
 	/* The sporks of these tests are signed by no one, and stand for sporks that count */
 	@BeforeTry
@@ -85,7 +88,11 @@ public class SporkRecipientsTest {
 		for (final Type type : Type.values()) {
 			assertThat(type.toString(), SporkRecipients.needsLedgerProtocol(type)
 				|| SporkRecipients.needsThisRelease(type) || SporkRecipients.needsProxyProtocol(type),
-				is(!KNOWN_TO_RELEASE_0_0_8.contains(type)));
+				is(!READABLE_BY_RELEASE_0_0_8.contains(type)));
+		}
+
+		for (final Type type : OF_THIS_RELEASE) {
+			assertThat(type.toString(), SporkRecipients.needsThisRelease(type), is(true));
 		}
 
 		assertThat(SporkRecipients.needsLedgerProtocol(Type.BOARD_KEYS), is(false));
@@ -140,20 +147,35 @@ public class SporkRecipientsTest {
 		}
 	}
 
-	/* A node of release 0.0.8 cannot read the board keys, and every node of this release can */
+	/* A node of release 0.0.8 cannot read the board keys, the storage spork or the vesting spork as it is now, and
+	   every node of this release can */
 	@Example
-	public void shouldWriteTheBoardKeysOnlyToAStreamOfThisRelease() {
-		final EmbeddedChannel release = streamOfThisRelease();
-		final EmbeddedChannel ledger = stream(true);
-		final EmbeddedChannel earlier = stream(false);
+	public void shouldWriteTheSporksOfThisReleaseOnlyToAStreamOfThisRelease() {
+		for (final Type type : OF_THIS_RELEASE) {
+			final EmbeddedChannel release = streamOfThisRelease();
+			final EmbeddedChannel ledger = stream(true);
+			final EmbeddedChannel earlier = stream(false);
 
-		for (final EmbeddedChannel stream : List.of(release, ledger, earlier)) {
-			SporkRecipients.write(stream, spork(Type.BOARD_KEYS));
+			for (final EmbeddedChannel stream : List.of(release, ledger, earlier)) {
+				SporkRecipients.write(stream, spork(type));
+			}
+
+			assertThat(type.toString(), sporkTypesWrittenTo(release), contains(type));
+			assertThat(type.toString(), sporkTypesWrittenTo(ledger), contains(type));
+			assertThat(type.toString(), sporkTypesWrittenTo(earlier), empty());
 		}
+	}
 
-		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS));
-		assertThat(sporkTypesWrittenTo(ledger), contains(Type.BOARD_KEYS));
-		assertThat(sporkTypesWrittenTo(earlier), empty());
+	@Example
+	public void shouldWriteTheSporksOfThisReleaseOnlyToAConnectionThatSettledOnTheProtocolOfThisRelease() {
+		final String[] withoutProxy = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
+
+		for (final Type type : OF_THIS_RELEASE) {
+			assertThat(type.toString(), writtenOverAConnectionOf(withoutProxy, withoutProxy, spork(type)),
+				contains(type));
+			assertThat(type.toString(), writtenOverAConnectionOf(PREVIOUS_RELEASE, Network.getProtocols(),
+				spork(type)), empty());
+		}
 	}
 
 	@Example
@@ -172,7 +194,7 @@ public class SporkRecipientsTest {
 
 	@Example
 	public void shouldWriteAnEarlierSporkToEveryStream() {
-		for (final Type type : KNOWN_TO_RELEASE_0_0_8) {
+		for (final Type type : READABLE_BY_RELEASE_0_0_8) {
 			if (type != Type.UNDEFINED) {
 				final EmbeddedChannel ledger = stream(true);
 				final EmbeddedChannel earlier = stream(false);
@@ -212,8 +234,7 @@ public class SporkRecipientsTest {
 			Type.VESTING_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
 		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
 			Type.VESTING_STORAGE, Type.STORAGE));
-		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY, Type.VESTING_STORAGE,
-			Type.STORAGE));
+		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY));
 	}
 
 	@Example
