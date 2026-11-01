@@ -79,8 +79,7 @@ public class LedgerForgeryTest {
 
 		final List<Transaction> valid = List.of(vote, transfer, claim);
 
-		/* The first byte of a claim signature names the recovery of the key, which is given, so a bit of it is
-		   flipped only in what follows */
+		/* A claim signature opens with the key-recovery header, which can differ for a valid one, so it is kept */
 		final List<Transaction> forgeries = List.of(
 			Vote.signed(seed(1), CANDIDATE, Vote.Action.ADD, state.round(), otherChain),
 			new Vote(vote.voter(), CANDIDATE, vote.action(), vote.round(), flipped(vote.signature(), bit)),
