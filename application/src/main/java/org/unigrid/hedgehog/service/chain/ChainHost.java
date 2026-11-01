@@ -73,7 +73,6 @@ import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.ChainLimits;
 import org.unigrid.hedgehog.proxy.chain.Entry;
 import org.unigrid.hedgehog.proxy.chain.Head;
-import org.unigrid.hedgehog.proxy.chain.HeadsDiff;
 import org.unigrid.hedgehog.proxy.chain.Offer;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 import org.unigrid.hedgehog.proxy.group.Epoch;
@@ -115,16 +114,7 @@ public class ChainHost implements ChainService {
 	   the chains it joins in the new one */
 	static final int MAX_FOLLOWED = 2 * ChainClient.MAX_ATTACHMENTS;
 
-	/* What one fetch can ask for and what one answer can hold: a few packets full, however much a peer asks */
-	private static final int RANGE_ENTRIES = ChainCodecs.MAX_ENTRIES_PER_PACKET;
-	private static final int MAX_RANGES = 8;
-
 	private static final int TICK_SECONDS = 1;
-
-	/* The order of the chain itself, so that the entries of a writer reach the requester in sequence */
-	private static final Comparator<Entry> OLDEST_FIRST = Comparator
-		.comparingLong((Entry entry) -> entry.header().timestamp()).thenComparing(entry -> entry.header().writer())
-		.thenComparingLong(entry -> entry.header().seq());
 
 	/* Set on a stream once its close is awaited, so that however often it joins and leaves it is awaited once */
 	private static final AttributeKey<Boolean> CLOSE_AWAITED = AttributeKey.valueOf("chainHostCloseAwaited");
@@ -133,12 +123,12 @@ public class ChainHost implements ChainService {
 	private final GridnodeDirectory directory;
 	private final ChainTransport transport;
 	private final LongSupplier clock;
-	private final RandomGenerator random;
 	private final ScheduledExecutorService scheduler;
 	private final Executor deliveryExecutor;
 
 	private final RandomGenerator stemRandom;
 	private final Stem stems;
+	private final ChainRepair repair;
 	private final Listeners<GapListener> gapListeners = new Listeners<>();
 	private final Listeners<EntryListener> entryListeners = new Listeners<>();
 	private final Listeners<ChainDrain> drains = new Listeners<>();
@@ -211,11 +201,11 @@ public class ChainHost implements ChainService {
 		this.directory = directory;
 		this.transport = transport;
 		this.clock = clock;
-		this.random = draws.picks();
 		this.scheduler = scheduler;
 		this.deliveryExecutor = deliveryExecutor;
 		this.budgets = new StreamBudgets(clock);
 		this.stemRandom = draws.stem();
+		this.repair = new ChainRepair(budgets, draws.picks(), this::hosted, () -> hosting);
 
 		/* Last, as the stem calls back into the host */
 		this.stems = new Stem(new StemPort(), () -> hosting, clock);
@@ -933,125 +923,19 @@ public class ChainHost implements ChainService {
 		return hosted.clientCount() > 0 || drains.any(draining -> draining.holds(id));
 	}
 
-	/* Run once a second: each chain with entries tells one random member how far it has got, so a member that
-	   is behind asks for what it lacks. Those entries come back through receive like any other. Only streams that
-	   are open and take writes are chosen from, and a client is none of them: it never needs another's entries. */
+	/* Run once a second: each chain with entries tells one member how far it has got */
 	public void reconcileRound() {
-		hosting.current().values().forEach(this::announce);
+		repair.reconcileRound();
 	}
 
-	private void announce(final HostedChain hosted) {
-		final List<Channel> members = hosted.getMemberStreams().stream().filter(Channel::isActive)
-			.filter(Channel::isWritable).toList();
-		final Map<WriterId, Head> heads = hosted.getChain().heads();
-
-		if (members.isEmpty() || heads.isEmpty()) {
-			return;
-		}
-
-		final Channel member = members.get(random.nextInt(members.size()));
-		final ChainHeads announcement = ChainHeads.builder().chainId(hosted.getChain().id()).heads(capped(heads))
-			.build();
-
-		try {
-			member.writeAndFlush(announcement);
-		} catch (RuntimeException ex) {
-			log.warn("The heads to a member stream failed with {}", ex.getClass().getName());
-		}
-	}
-
-	/* A packet of heads holds only so many, and the writers a chain takes are bounded by the same number, so this
-	   only matters to a chain that was handed more feeds than it takes. It announces a part of them. */
-	private static Map<WriterId, Head> capped(final Map<WriterId, Head> heads) {
-		if (heads.size() <= ChainCodecs.MAX_HEADS_PER_PACKET) {
-			return heads;
-		}
-
-		return heads.entrySet().stream().limit(ChainCodecs.MAX_HEADS_PER_PACKET)
-			.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-	}
-
-	/* The heads of a peer only say what to ask for: nothing is adopted from them, and no feed is anchored at a
-	   head a peer names (follow is the one exception, and only for the member a client chose), so a peer cannot pin
-	   a writer to a head that is not its own. A feed this chain has not
-	   seen starts at its first entry, and if that entry is gone the entries that follow it wait until the gap
-	   expires. Only a member is answered, and only while its stream takes writes, as answers it does not read would
-	   pile up in memory, and only so many of its packets of heads in a second, counted before the heads of the chain
-	   are read. */
 	@Override
 	public Optional<FetchEntries> reconcile(final Channel peer, final ChainHeads heads) {
-		return hosted(heads.getChainId()).filter(hosted -> hosted.trusts(peer))
-			.filter(hosted -> peer.isWritable())
-			.filter(hosted -> budgets.take(peer, StreamBudgets.Kind.HEADS, 1))
-			.map(hosted -> missing(hosted, heads.getHeads())).filter(ranges -> !ranges.isEmpty())
-			.map(ranges -> FetchEntries.builder().chainId(heads.getChainId()).ranges(ranges).build());
+		return repair.reconcile(peer, heads);
 	}
 
-	/* The writers this chain is behind the peer on and can take, by ascending id. A feed whose entries are gone at
-	   every member is claimed again in every round, so asking for the lowest ids each time would never reach a
-	   writer that sorts after eight of them: with more than eight, the eight asked for start at a random place of
-	   the list and carry on from its start when the end is passed. */
-	private List<FetchEntries.Range> missing(final HostedChain hosted, final Map<WriterId, Head> remote) {
-		final List<FetchEntries.Range> ahead = HeadsDiff.missing(hosted.getChain().heads(), remote, RANGE_ENTRIES)
-			.stream().filter(range -> hosted.canTake(range.writer()))
-			.map(range -> new FetchEntries.Range(range.writer(), range.fromSeq(), range.toSeq())).toList();
-
-		if (ahead.size() <= MAX_RANGES) {
-			return ahead;
-		}
-
-		final int start = random.nextInt(ahead.size());
-
-		return IntStream.range(0, MAX_RANGES).mapToObj(place -> ahead.get((start + place) % ahead.size())).toList();
-	}
-
-	/* The answers to a member that never reads would pile up in the buffer of its stream, which only turns unwritable
-	   when it is full, so a stream that takes no writes gets no answer and asks again. The ranges are charged before
-	   the answer is built, which waits for the monitor of the chain, and the bytes of the answer once it is built:
-	   an answer that does not fit what is left of the second is not sent, and the member asks again later. */
 	@Override
 	public List<Entry> fetch(final Channel peer, final FetchEntries request) {
-		return hosted(request.getChainId()).filter(hosted -> hosted.trusts(peer))
-			.filter(hosted -> peer.isActive() && peer.isWritable())
-			.filter(hosted -> budgets.take(peer, StreamBudgets.Kind.RANGES,
-				Math.min(request.getRanges().size(), MAX_RANGES)))
-			.map(hosted -> withinBudget(peer, hosted.getChain(), request.getRanges())).orElse(List.of());
-	}
-
-	private List<Entry> withinBudget(final Channel peer, final Chain chain, final List<FetchEntries.Range> ranges) {
-		final List<Entry> answer = retained(chain, ranges);
-		final int bytes = answer.stream().mapToInt(ChainCodecs::encodedBytes).sum();
-
-		return budgets.take(peer, StreamBudgets.Kind.FETCH_BYTES, bytes) ? answer : List.of();
-	}
-
-	/* A range asked for twice is answered once, and a range wider than a packet is answered with its first entries */
-	private static List<Entry> retained(final Chain chain, final List<FetchEntries.Range> ranges) {
-		final List<Entry> oldestFirst = ranges.stream().limit(MAX_RANGES)
-			.flatMap(range -> chain.range(range.writer(), range.fromSeq(),
-				range.fromSeq() + Math.min(range.toSeq() - range.fromSeq(), RANGE_ENTRIES - 1)).stream())
-			.distinct().sorted(OLDEST_FIRST).toList();
-
-		return withinBytes(oldestFirst);
-	}
-
-	/* One answer must fit the frames the requester accepts, so it stops at the entry that would pass the cap and
-	   the requester asks for the rest next round */
-	private static List<Entry> withinBytes(final List<Entry> entries) {
-		final List<Entry> within = new ArrayList<>();
-		long bytes = 0;
-
-		for (final Entry entry : entries) {
-			bytes += ChainCodecs.encodedBytes(entry);
-
-			if (bytes > ChainCodecs.MAX_FRAME_BYTES) {
-				break;
-			}
-
-			within.add(entry);
-		}
-
-		return within;
+		return repair.fetch(peer, request);
 	}
 
 	/* Only a full chain asks the writer to wait, and only a member of that chain's group is believed, on a retired

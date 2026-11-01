@@ -486,7 +486,7 @@ final class ChainFleet {
 	static List<ILoggingEvent> warningsWhile(final Runnable action) {
 		ChainFleet.class.getModule().addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
 
-		final List<Logger> loggers = Stream.of(ChainHost.class, Listeners.class)
+		final List<Logger> loggers = Stream.of(ChainHost.class, ChainRepair.class, Listeners.class)
 			.map(logged -> (Logger) LoggerFactory.getLogger(logged)).toList();
 		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
