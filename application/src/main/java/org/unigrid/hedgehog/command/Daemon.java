@@ -30,6 +30,7 @@ import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.PreviewOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
@@ -58,6 +59,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Mixin private GridnodeOptions gridnodeOptions;
 	@Mixin private LedgerOptions ledgerOptions;
 	@Mixin private SocksOptions socksOptions;
+	@Mixin private PreviewOptions previewOptions;
 
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
