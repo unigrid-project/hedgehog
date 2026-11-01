@@ -154,7 +154,7 @@ public final class LedgerNode implements Closeable {
 	/* Only a question to the ledger, which has its own lock, so it takes no turn of the node. That is a call of its
 	   own from onWork(), which tells the engine that there may be something to propose: an event that can make it
 	   sign, so it has to be saved. The driver calls onWork() after a submit that was accepted. */
-	public Optional<String> submit(Transaction transaction) {
+	public Optional<Rejection> submit(Transaction transaction) {
 		return ledger.submit(transaction);
 	}
 

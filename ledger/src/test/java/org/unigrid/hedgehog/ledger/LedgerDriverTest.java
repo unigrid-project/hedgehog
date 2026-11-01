@@ -419,7 +419,8 @@ public class LedgerDriverTest {
 			assertThat(a.sent(Transaction.class), equalTo(List.of(mint)));
 			assertThat(b.sent(Transaction.class), equalTo(List.of(mint)));
 			assertThat(rig.ledger().height(), equalTo(1L));
-			assertThat(rig.driver.submit(unfunded).join(), equalTo(rig.ledger().submit(unfunded)));
+			assertThat(rig.driver.submit(unfunded).join(),
+				equalTo(rig.ledger().submit(unfunded).map(Rejection::reason)));
 			assertThat(rig.driver.submit(unfunded).join().isPresent(), is(true));
 			assertThat(a.sent(Transaction.class), hasSize(1));
 		}

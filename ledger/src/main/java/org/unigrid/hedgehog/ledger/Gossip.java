@@ -115,15 +115,16 @@ final class Gossip {
 
 	/* A duplicate, a nonce that is used or too far ahead, a balance that is short, a fee below a node's policy and a
 	   full pool all depend on the node and cost nothing. A signature that does not verify is the same for every
-	   node, and no honest one relays it. The ledger says that it found one in the reason it gives, after a check
+	   node, and no honest one relays it. The ledger marks the refusal as forged when it found one, after a check
 	   that its cache of verified signatures spares for a transaction it saw before, so nothing is verified here.
 	   The driver tells the node that there may be work once this has taken the transaction in, as a call of its
 	   own. */
 	Receipt transaction(LedgerNode node, Transaction transaction) {
-		final Optional<String> rejection = node.submit(transaction);
-		final boolean forged = rejection.filter(LedgerState::isSignatureRejection).isPresent();
+		final Optional<Rejection> rejection = node.submit(transaction);
+		final boolean forged = rejection.filter(Rejection::forged).isPresent();
 
-		return new Receipt(List.of(), rejection, rejection.isEmpty(), forged ? TRANSACTION_COST : 0);
+		return new Receipt(List.of(), rejection.map(Rejection::reason), rejection.isEmpty(),
+			forged ? TRANSACTION_COST : 0);
 	}
 
 	Receipt heartbeat(LedgerNode node, Heartbeat heartbeat) {

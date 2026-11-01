@@ -243,7 +243,7 @@ public class LedgerWorkTest {
 
 			assertWork(ledger, 30_000, true);
 
-			assertThat(ledger.submit(DUE).orElse(""), containsString("not authorized"));
+			assertThat(ledger.submit(DUE).map(Rejection::reason).orElse(""), containsString("not authorized"));
 			assertThat(ledger.pending(), equalTo(0));
 		}
 	}

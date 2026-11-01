@@ -104,7 +104,8 @@ public class LedgerClockRoundTest {
 			final Ledger ledger = open(fileSystem, clock);
 
 			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 2)), equalTo(Optional.empty()));
-			assertThat(ledger.submit(add(ledger, seed(2), GRIDNODE, 0)).orElse(""), containsString("another round"));
+			assertThat(ledger.submit(add(ledger, seed(2), GRIDNODE, 0)).map(Rejection::reason).orElse(""),
+				containsString("another round"));
 		}
 	}
 
@@ -120,7 +121,7 @@ public class LedgerClockRoundTest {
 
 			assertThat(ledger.validators().contains(Ed25519.publicKey(GRIDNODE)), is(false));
 			assertThat(ledger.submit(add(ledger, GRIDNODE, seed(202), 1)), equalTo(Optional.empty()));
-			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 1)).orElse(""),
+			assertThat(ledger.submit(add(ledger, seed(1), GRIDNODE, 1)).map(Rejection::reason).orElse(""),
 				containsString("already a validator"));
 		}
 	}
@@ -310,9 +311,11 @@ public class LedgerClockRoundTest {
 			final Vote forged = new Vote(own.voter(), own.candidate(), own.action(), own.round(),
 				new byte[Ed25519.SIGNATURE_SIZE]);
 
-			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 0)).orElse(""), containsString("another round"));
-			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 1)).orElse(""), containsString("not a validator"));
-			assertThat(ledger.submit(forged).orElse(""), containsString("signature"));
+			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 0)).map(Rejection::reason).orElse(""),
+				containsString("another round"));
+			assertThat(ledger.submit(add(ledger, seed(99), GRIDNODE, 1)).map(Rejection::reason).orElse(""),
+				containsString("not a validator"));
+			assertThat(ledger.submit(forged).map(Rejection::reason).orElse(""), containsString("signature"));
 		}
 	}
 
@@ -328,8 +331,10 @@ public class LedgerClockRoundTest {
 				new byte[Ed25519.SIGNATURE_SIZE]);
 			final int verified = ledger.judging().verifiedSignatures();
 
-			assertThat(ledger.submit(outsider).orElse(""), containsString("not a validator"));
-			assertThat(ledger.submit(forged).orElse(""), containsString("not a validator"));
+			assertThat(ledger.submit(outsider).map(Rejection::reason).orElse(""),
+				containsString("not a validator"));
+			assertThat(ledger.submit(forged).map(Rejection::reason).orElse(""),
+				containsString("not a validator"));
 			assertThat(ledger.judging().verifiedSignatures(), equalTo(verified));
 		}
 	}

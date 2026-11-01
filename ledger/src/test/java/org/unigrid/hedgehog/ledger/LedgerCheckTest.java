@@ -57,7 +57,7 @@ public class LedgerCheckTest {
 			final AtomicBoolean failing = new AtomicBoolean(true);
 			final Ledger ledger = open(fileSystem, failing);
 
-			final Optional<String> refused = ledger.submit(mint(1, 500));
+			final Optional<String> refused = ledger.submit(mint(1, 500)).map(Rejection::reason);
 
 			assertThat(refused.orElseThrow(), startsWith("Could not be checked: "));
 			assertThat(refused.orElseThrow(), containsString("The authority is down"));
@@ -94,7 +94,7 @@ public class LedgerCheckTest {
 			final Ledger ledger = new Ledger(state(1000, wordy, SOLO),
 				BlockLog.open(fileSystem.getPath("/data/blocks.log")), () -> 1);
 
-			assertThat(ledger.submit(mint(1, 500)).orElseThrow().length() < 200, equalTo(true));
+			assertThat(ledger.submit(mint(1, 500)).orElseThrow().reason().length() < 200, equalTo(true));
 		}
 	}
 }

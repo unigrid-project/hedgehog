@@ -41,8 +41,6 @@ public final class LedgerState {
 	private static final String VOTE_ROUND_REJECTION = "Vote is for another round";
 	private static final String TRANSFER_SIGNATURE_REJECTION = "Transfer signature is not valid";
 	private static final String CLAIM_SIGNATURE_REJECTION = "Claim signature is not valid";
-	private static final Set<String> SIGNATURE_REJECTIONS = Set.of(VOTE_SIGNATURE_REJECTION,
-		TRANSFER_SIGNATURE_REJECTION, CLAIM_SIGNATURE_REJECTION);
 
 	private static final byte[] HEIGHT = { 'H' };
 	private static final byte[] SUPPLY = { 'S' };
@@ -496,12 +494,6 @@ public final class LedgerState {
 	   nothing, so it is checked only once the voter is known to be a validator. */
 	public Optional<String> roundRejection(Vote vote, long blockTime) {
 		return vote.round() == roundAt(blockTime) ? Optional.empty() : Optional.of(VOTE_ROUND_REJECTION);
-	}
-
-	/* A refusal for a signature that does not verify is the same for every node, unlike one for the state or policy of
-	   this one. The ledger has checked the signature to say it, so whoever asks need not check it again. */
-	static boolean isSignatureRejection(String reason) {
-		return SIGNATURE_REJECTIONS.contains(reason);
 	}
 
 	private Optional<Rejection> rejectionOf(Mint mint) {

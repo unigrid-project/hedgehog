@@ -619,8 +619,8 @@ public class LedgerNetworkTest {
 			final Claim held = HELD.claim(account(1), cluster.ledger(FIRST).chainId());
 
 			cluster.begin();
-			cluster.indexes().forEach(index -> assertThat(cluster.node(index).submit(held).orElse(""),
-				containsString("not authorized")));
+			cluster.indexes().forEach(index -> assertThat(cluster.node(index).submit(held).map(Rejection::reason)
+				.orElse(""), containsString("not authorized")));
 			cluster.runChecking(FINISHED_BY_MILLIS, () -> false);
 
 			assertThat(cluster.net.sent(), equalTo(0L));

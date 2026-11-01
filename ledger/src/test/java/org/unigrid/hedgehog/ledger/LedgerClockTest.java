@@ -95,7 +95,7 @@ public class LedgerClockTest {
 			final AtomicLong clock = new AtomicLong(10_000);
 			final Ledger ledger = open(fileSystem, "a", dueAt(Map.of(DUE, 20_000L)), clock);
 
-			assertThat(ledger.submit(DUE).orElse(""), containsString("not authorized"));
+			assertThat(ledger.submit(DUE).map(Rejection::reason).orElse(""), containsString("not authorized"));
 
 			clock.set(20_000);
 
@@ -292,7 +292,8 @@ public class LedgerClockTest {
 
 			final Transfer enough = paying(picky, 10, 5, 0);
 
-			assertThat(picky.submit(paying(picky, 10, 4, 0)).orElse(""), containsString("Fee is below"));
+			assertThat(picky.submit(paying(picky, 10, 4, 0)).map(Rejection::reason).orElse(""),
+				containsString("Fee is below"));
 			assertThat(picky.pending(), equalTo(0));
 			assertThat(picky.submit(enough), equalTo(Optional.empty()));
 

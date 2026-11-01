@@ -290,7 +290,8 @@ public class LedgerTest {
 
 			ledger.submit(mint(1, 500));
 
-			assertThat(ledger.submit(mint(1, 500)), equalTo(Optional.of("Already waiting for a block")));
+			assertThat(ledger.submit(mint(1, 500)).map(Rejection::reason),
+				equalTo(Optional.of("Already waiting for a block")));
 		}
 	}
 
@@ -303,8 +304,9 @@ public class LedgerTest {
 			seal(ledger, FOUNDATION, 2000);
 
 			assertThat(ledger.submit(send(1, 0)), equalTo(Optional.empty()));
-			assertThat(ledger.submit(send(1, 0)).get(), containsString("Not queued"));
-			assertThat(ledger.submit(send(1, Mempool.NONCE_WINDOW)).get(), containsString("Not queued"));
+			assertThat(ledger.submit(send(1, 0)).get().reason(), containsString("Not queued"));
+			assertThat(ledger.submit(send(1, Mempool.NONCE_WINDOW)).get().reason(),
+				containsString("Not queued"));
 			assertThat(ledger.pending(), equalTo(1));
 		}
 	}
@@ -319,7 +321,7 @@ public class LedgerTest {
 			ledger.submit(send(1, 0));
 			seal(ledger, FOUNDATION, 2001);
 
-			assertThat(ledger.submit(send(2, 0)).get(), containsString("already used"));
+			assertThat(ledger.submit(send(2, 0)).get().reason(), containsString("already used"));
 		}
 	}
 
@@ -387,7 +389,7 @@ public class LedgerTest {
 			assertThat(second.balanceOf(account(2)), equalTo(300L));
 			assertThat(second.supply(), equalTo(first.supply()));
 			assertThat(second.stateRoot(), equalTo(first.stateRoot()));
-			assertThat(second.submit(paid).orElse(""), containsString("already used"));
+			assertThat(second.submit(paid).map(Rejection::reason).orElse(""), containsString("already used"));
 		}
 	}
 
@@ -512,7 +514,8 @@ public class LedgerTest {
 			ledger.submit(wallet.claim(account(1), ledger.chainId()));
 			seal(ledger, FOUNDATION, 2000);
 
-			final Optional<String> refused = ledger.submit(wallet.claim(account(2), ledger.chainId()));
+			final Optional<String> refused = ledger.submit(wallet.claim(account(2), ledger.chainId()))
+				.map(Rejection::reason);
 
 			assertThat(refused.orElse(""), containsString("already claimed"));
 			assertThat(ledger.balanceOf(account(2)), equalTo(0L));

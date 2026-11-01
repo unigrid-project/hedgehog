@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -71,11 +72,15 @@ public final class Ledger implements ConsensusApp {
 	   take the node down with an item that makes it throw. A refusal of a block is a vote withheld, and nothing
 	   is changed by a throw before the last step of an admission. */
 	private static Optional<String> checked(Supplier<Optional<String>> check) {
+		return checked(check, Function.identity());
+	}
+
+	private static <T> Optional<T> checked(Supplier<Optional<T>> check, Function<String, T> refusal) {
 		try {
 			return check.get();
 		} catch (RuntimeException e) {
 			LOGGER.atWarn().setCause(e).log("A check could not be made");
-			return Optional.of("Could not be checked: " + shortened(e.getMessage()));
+			return Optional.of(refusal.apply("Could not be checked: " + shortened(e.getMessage())));
 		}
 	}
 
@@ -84,21 +89,21 @@ public final class Ledger implements ConsensusApp {
 			: message.substring(0, MAX_REASON_LENGTH);
 	}
 
-	/* Empty when the transaction went into the mempool, otherwise the reason it did not */
-	public synchronized Optional<String> submit(Transaction transaction) {
-		return checked(() -> admit(transaction));
+	/* Empty when the transaction went into the mempool, otherwise why it did not */
+	public synchronized Optional<Rejection> submit(Transaction transaction) {
+		return checked(() -> admit(transaction), Rejection::of);
 	}
 
 	/* The round of a vote needs nothing of the state, so a vote for another round costs nothing more */
-	private Optional<String> admit(Transaction transaction) {
+	private Optional<Rejection> admit(Transaction transaction) {
 		final long now = clock.getAsLong();
-		final Optional<String> round = transaction instanceof Vote vote
-			? state.roundRejection(vote, blockTimeFor(now)) : Optional.empty();
+		final Optional<Rejection> round = transaction instanceof Vote vote
+			? state.roundRejection(vote, blockTimeFor(now)).map(Rejection::of) : Optional.empty();
 
 		return round.isPresent() ? round : admit(transaction, judgedAt(now, transaction instanceof Vote));
 	}
 
-	private Optional<String> admit(Transaction transaction, LedgerState judging) {
+	private Optional<Rejection> admit(Transaction transaction, LedgerState judging) {
 		if (mempool.admit(transaction, judging)) {
 			return Optional.empty();
 		}
@@ -106,9 +111,9 @@ public final class Ledger implements ConsensusApp {
 		final Optional<Rejection> rejection = transaction instanceof Transfer transfer
 			? judging.rejectionOfQueued(transfer) : judging.rejectionOf(transaction);
 
-		return Optional.of(rejection.map(Rejection::reason).orElse(transaction instanceof Transfer
+		return rejection.or(() -> Optional.of(Rejection.of(transaction instanceof Transfer
 			? "Not queued: one waits for this nonce, or it is outside the window or not covered"
-			: "Already waiting for a block"));
+			: "Already waiting for a block")));
 	}
 
 	public synchronized Optional<String> submit(Heartbeat heartbeat) {
