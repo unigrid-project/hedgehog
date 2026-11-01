@@ -46,6 +46,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
@@ -567,13 +569,26 @@ public class ChainHost implements ChainService {
 	   verify than the stream has left of its second is dropped whole, before anything is verified. */
 	@Override
 	public List<EntryRefused> receive(final Channel peer, final ChainEntry entries) {
-		final List<Entry> packet = Objects.requireNonNullElse(entries.getEntries(), List.<Entry>of());
+		return intake(peer, entries.getEntries(),
+			entry -> hosted(entry.header().chainId())
+				.filter(chain -> chain.accepts(peer, entry.header().writer())),
+			(hosted, ofChain) -> takeIn(hosted, peer, ofChain));
+	}
+
+	/* What a flood and a stem have in common: the entries each chain permits are charged to the stream before any is
+	   verified, then taken in by the chain, and every chain is drained, whatever an earlier step threw. The entries
+	   the chain had no room for are answered in the order of the packet. */
+	private List<EntryRefused> intake(final Channel peer, final List<Entry> entries,
+		final Function<Entry, Optional<HostedChain>> permit,
+		final BiFunction<HostedChain, List<Entry>, List<Entry>> takeIn) {
+
+		final List<Entry> packet = Objects.requireNonNullElse(entries, List.<Entry>of());
 		final Map<HostedChain, List<Entry>> permitted = new LinkedHashMap<>();
 		final Set<Entry> full = Collections.newSetFromMap(new IdentityHashMap<>());
 		final List<Runnable> steps = new ArrayList<>();
 
 		for (final Entry entry : packet) {
-			hosted(entry.header().chainId()).filter(chain -> chain.accepts(peer, entry.header().writer()))
+			permit.apply(entry)
 				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
 		}
 
@@ -583,7 +598,7 @@ public class ChainHost implements ChainService {
 			return List.of();
 		}
 
-		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(takeIn(hosted, peer, ofChain))));
+		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(takeIn.apply(hosted, ofChain))));
 		permitted.keySet().forEach(hosted -> steps.add(() -> drain(hosted)));
 		allOf(steps);
 
@@ -629,28 +644,10 @@ public class ChainHost implements ChainService {
 	   counted as those of a flood are. What the chain had no room for is answered as for a flood. */
 	@Override
 	public List<EntryRefused> stem(final Channel peer, final ChainStem stem) {
-		final List<Entry> packet = Objects.requireNonNullElse(stem.getEntries(), List.<Entry>of());
-		final Map<HostedChain, List<Entry>> permitted = new LinkedHashMap<>();
-		final Set<Entry> full = Collections.newSetFromMap(new IdentityHashMap<>());
-		final List<Runnable> steps = new ArrayList<>();
-
-		for (final Entry entry : packet) {
-			Optional.ofNullable(entry.header().chainId()).flatMap(hosting::find)
-				.filter(chain -> chain.trusts(peer))
-				.ifPresent(chain -> permitted.computeIfAbsent(chain, key -> new ArrayList<>()).add(entry));
-		}
-
-		final int toVerify = permitted.values().stream().mapToInt(List::size).sum();
-
-		if (!budgets.take(peer, StreamBudgets.Kind.ENTRIES, toVerify)) {
-			return List.of();
-		}
-
-		steps.add(() -> permitted.forEach((hosted, ofChain) -> full.addAll(stems.passOn(hosted, peer, ofChain))));
-		permitted.keySet().forEach(hosted -> steps.add(() -> drain(hosted)));
-		allOf(steps);
-
-		return packet.stream().filter(full::contains).map(entry -> EntryRefused.of(entry, Admission.FULL)).toList();
+		return intake(peer, stem.getEntries(),
+			entry -> Optional.ofNullable(entry.header().chainId()).flatMap(hosting::find)
+				.filter(chain -> chain.trusts(peer)),
+			(hosted, ofChain) -> stems.passOn(hosted, peer, ofChain));
 	}
 
 	/* Answers the entries the chain had no room for */
