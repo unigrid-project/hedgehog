@@ -293,7 +293,7 @@ public final class LedgerState {
 		return mintedTo.getOrDefault(recipient, 0L);
 	}
 
-	public Optional<String> rejectionOf(Transaction transaction) {
+	public Optional<Rejection> rejectionOf(Transaction transaction) {
 		return switch (transaction) {
 			case Mint mint -> rejectionOf(mint);
 			case Vote vote -> rejectionOf(vote);
@@ -348,10 +348,10 @@ public final class LedgerState {
 		next.openBlock(blockTime, tipCertificate);
 
 		for (final Transaction transaction : transactions) {
-			final Optional<String> rejection = next.rejectionOf(transaction);
+			final Optional<Rejection> rejection = next.rejectionOf(transaction);
 
 			if (rejection.isPresent()) {
-				throw new IllegalArgumentException(rejection.get());
+				throw new IllegalArgumentException(rejection.get().reason());
 			}
 
 			next.apply(transaction);
@@ -430,8 +430,9 @@ public final class LedgerState {
 		return MerkleRoot.of(leaves);
 	}
 
-	private Optional<String> rejectionOf(Vote vote) {
-		return voterRejection(vote).or(() -> candidateRejection(vote)).or(() -> signatureRejection(vote));
+	private Optional<Rejection> rejectionOf(Vote vote) {
+		return voterRejection(vote).or(() -> candidateRejection(vote)).map(Rejection::of)
+			.or(() -> signatureRejection(vote));
 	}
 
 	private Optional<String> voterRejection(Vote vote) {
@@ -485,9 +486,9 @@ public final class LedgerState {
 			? Optional.of("Genesis validators cannot be removed") : Optional.empty();
 	}
 
-	private Optional<String> signatureRejection(Vote vote) {
+	private Optional<Rejection> signatureRejection(Vote vote) {
 		return verified.check(vote, () -> vote.hasValidSignature(chainId)) ? Optional.empty()
-			: Optional.of(VOTE_SIGNATURE_REJECTION);
+			: Optional.of(Rejection.forged(VOTE_SIGNATURE_REJECTION));
 	}
 
 	/* Whether a vote is for the round of a block of this time, which needs nothing of the state, for whoever takes votes
@@ -503,32 +504,32 @@ public final class LedgerState {
 		return SIGNATURE_REJECTIONS.contains(reason);
 	}
 
-	private Optional<String> rejectionOf(Mint mint) {
+	private Optional<Rejection> rejectionOf(Mint mint) {
 		if (minted.contains(mint.reference())) {
-			return Optional.of("Reference already used");
+			return Optional.of(Rejection.of("Reference already used"));
 		}
 
 		/* No balance can pass the supply, so the supply is the one sum to guard */
 		if (supply > Long.MAX_VALUE - mint.amount()) {
-			return Optional.of("Supply would overflow");
+			return Optional.of(Rejection.of("Supply would overflow"));
 		}
 
 		return vouched || authority.authorizes(mint, authorityTime, supply, mintedTo(mint.recipient()))
-			? Optional.empty() : Optional.of("Mint is not authorized");
+			? Optional.empty() : Optional.of(Rejection.of("Mint is not authorized"));
 	}
 
-	private Optional<String> rejectionOf(Transfer transfer) {
+	private Optional<Rejection> rejectionOf(Transfer transfer) {
 		final long next = nonceOf(transfer.sender());
 
 		return transfer.nonce() == next ? rejectionOfQueued(transfer)
-			: Optional.of("Transfer nonce is " + transfer.nonce() + " but the next is " + next);
+			: Optional.of(Rejection.of("Transfer nonce is " + transfer.nonce() + " but the next is " + next));
 	}
 
 	/* A transfer that waits for the ones before it is as good as can be known now: everything but the exact
 	   turn of its nonce is checked, which is what the mempool needs to queue it */
-	public Optional<String> rejectionOfQueued(Transfer transfer) {
-		return usedRejection(transfer).or(() -> coverRejection(transfer)).or(() -> signatureRejection(transfer))
-			.or(() -> authorityRejection(transfer));
+	public Optional<Rejection> rejectionOfQueued(Transfer transfer) {
+		return usedRejection(transfer).or(() -> coverRejection(transfer)).map(Rejection::of)
+			.or(() -> signatureRejection(transfer)).or(() -> authorityRejection(transfer).map(Rejection::of));
 	}
 
 	private Optional<String> usedRejection(Transfer transfer) {
@@ -545,9 +546,9 @@ public final class LedgerState {
 			? Optional.of("Balance does not cover the transfer") : Optional.empty();
 	}
 
-	private Optional<String> signatureRejection(Transfer transfer) {
+	private Optional<Rejection> signatureRejection(Transfer transfer) {
 		return verified.check(transfer, () -> transfer.hasValidSignature(chainId))
-			? Optional.empty() : Optional.of(TRANSFER_SIGNATURE_REJECTION);
+			? Optional.empty() : Optional.of(Rejection.forged(TRANSFER_SIGNATURE_REJECTION));
 	}
 
 	private Optional<String> authorityRejection(Transfer transfer) {
@@ -567,9 +568,9 @@ public final class LedgerState {
 		return !accounts.containsKey(redirects.getOrDefault(transfer.recipient(), transfer.recipient()));
 	}
 
-	private Optional<String> rejectionOf(Claim claim) {
-		return amountRejection(claim.address()).or(() -> signatureRejection(claim))
-			.or(() -> authorityRejection(claim));
+	private Optional<Rejection> rejectionOf(Claim claim) {
+		return amountRejection(claim.address()).map(Rejection::of).or(() -> signatureRejection(claim))
+			.or(() -> authorityRejection(claim).map(Rejection::of));
 	}
 
 	/* What the snapshot holds is checked against what is left of its total, so a snapshot that does not add up to
@@ -594,9 +595,9 @@ public final class LedgerState {
 		return owed + balanceOf(address) == 0 ? Optional.of("Nothing to claim") : Optional.empty();
 	}
 
-	private Optional<String> signatureRejection(Claim claim) {
+	private Optional<Rejection> signatureRejection(Claim claim) {
 		return verified.check(claim, () -> claim.hasValidSignature(chainId))
-			? Optional.empty() : Optional.of(CLAIM_SIGNATURE_REJECTION);
+			? Optional.empty() : Optional.of(Rejection.forged(CLAIM_SIGNATURE_REJECTION));
 	}
 
 	private Optional<String> authorityRejection(Claim claim) {
@@ -663,7 +664,7 @@ public final class LedgerState {
 		openBlock(block.getTime(), block.getLastCommit());
 
 		for (final Transaction transaction : block.getTransactions()) {
-			final Optional<String> rejection = rejectionOf(transaction);
+			final Optional<String> rejection = rejectionOf(transaction).map(Rejection::reason);
 
 			if (rejection.isPresent()) {
 				return rejection;

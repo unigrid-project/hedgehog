@@ -42,8 +42,8 @@ public class LedgerVoteTest {
 		return Vote.signed(seed(voter), candidate, Vote.Action.ADD, state.round(), state.chainId());
 	}
 
-	private static String reasonOf(Optional<String> rejection) {
-		return rejection.orElse("");
+	private static String reasonOf(Optional<Rejection> rejection) {
+		return rejection.map(Rejection::reason).orElse("");
 	}
 
 	@Example
@@ -194,7 +194,7 @@ public class LedgerVoteTest {
 			own.signature());
 
 		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
-		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
+		assertThat(state.rejectionOf(forged).filter(Rejection::forged).isPresent(), is(true));
 	}
 
 	@Example
@@ -203,6 +203,6 @@ public class LedgerVoteTest {
 		final String reason = reasonOf(state.rejectionOf(add(state, 9, GRIDNODE)));
 
 		assertThat(reason, containsString("not a validator"));
-		assertThat(LedgerState.isSignatureRejection(reason), is(false));
+		assertThat(state.rejectionOf(add(state, 9, GRIDNODE)).filter(Rejection::forged).isPresent(), is(false));
 	}
 }

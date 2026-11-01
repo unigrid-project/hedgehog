@@ -52,8 +52,10 @@ public class LedgerBlacklistTest {
 		return new Ledger(chain(authority), BlockLog.open(fileSystem.getPath("/" + name + "/blocks.log")));
 	}
 
-	private static String reasonOf(Optional<String> rejection) {
-		return rejection.orElse("");
+	/* Of a block, or of a transaction with its reason in a Rejection */
+	private static String reasonOf(Optional<?> rejection) {
+		return rejection.map(reason -> reason instanceof Rejection typed ? typed.reason() : (String) reason)
+			.orElse("");
 	}
 
 	private static Block certified(Ledger ledger) {

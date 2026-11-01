@@ -41,8 +41,8 @@ public class LedgerTransferTest {
 		return state;
 	}
 
-	private static String reasonOf(Optional<String> rejection) {
-		return rejection.orElse("");
+	private static String reasonOf(Optional<Rejection> rejection) {
+		return rejection.map(Rejection::reason).orElse("");
 	}
 
 	@Example
@@ -203,7 +203,7 @@ public class LedgerTransferTest {
 
 		assertThat(state.rejectionOf(valid).isPresent(), is(false));
 		assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
-		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
+		assertThat(state.rejectionOf(forged).filter(Rejection::forged).isPresent(), is(true));
 	}
 
 	@Example
@@ -215,9 +215,9 @@ public class LedgerTransferTest {
 		state.apply(soloBlock(state, first));
 
 		assertThat(reasonOf(state.rejectionOfQueued(first)), containsString("already used"));
-		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOfQueued(first))), is(false));
+		assertThat(state.rejectionOfQueued(first).filter(Rejection::forged).isPresent(), is(false));
 		assertThat(reasonOf(state.rejectionOfQueued(unfunded)), containsString("does not cover"));
-		assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOfQueued(unfunded))), is(false));
+		assertThat(state.rejectionOfQueued(unfunded).filter(Rejection::forged).isPresent(), is(false));
 	}
 
 	@Example

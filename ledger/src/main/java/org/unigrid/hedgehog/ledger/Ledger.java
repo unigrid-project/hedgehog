@@ -103,10 +103,10 @@ public final class Ledger implements ConsensusApp {
 			return Optional.empty();
 		}
 
-		final Optional<String> reason = transaction instanceof Transfer transfer
+		final Optional<Rejection> rejection = transaction instanceof Transfer transfer
 			? judging.rejectionOfQueued(transfer) : judging.rejectionOf(transaction);
 
-		return Optional.of(reason.orElse(transaction instanceof Transfer
+		return Optional.of(rejection.map(Rejection::reason).orElse(transaction instanceof Transfer
 			? "Not queued: one waits for this nonce, or it is outside the window or not covered"
 			: "Already waiting for a block"));
 	}

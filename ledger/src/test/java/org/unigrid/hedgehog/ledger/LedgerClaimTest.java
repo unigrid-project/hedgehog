@@ -47,8 +47,10 @@ public class LedgerClaimTest {
 		return WALLET.claim(recipient, state.chainId());
 	}
 
-	private static String reasonOf(Optional<String> rejection) {
-		return rejection.orElse("");
+	/* Of a block, or of a transaction with its reason in a Rejection */
+	private static String reasonOf(Optional<?> rejection) {
+		return rejection.map(reason -> reason instanceof Rejection typed ? typed.reason() : (String) reason)
+			.orElse("");
 	}
 
 	private static void addValidatorLeaves(LedgerState state, List<byte[]> leaves) {
@@ -342,7 +344,7 @@ public class LedgerClaimTest {
 
 		for (int i = 0; i < 3; i++) {
 			assertThat(reasonOf(state.rejectionOf(forged)), containsString("signature"));
-			assertThat(LedgerState.isSignatureRejection(reasonOf(state.rejectionOf(forged))), is(true));
+			assertThat(state.rejectionOf(forged).filter(Rejection::forged).isPresent(), is(true));
 			assertThat(state.rejectionOf(signed).isPresent(), is(false));
 		}
 	}

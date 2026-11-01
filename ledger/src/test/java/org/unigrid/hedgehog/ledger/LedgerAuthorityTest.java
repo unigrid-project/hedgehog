@@ -31,8 +31,10 @@ import static org.unigrid.hedgehog.ledger.Expect.assertThrows;
 import static org.unigrid.hedgehog.ledger.LedgerFixtures.*;
 
 public class LedgerAuthorityTest {
-	private static String reasonOf(Optional<String> rejection) {
-		return rejection.orElse("");
+	/* Of a block, or of a transaction with its reason in a Rejection */
+	private static String reasonOf(Optional<?> rejection) {
+		return rejection.map(reason -> reason instanceof Rejection typed ? typed.reason() : (String) reason)
+			.orElse("");
 	}
 
 	@Example
