@@ -114,8 +114,8 @@ public final class LedgerTestChain {
 			node.start();
 
 			for (int n = 1; n <= count; n++) {
-				ledger.submit(mint(n)).ifPresent(reason -> {
-					throw new IllegalStateException("The chain refused its own mint: " + reason);
+				ledger.submit(mint(n)).ifPresent(rejection -> {
+					throw new IllegalStateException("The chain refused its own mint: " + rejection.reason());
 				});
 
 				final long height = ledger.height() + 1;

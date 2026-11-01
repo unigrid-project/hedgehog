@@ -186,8 +186,8 @@ public class LedgerResourceTest extends BaseRestClientTest {
 
 		@SneakyThrows
 		Block append(final List<Transaction> transactions) {
-			transactions.forEach(transaction -> ledger.submit(transaction).ifPresent(reason -> {
-				throw new IllegalStateException("The ledger refused " + transaction + ": " + reason);
+			transactions.forEach(transaction -> ledger.submit(transaction).ifPresent(rejection -> {
+				throw new IllegalStateException("The ledger refused " + transaction + ": " + rejection.reason());
 			}));
 
 			final long height = ledger.height() + 1;
