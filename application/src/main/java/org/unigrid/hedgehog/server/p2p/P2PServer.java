@@ -76,6 +76,7 @@ import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
 import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
@@ -145,7 +146,8 @@ public class P2PServer extends AbstractServer {
 	}
 
 	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
-	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets */
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. A frame
+	   that no stage takes, such as one of a stage the node does without, is dropped behind the last of them. */
 	static List<ChannelHandler> handlers(final boolean ledger) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new PeerActivityHandler(),
@@ -167,6 +169,7 @@ public class P2PServer extends AbstractServer {
 			handlers.addAll(LedgerPipeline.handlers());
 		}
 
+		handlers.add(new UnclaimedFrameHandler());
 		return handlers;
 	}
 

@@ -29,6 +29,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
+import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
@@ -46,21 +47,29 @@ public class P2PClientPipelineTest {
 		}
 	}
 
+	/* Behind every decoder, so that a frame no stage takes does not run into the frames after it */
 	@Example
-	public void endsWithTheStoragePipelineAndThenTheLedgerPipelineWithTheLedgerProtocol() {
+	public void dropsTheFramesNoStageTakesLast() {
+		for (boolean ledger : List.of(false, true)) {
+			assertThat(classesOf(P2PClient.handlers(ledger)).getLast(), equalTo(UnclaimedFrameHandler.class));
+		}
+	}
+
+	@Example
+	public void endsWithTheStoragePipelineAndThenTheLedgerPipelineBeforeTheDropWithTheLedgerProtocol() {
 		final List<Class<?>> handlers = classesOf(P2PClient.handlers(true));
 		final List<Class<?>> appended = classesOf(Stream.concat(StoragePipeline.handlers().stream(),
 			LedgerPipeline.handlers().stream()).toList());
 
-		assertThat(Collections.indexOfSubList(handlers, appended), equalTo(handlers.size() - appended.size()));
+		assertThat(Collections.indexOfSubList(handlers, appended), equalTo(handlers.size() - appended.size() - 1));
 	}
 
 	@Example
-	public void endsWithTheStoragePipelineAndHasNoLedgerStageWithoutTheLedgerProtocol() {
+	public void endsWithTheStoragePipelineBeforeTheDropAndHasNoLedgerStageWithoutTheLedgerProtocol() {
 		final List<Class<?>> handlers = classesOf(P2PClient.handlers(false));
 		final List<Class<?>> storage = classesOf(StoragePipeline.handlers());
 
-		assertThat(Collections.indexOfSubList(handlers, storage), equalTo(handlers.size() - storage.size()));
+		assertThat(Collections.indexOfSubList(handlers, storage), equalTo(handlers.size() - storage.size() - 1));
 		classesOf(LedgerPipeline.handlers()).stream().filter(type -> !storage.contains(type))
 			.forEach(type -> assertThat(handlers, not(hasItem(type))));
 	}

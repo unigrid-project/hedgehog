@@ -88,8 +88,8 @@ import org.unigrid.hedgehog.service.ledger.LedgerWireFixtures;
    not. Three nodes of one process: a node of this release (NEW), a node that offers what an earlier release offered
    (OLD), and a place for the nodes that dial, which have their own topology and gateway (DIALLER). OLD is made while
    Network.getProtocols is what the earlier release offered, and a node installs the ledger pipeline only if it offers
-   the ledger protocol, so it also has no ledger stage in its pipeline: a ledger packet sent to it would break its
-   stream, which is what the tests of it look for. */
+   the ledger protocol, so it also has no ledger stage in its pipeline: the tests of it look for the ledger traffic
+   that the gate keeps from reaching it. */
 @WeldSetup(TestServer.class)
 public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 	private static final String[] EARLIER_RELEASE = { "hedgehog/0.0.4", "gridspork/0.0.4" };
@@ -398,18 +398,17 @@ public class LedgerProtocolNegotiationTest extends BaseMockedWeldTest {
 		assertThat(isOpen(client), is(true));
 	}
 
-	/* What the gate keeps from happening: a ledger frame sent to a node of the earlier release breaks its stream, as
-	   no stage there takes the frame and what comes after it is read from the wrong place */
+	/* A node of this release drops a frame that no stage of it takes behind its last stage. The earlier release has no
+	   such drain, so a ledger frame breaks its stream, as what comes after it is read from the wrong place: that is
+	   what the gate keeps from happening */
 	@Example
-	public void breaksTheStreamOfANodeOfTheEarlierReleaseThatIsSentALedgerFrame() {
+	public void dropsALedgerFrameAtANodeWithoutTheLedgerStageAndKeepsItsStream() {
 		final P2PClient client = newNodeDials(OLD);
-		final List<Ping> answers = answersToTheProbeOf(client);
 
 		client.getChannel().writeAndFlush(LedgerWireFixtures.encoded(status(1)));
-		client.send(Ping.builder().nanoTime(PROBE).build());
 
-		await().until(() -> !isOpen(client));
-		assertThat(answers, hasSize(0));
+		assertAnswersAPing(client);
+		assertThat(isOpen(client), is(true));
 	}
 
 	@Example
