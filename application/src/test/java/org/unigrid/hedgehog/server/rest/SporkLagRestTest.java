@@ -23,9 +23,11 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
@@ -38,6 +40,12 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
 public class SporkLagRestTest extends BaseRestClientTest {
 	@Inject private SporkLag lag;
 	@Inject private SporkDatabase sporkDatabase;
+
+	/* Only a node run with --preview takes the blacklist spork, and notes no lag of it otherwise */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	private boolean isBehind() {
 		return lag.isBehind(Type.LEDGER_BLACKLIST, sporkDatabase);

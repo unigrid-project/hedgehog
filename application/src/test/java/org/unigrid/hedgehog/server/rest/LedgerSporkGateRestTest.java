@@ -28,10 +28,12 @@ import java.util.Optional;
 import lombok.SneakyThrows;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -45,6 +47,12 @@ import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
    node, the proposal, its co-signature and a renewal, goes to the nodes on the ledger protocol only */
 public class LedgerSporkGateRestTest extends BaseRestClientTest {
 	@Inject private Topology topology;
+
+	/* Only a node run with --preview takes the sporks of the ledger */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@SneakyThrows
 	private static void attach(final Topology held, final String host, final EmbeddedChannel stream) {

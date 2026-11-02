@@ -27,8 +27,12 @@ import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -40,8 +44,14 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
+@AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class PublishSporkScheduleTest {
 	private static Signature proposer;
+
+	/* Only a node run with --preview takes the sporks of the ledger */
+	private static void withThePreview() {
+		OptionsCli.parse(List.of("daemon"), "--preview");
+	}
 
 	@SneakyThrows
 	@Example
@@ -109,6 +119,7 @@ public class PublishSporkScheduleTest {
 	public void shouldPublishTheStoredLedgerBlacklist() {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
 
+		withThePreview();
 		countEverySpork();
 		final LedgerBlacklist blacklist = new LedgerBlacklist();
 
@@ -123,6 +134,7 @@ public class PublishSporkScheduleTest {
 		final EmbeddedChannel channel = LedgerStreams.stream(true);
 		final LedgerFee fee = new LedgerFee();
 
+		withThePreview();
 		countEverySpork();
 		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(fee).build(),
 			new PendingSporks());
@@ -134,6 +146,7 @@ public class PublishSporkScheduleTest {
 	public void shouldKeepTheStoredLedgerSporksFromAStreamThatDidNotSettleOnTheLedgerProtocol() {
 		final EmbeddedChannel channel = LedgerStreams.stream(false);
 
+		withThePreview();
 		countEverySpork();
 		PublishSporkSchedule.writeAndFlush(channel, SporkDatabase.builder().ledgerFee(new LedgerFee())
 			.ledgerBlacklist(new LedgerBlacklist()).mintSupply(new MintSupply()).build(), new PendingSporks());

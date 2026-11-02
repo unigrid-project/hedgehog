@@ -39,6 +39,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.BigRange;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -49,6 +50,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
@@ -84,6 +86,12 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 	@Inject private SporkDatabase sporkDatabase;
 	@Inject private PendingSporks pendingSporks;
 	@Inject private Topology topology;
+
+	/* The sporks of every type pass through here, which only a node run with --preview takes */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@SneakyThrows
 	private static MintSupply proposal(Signature signature, BigDecimal maxSupply) {

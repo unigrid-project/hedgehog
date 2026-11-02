@@ -27,8 +27,8 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.Arrays;
 import java.util.Optional;
+import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.network.Topology;
@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkIntake;
 import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 import org.unigrid.hedgehog.model.spork.content.SporkContent;
 
 /* The sporks as a board member signs them on their own machine: the command line reads the stored spork and the
@@ -51,6 +52,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	private static final String NOT_NEWER = "The spork does not follow on the stored spork and the proposal held";
 	private static final String AHEAD = "The spork is stamped further ahead of the clock of this node than clocks"
 		+ " drift apart";
+	private static final String TAKES_NO = "This node takes no %s spork";
 
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
@@ -83,7 +85,8 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	* Takes a spork that a board member signed as this node takes one from a peer: one co-signed by a second current
 	* board key that may replace the stored spork is stored in its place (200), one signed once that may wait for its
 	* co-signature is held as a proposal (202), and either is sent on to the peers. The data is judged before any
-	* signature is, so content that no node can act on is never held or sent (400). A spork that no current board key
+	* signature is, so content that no node can act on is never held or sent (400), nor a spork of a type that this
+	* node does not take (SporkRelease). A spork that no current board key
 	* signed, or whose co-signature is not of a second one, is refused (401), and so is one that does not follow on
 	* the stored spork or the proposal held for its type, or that is stamped further ahead than clocks drift apart
 	* (409).
@@ -96,6 +99,7 @@ public class GridSporkWireResource extends CDIBridgeResource {
 
 		try {
 			spork = SporkWire.decode(wire);
+			Validate.isTrue(SporkRelease.isTaken(spork.getType()), TAKES_NO, spork.getType());
 			SporkContent.validate(spork, sporkDatabase.get(spork.getType()));
 		} catch (IllegalArgumentException ex) {
 			return refused(Response.Status.BAD_REQUEST, ex.getMessage());
@@ -149,7 +153,6 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	}
 
 	private static Optional<GridSpork.Type> typeNamed(String name) {
-		return Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
-			.filter(type -> type.name().equals(name)).findFirst();
+		return SporkRelease.types().stream().filter(type -> type.name().equals(name)).findFirst();
 	}
 }

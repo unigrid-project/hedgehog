@@ -27,11 +27,11 @@ import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
-import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkIntake;
 import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 
 @Slf4j
 @Sharable
@@ -44,8 +44,10 @@ public class PublishSporkChannelHandler extends AbstractInboundHandler<PublishSp
 	public void typedChannelRead(ChannelHandlerContext ctx, PublishSpork publishSpork) throws Exception {
 		final GridSpork spork = publishSpork.getGridSpork();
 
-		if (spork.getType() == Type.UNDEFINED) {
-			log.atDebug().log("Received unsupported spork type - ignoring.");
+		/* Before the lag notes it, so that a type this node does not take never makes it look behind */
+		if (!SporkRelease.isTaken(spork.getType())) {
+			log.atDebug().addArgument(spork.getType())
+				.log("Received a spork of type {}, which this node does not take - ignoring.");
 			return;
 		}
 

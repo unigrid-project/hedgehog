@@ -26,8 +26,15 @@ import java.util.Set;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeTry;
+import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -36,6 +43,8 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
+import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.QuicLoopback;
 import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
@@ -45,6 +54,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
+@AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class SporkRecipientsTest {
 	/* The types that release 0.0.8 reads: it cannot read any other, and a frame of one wrecks its stream. It knows the
 	   type number of the vesting spork, but not the layout that spork has had since. */
@@ -52,6 +62,18 @@ public class SporkRecipientsTest {
 		Type.MINT_SUPPLY, Type.STATISTICS_PUBKEY);
 
 	private static final List<Type> OF_THIS_RELEASE = List.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE);
+
+	/* The types that only a node run with --preview takes */
+	private static final Set<Type> OF_THE_PREVIEW = Set.of(Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE,
+		Type.COMMUNICATION);
+
+	private static final List<String> DAEMON = List.of("daemon");
+	private static final String[] LEDGER_NODE = { Network.LEDGER_PROTOCOL, Network.PROXY_PROTOCOL,
+		Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
+
+	private static void withThePreview() {
+		OptionsCli.parse(DAEMON, "--preview");
+	}
 
 	/* The sporks of these tests are signed by no one, and stand for sporks that count */
 	@BeforeTry
@@ -118,15 +140,14 @@ public class SporkRecipientsTest {
 	   protocol that carries it, gets the communication spork */
 	@Example
 	public void shouldWriteTheCommunicationSporkOnlyToAConnectionThatSpeaksTheProxy() {
-		final String[] ledgerNode = { Network.LEDGER_PROTOCOL, Network.PROXY_PROTOCOL, Network.SPORK_PROTOCOL,
-			PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
 		final String[] proxyNode = { Network.PROXY_PROTOCOL, Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0],
 			PREVIOUS_RELEASE[1] };
 		final String[] withoutProxy = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
 		final GridSpork communication = spork(Type.COMMUNICATION);
 
-		assertThat(writtenOverAConnectionOf(ledgerNode, ledgerNode, communication), contains(Type.COMMUNICATION));
-		assertThat(writtenOverAConnectionOf(proxyNode, ledgerNode, communication), contains(Type.COMMUNICATION));
+		withThePreview();
+		assertThat(writtenOverAConnectionOf(LEDGER_NODE, LEDGER_NODE, communication), contains(Type.COMMUNICATION));
+		assertThat(writtenOverAConnectionOf(proxyNode, LEDGER_NODE, communication), contains(Type.COMMUNICATION));
 		assertThat(writtenOverAConnectionOf(proxyNode, proxyNode, communication), contains(Type.COMMUNICATION));
 		assertThat(writtenOverAConnectionOf(withoutProxy, proxyNode, communication), empty());
 		assertThat(writtenOverAConnectionOf(PREVIOUS_RELEASE, proxyNode, communication), empty());
@@ -136,6 +157,8 @@ public class SporkRecipientsTest {
 	@Example
 	public void shouldGiveTheScheduleTheCommunicationSporkOnlyWhereTheOtherEndTakesIt() {
 		final SporkDatabase database = databaseWithEverySpork();
+
+		withThePreview();
 
 		try (QuicLoopback loopback = QuicLoopback.between(Network.getProtocols(), Network.getProtocols())) {
 			final EmbeddedChannel proxy = new EmbeddedChannel(loopback.clientEnd(), DefaultChannelId.newInstance(),
@@ -151,6 +174,8 @@ public class SporkRecipientsTest {
 	   every node of this release can */
 	@Example
 	public void shouldWriteTheSporksOfThisReleaseOnlyToAStreamOfThisRelease() {
+		withThePreview();
+
 		for (final Type type : OF_THIS_RELEASE) {
 			final EmbeddedChannel release = streamOfThisRelease();
 			final EmbeddedChannel ledger = stream(true);
@@ -170,6 +195,8 @@ public class SporkRecipientsTest {
 	public void shouldWriteTheSporksOfThisReleaseOnlyToAConnectionThatSettledOnTheProtocolOfThisRelease() {
 		final String[] withoutProxy = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
 
+		withThePreview();
+
 		for (final Type type : OF_THIS_RELEASE) {
 			assertThat(type.toString(), writtenOverAConnectionOf(withoutProxy, withoutProxy, spork(type)),
 				contains(type));
@@ -182,6 +209,8 @@ public class SporkRecipientsTest {
 	public void shouldWriteALedgerSporkOnlyToAStreamThatSettledOnTheLedgerProtocol() {
 		final EmbeddedChannel ledger = stream(true);
 		final EmbeddedChannel earlier = stream(false);
+
+		withThePreview();
 
 		for (final Type type : List.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE)) {
 			SporkRecipients.write(ledger, spork(type));
@@ -226,6 +255,8 @@ public class SporkRecipientsTest {
 		final EmbeddedChannel release = streamOfThisRelease();
 		final EmbeddedChannel earlier = stream(false);
 
+		withThePreview();
+
 		for (final EmbeddedChannel stream : List.of(ledger, release, earlier)) {
 			PublishSporkSchedule.writeAndFlush(stream, database, new PendingSporks());
 		}
@@ -235,6 +266,48 @@ public class SporkRecipientsTest {
 		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
 			Type.VESTING_STORAGE, Type.STORAGE));
 		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY));
+	}
+
+	/* Not even to a stream whose other end runs the ledger and the proxy, and so reads every type of this release */
+	@Provide
+	public Arbitrary<Type> previewTypes() {
+		return Arbitraries.of(OF_THE_PREVIEW);
+	}
+
+	@Property
+	public void shouldWriteASporkOfThePreviewToNoStreamWithoutThePreview(@ForAll("previewTypes") Type type) {
+		final GridSpork spork = spork(type);
+
+		OptionsCli.parse(DAEMON);
+
+		for (final EmbeddedChannel stream : List.of(stream(true), streamOfThisRelease(), stream(false))) {
+			SporkRecipients.write(stream, spork);
+			assertThat(type.toString(), SporkRecipients.mayReceive(stream, spork), is(false));
+			assertThat(type.toString(), sporkTypesWrittenTo(stream), empty());
+		}
+
+		assertThat(type.toString(), writtenOverAConnectionOf(LEDGER_NODE, LEDGER_NODE, spork), empty());
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldGiveTheScheduleOnlyTheSporksOfThisReleaseWithoutThePreview() {
+		final SporkDatabase database = databaseWithEverySpork();
+		final EmbeddedChannel ledger = stream(true);
+		final EmbeddedChannel release = streamOfThisRelease();
+
+		OptionsCli.parse(DAEMON);
+
+		try (QuicLoopback loopback = QuicLoopback.between(LEDGER_NODE, LEDGER_NODE)) {
+			final EmbeddedChannel proxy = new EmbeddedChannel(loopback.clientEnd(), DefaultChannelId.newInstance(),
+				true, false);
+
+			for (final EmbeddedChannel stream : List.of(ledger, release, proxy)) {
+				PublishSporkSchedule.writeAndFlush(stream, database, new PendingSporks());
+				assertThat(sporkTypesWrittenTo(stream), contains(Type.BOARD_KEYS, Type.MINT_STORAGE,
+					Type.MINT_SUPPLY, Type.VESTING_STORAGE));
+			}
+		}
 	}
 
 	@Example

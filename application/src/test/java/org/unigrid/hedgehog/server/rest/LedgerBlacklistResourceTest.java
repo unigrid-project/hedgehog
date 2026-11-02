@@ -27,9 +27,11 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -40,6 +42,12 @@ import org.unigrid.hedgehog.model.spork.LedgerBlacklistTest;
    (LedgerBlacklistCommandTest), and a node refuses one past the cap of the wire (GridSporkWireResourceTest) */
 public class LedgerBlacklistResourceTest extends BaseRestClientTest {
 	private static final String URL = "/gridspork/ledger-blacklist";
+
+	/* Only a node run with --preview takes the blacklist spork */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@Provide
 	public Arbitrary<Set<String>> validLists() {

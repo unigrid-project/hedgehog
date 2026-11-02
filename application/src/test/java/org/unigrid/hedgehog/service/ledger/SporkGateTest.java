@@ -29,6 +29,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -37,6 +38,7 @@ import static org.unigrid.hedgehog.service.ledger.LedgerStreams.connection;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
@@ -78,6 +80,12 @@ public class SporkGateTest extends BaseMockedWeldTest {
 	private final EmbeddedChannel ledger = stream(true);
 	private final EmbeddedChannel earlier = stream(false);
 	private Signature proposer;
+
+	/* Only a node run with --preview takes the sporks of the ledger */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@BeforeTry
 	@SneakyThrows

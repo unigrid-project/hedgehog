@@ -28,10 +28,12 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -40,6 +42,12 @@ import org.unigrid.hedgehog.model.spork.StorageSporkTest;
 
 public class StorageSporkResourceTest extends BaseRestClientTest {
 	private static final String URL = "/gridspork/storage";
+
+	/* Only a node run with --preview takes the storage spork */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@Provide
 	public Arbitrary<StorageSpork.SporkData> validData() {

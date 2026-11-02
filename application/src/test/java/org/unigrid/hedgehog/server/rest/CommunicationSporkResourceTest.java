@@ -27,11 +27,13 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
@@ -41,6 +43,12 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
 public class CommunicationSporkResourceTest extends BaseRestClientTest {
 	private static final String URL = "/gridspork/communication";
+
+	/* Only a node run with --preview takes the communication spork */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@Inject
 	private SporkDatabase sporkDatabase;

@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
 /* Where a spork may be sent. A node of release 0.0.8 reads the two bytes of the type of a spork, and for a type it
@@ -44,7 +45,7 @@ import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
    chain traffic. This holds for everything that writes a spork to a stream: the schedule and the new streams, the
    relay of a spork that came in, and the REST resources. A node that runs without --ledger does not offer the ledger
    protocol either, so it neither sends nor relays the sporks of the ledger; it may still store one that a peer sent
-   it. A spork that is not set is not sent at all. */
+   it. A spork that is not set is not sent at all, nor one of a type that this node does not take (SporkRelease). */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkRecipients {
 	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE);
@@ -64,9 +65,13 @@ public final class SporkRecipients {
 	}
 
 	public static boolean mayReceive(final Channel stream, final GridSpork spork) {
-		return Objects.nonNull(spork) && (needsLedgerProtocol(spork.getType()) ? LedgerProtocol.negotiatedOn(stream)
-			: needsProxyProtocol(spork.getType()) ? PeerProtocol.speaksProxy(stream)
-			: !needsThisRelease(spork.getType()) || SporkProtocol.negotiatedOn(stream));
+		return Objects.nonNull(spork) && SporkRelease.isTaken(spork.getType()) && reads(stream, spork.getType());
+	}
+
+	private static boolean reads(final Channel stream, final Type type) {
+		return needsLedgerProtocol(type) ? LedgerProtocol.negotiatedOn(stream)
+			: needsProxyProtocol(type) ? PeerProtocol.speaksProxy(stream)
+			: !needsThisRelease(type) || SporkProtocol.negotiatedOn(stream);
 	}
 
 	public static void write(final Channel stream, final GridSpork spork) {
