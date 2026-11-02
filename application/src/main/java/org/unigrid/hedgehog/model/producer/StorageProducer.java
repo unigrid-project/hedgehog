@@ -35,7 +35,9 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.gridnode.GridnodeIdentity;
 import org.unigrid.hedgehog.model.network.PendingRequests;
 import org.unigrid.hedgehog.model.network.Topology;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 import org.unigrid.hedgehog.model.spork.StorageSpork;
 import org.unigrid.hedgehog.model.storage.placement.GridnodeDirectory;
 import org.unigrid.hedgehog.model.storage.placement.TopologyGridnodeDirectory;
@@ -101,10 +103,11 @@ public class StorageProducer {
 		return new GroupRepairer(store, directory, transport, this::storageSpork, Clock.systemUTC());
 	}
 
-	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead */
+	/* Nothing validates a spork on receipt, so parameters that break the layout disable storage instead. A node run
+	   without --preview reads no storage spork, so one that a run with it stored leaves storage disabled as well. */
 	Optional<StorageSpork.SporkData> storageSpork() {
-		return Optional.ofNullable(sporkDatabase.getStorageSpork())
-			.<StorageSpork.SporkData>map(StorageSpork::getData)
+		return SporkRelease.stored(sporkDatabase, GridSpork.Type.STORAGE)
+			.<StorageSpork.SporkData>map(GridSpork::getData)
 			.filter(this::isValid);
 	}
 

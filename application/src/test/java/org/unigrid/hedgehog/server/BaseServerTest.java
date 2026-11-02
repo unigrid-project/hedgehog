@@ -28,10 +28,11 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -54,9 +55,6 @@ public class BaseServerTest extends BaseMockedWeldTest {
 
 	@Mocked
 	protected SocksOptions socksOptions;
-
-	@Mocked
-	protected PreviewOptions previewOptions;
 
 	@Inject @Instances(NUM_SERVERS)
 	private List<TestServer> servers;
@@ -86,11 +84,17 @@ public class BaseServerTest extends BaseMockedWeldTest {
 		return false;
 	}
 
+	/* Faked rather than recorded each try: the threads of the servers read the switch whenever they take, send or act
+	   on a spork, and a read from one of them while a try records its expectations can take the recorded answer */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
+
 	@BeforeTry
 	public void before() {
 		new Expectations() {{
 			LedgerOptions.isLedger(); result = runsLedger(); minTimes = 0;
-			PreviewOptions.isPreview(); result = true; minTimes = 0;
 		}};
 
 		for (int i = 0; i < servers.size(); i++) {

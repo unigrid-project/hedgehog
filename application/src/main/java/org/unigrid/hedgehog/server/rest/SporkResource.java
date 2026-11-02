@@ -30,12 +30,17 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 
-/* The sporks that are shown whole and nothing else: no entry of them has an endpoint of its own */
+/* The sporks that are shown whole and nothing else: no entry of them has an endpoint of its own. A node run without
+   --preview takes the sporks of the parts this release leaves off from no one (SporkRelease), so it shows none of them
+   either, and says so instead of answering as if it held none. */
 @Path("/gridspork")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({ MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN })
 public class SporkResource extends CDIBridgeResource {
+	private static final String NOT_TAKEN = "This release does not take the %s spork";
+
 	@CDIBridgeInject
 	private SporkDatabase sporkDatabase;
 
@@ -65,6 +70,11 @@ public class SporkResource extends CDIBridgeResource {
 	}
 
 	private Response show(Type type) {
+		if (!SporkRelease.isTaken(type)) {
+			return Response.status(Response.Status.SERVICE_UNAVAILABLE).entity(String.format(NOT_TAKEN, type))
+				.type(MediaType.TEXT_PLAIN_TYPE).build();
+		}
+
 		final GridSpork spork = sporkDatabase.get(type);
 		return Objects.isNull(spork) ? Response.noContent().build() : Response.ok().entity(spork).build();
 	}

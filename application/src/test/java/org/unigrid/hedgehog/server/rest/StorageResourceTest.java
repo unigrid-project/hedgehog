@@ -81,6 +81,7 @@ import net.jqwik.api.constraints.LongRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AfterTry;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.bitcoinj.base.Base58;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -96,6 +97,7 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.command.cli.StoragePut;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;
@@ -125,6 +127,12 @@ public class StorageResourceTest extends BaseRestClientTest {
 	private static final Duration STALL_LIMIT = Duration.ofSeconds(15);
 	private static final Duration READ_LIMIT = Duration.ofMillis(250);
 	private static final Duration SLOW_REPLY = READ_LIMIT.multipliedBy(2);
+
+	/* Only a node run with --preview reads the storage spork that turns storage on */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	/* Far more than any buffer between the client and the daemon holds back, so the daemon receives whole stripes */
 	private static final int STREAMED_AHEAD = 1 << 16;

@@ -28,7 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.service.chain.ChainTransport;
 import org.unigrid.hedgehog.service.chain.NettyChainTransport;
@@ -59,10 +61,11 @@ public class ChainProducer {
 	}
 
 	/* Nothing validates a spork on receipt, so parameters that its checks or ProxySettings refuse turn the proxy
-	   off instead of failing */
+	   off instead of failing. A node run without --preview reads no communication spork, so one that a run with it
+	   stored leaves the proxy off as well. */
 	Optional<ProxySettings> proxySettings() {
-		return Optional.ofNullable(sporkDatabase.getCommunicationSpork())
-			.<CommunicationSpork.SporkData>map(CommunicationSpork::getData)
+		return SporkRelease.stored(sporkDatabase, GridSpork.Type.COMMUNICATION)
+			.<CommunicationSpork.SporkData>map(GridSpork::getData)
 			.flatMap(this::settingsOf);
 	}
 

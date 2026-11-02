@@ -24,7 +24,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +37,7 @@ import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SignatureLogInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
+import org.unigrid.hedgehog.model.spork.SporkRelease;
 
 /* The sporks as JSON, for people to read. A spork is signed on the machine of a board member and handed to the node
    in its wire form (GridSporkWireResource). */
@@ -77,7 +77,6 @@ public class GridSporkResource extends CDIBridgeResource {
 	}
 
 	private List<GridSpork> storedSporks() {
-		return Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
-			.map(sporkDatabase::get).filter(Objects::nonNull).toList();
+		return SporkRelease.types().stream().map(sporkDatabase::get).filter(Objects::nonNull).toList();
 	}
 }

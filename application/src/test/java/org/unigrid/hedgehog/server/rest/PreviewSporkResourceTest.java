@@ -31,6 +31,7 @@ import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -52,13 +53,14 @@ import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.connection;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
 
 /* A node run without --preview whose database still holds the sporks that a run with it stored, co-signed by the
-   board: it hands none of them out, takes no new one and sends none to a peer. The peer here runs the ledger, so a
-   node that took them would send it every one of them but the communication spork. */
+   board: it hands none of them out, shows or lists none, takes no new one and sends none to a peer. The peer here runs
+   the ledger, so a node that took them would send it every one of them but the communication spork. */
 public class PreviewSporkResourceTest extends BaseRestClientTest {
 	private static final List<Type> OF_THE_PREVIEW = List.of(Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE,
 		Type.COMMUNICATION);
@@ -98,6 +100,7 @@ public class PreviewSporkResourceTest extends BaseRestClientTest {
 		}
 
 		sporkDatabase.set(cosigned(mintSupply()));
+		sporkDatabase.clear(Type.MINT_STORAGE);
 		peer = stream(true);
 
 		final Node node = Node.builder().address(new InetSocketAddress("10.9.7.1", 1000)).build();
@@ -135,6 +138,51 @@ public class PreviewSporkResourceTest extends BaseRestClientTest {
 		}
 
 		assertThat(sporkTypesWrittenTo(peer), empty());
+	}
+
+	/* The endpoints are still there, so that a request for one of these sporks is told why there is none */
+	@Example
+	public void shouldShowASporkOfThePreviewAsDisabled() {
+		final Map<Type, String> locations = Map.of(Type.STORAGE, "/gridspork/storage",
+			Type.LEDGER_BLACKLIST, "/gridspork/ledger-blacklist", Type.LEDGER_FEE, "/gridspork/ledger-fee",
+			Type.COMMUNICATION, "/gridspork/communication");
+
+		locations.forEach((type, location) -> {
+			final ResponseOddityException refusal = assertThrows(ResponseOddityException.class,
+				() -> client.get(location));
+
+			assertThat(location, refusal.getMessage(), startsWith("503 "));
+			assertThat(location, refusal.getBody(), containsString("This release does not take the " + type
+				+ " spork"));
+		});
+
+		assertThat(statusOf("/gridspork/mint-supply"), equalTo(Status.OK));
+	}
+
+	@SneakyThrows
+	@Example
+	public void shouldListNoSporkOfThePreview() {
+		final List<String> names = OF_THE_PREVIEW.stream().map(Type::name).toList();
+		final List<String> listed = client.getEntity("/gridspork/log", Map.class).keySet().stream()
+			.map(String::valueOf).toList();
+
+		assertThat(listed, hasItem(Type.MINT_SUPPLY.name()));
+		assertThat(listed, everyItem(is(not(in(names)))));
+	}
+
+	/* Signed by no one, and so counting for nothing, as a spork of the preview that is held does not either */
+	@SneakyThrows
+	@Example
+	public void shouldTellOfNoSporkOfThePreviewThatCountsForNothing() {
+		for (final Type type : List.of(Type.MINT_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE,
+			Type.COMMUNICATION)) {
+
+			sporkDatabase.set(GridSpork.create(type));
+		}
+
+		final SporkDatabaseInfo info = client.getEntity("/gridspork", SporkDatabaseInfo.class);
+
+		assertThat(info.getNotCounting(), contains(Type.MINT_STORAGE));
 	}
 
 	@Example

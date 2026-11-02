@@ -36,12 +36,17 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.BeforeContainer;
+import net.jqwik.api.lifecycle.PropagationMode;
 import net.jqwik.api.statistics.Statistics;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.slf4j.LoggerFactory;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.NodeConnections;
@@ -56,6 +61,7 @@ import org.unigrid.hedgehog.proxy.group.ProxySettings;
 import org.unigrid.hedgehog.service.chain.ChainTransport;
 import org.unigrid.hedgehog.service.chain.ProxySettingsSource;
 
+@AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class ChainProducerTest {
 	private static final Map<String, ObjIntConsumer<SporkData>> SHORT_COUNTS = Map.of(
 		"groupSize", SporkData::setGroupSize,
@@ -64,6 +70,12 @@ public class ChainProducerTest {
 		"retentionSeconds", SporkData::setRetentionSeconds,
 		"sessionIdleSeconds", SporkData::setSessionIdleSeconds
 	);
+
+	/* Only a node run with --preview reads the communication spork */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@SneakyThrows
 	private static ChainProducer producerOver(final SporkDatabase database) {

@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.model.spork;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
@@ -43,8 +42,7 @@ public class SporkDatabaseInfo implements Serializable {
 	private Set<GridSpork.Type> notCounting = new TreeSet<>();
 
 	public SporkDatabaseInfo(SporkDatabase sporkDatabase) {
-		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
-			.filter(type -> Objects.nonNull(sporkDatabase.get(type)))
+		SporkRelease.types().stream().filter(type -> Objects.nonNull(sporkDatabase.get(type)))
 			.filter(type -> Objects.isNull(sporkDatabase.counting(type))).forEach(notCounting::add);
 
 		ExceptionUtil.swallow(() -> {
