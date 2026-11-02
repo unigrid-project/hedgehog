@@ -32,46 +32,46 @@ public class S3Options {
 	private static final String DEFAULT_CACHE_SIZE_STR = "1073741824";
 	public static final long DEFAULT_CACHE_SIZE = Long.parseLong(DEFAULT_CACHE_SIZE_STR);
 
-	@Getter @Option(names = "--no-s3", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--no-s3", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Enable/disable the S3 endpoint (enabled by default).", negatable = true, defaultValue = "true"
 	)
 	private static boolean enabled;
 
-	@Getter @Option(names = "--s3host", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3host", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Hostname or IP the S3 endpoint binds to (defaults to '${DEFAULT-VALUE}').",
 		defaultValue = "localhost"
 	)
 	private static String host;
 
-	@Getter @Option(names = "--s3port", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3port", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "S3 endpoint port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
 	)
 	private static int port;
 
-	@Getter @Option(names = "--s3domain", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3domain", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Domain whose subdomains name buckets, as in 'bucket.s3.example.com' (only path-style "
 			+ "addressing when unset)."
 	)
 	private static String domain;
 
-	@Option(names = "--s3cachedir", scope = CommandLine.ScopeType.INHERIT,
+	@Option(names = "--s3cachedir", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Directory of the local cache of S3 objects (defaults to s3/cache in the data directory)."
 	)
 	private static Path cacheDirectory;
 
-	@Getter @Option(names = "--s3cachesize", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3cachesize", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Bytes the local cache of S3 objects may hold (defaults to ${DEFAULT-VALUE}).",
 		defaultValue = DEFAULT_CACHE_SIZE_STR
 	)
 	private static long cacheSize;
 
-	@Getter @Option(names = "--s3cachehalflife", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3cachehalflife", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Time after which a read counts half as much toward keeping an object cached, as an ISO-8601 "
 			+ "duration (defaults to ${DEFAULT-VALUE}).", defaultValue = "P1D"
 	)
 	private static Duration cacheHalfLife;
 
-	@Getter @Option(names = "--s3lifecycleinterval", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3lifecycleinterval", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Time between the rounds that apply the lifecycle rules of the S3 buckets, as an ISO-8601 "
 			+ "duration where zero turns them off (defaults to ${DEFAULT-VALUE}).", defaultValue = "PT1H"
 	)
@@ -79,7 +79,7 @@ public class S3Options {
 
 	/* The id grants read access to the whole namespace, so whoever passes it keeps it out of shared shell histories,
 	   for instance with picocli's @file arguments */
-	@Option(names = "--s3root", scope = CommandLine.ScopeType.INHERIT,
+	@Option(names = "--s3root", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Blob id of the root manifest of an S3 namespace to mount in place of the namespace of this "
 			+ "node, such as to recover the namespace of a lost node."
 	)
@@ -98,7 +98,7 @@ public class S3Options {
 		return Optional.ofNullable(root);
 	}
 
-	@Getter @Option(names = "--s3plain", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--s3plain", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Serve S3 over plain HTTP instead of TLS, for local tools that cannot trust a self-signed "
 			+ "certificate."
 	)

@@ -39,7 +39,7 @@ public class NetworkTest {
 	   settle on the one it offers first */
 	@Example
 	public void offersTheLedgerProtocolFirstAndTheProtocolsOfTheEarlierReleaseAfterItWhileTheLedgerIsOn() {
-		OptionsCli.parse(DAEMON, "--ledger");
+		OptionsCli.parse(DAEMON, "--preview", "--ledger");
 
 		assertThat(Network.getProtocols(), arrayContaining("hedgehog-ledger/0.0.2", PROXY_PROTOCOL, SPORK_PROTOCOL,
 			EARLIER_RELEASE[0], EARLIER_RELEASE[1]));
@@ -56,18 +56,31 @@ public class NetworkTest {
 			EARLIER_RELEASE[1]));
 	}
 
+	/* The ledger is one of the parts of the node that this release leaves off */
+	@Example
+	public void offersNoLedgerProtocolWithoutThePreview() {
+		OptionsCli.parse(DAEMON, "--ledger");
+
+		assertThat(Network.hasLedger(), is(false));
+		assertThat(Network.getProtocols(), arrayContaining(PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
+			EARLIER_RELEASE[1]));
+	}
+
 	@Example
 	public void followsTheLedgerOptionWhenAskedWhetherThereIsALedger() {
 		OptionsCli.parse(DAEMON);
 		assertThat(Network.hasLedger(), is(false));
 
-		OptionsCli.parse(DAEMON, "--ledger");
+		OptionsCli.parse(DAEMON, "--preview");
+		assertThat(Network.hasLedger(), is(false));
+
+		OptionsCli.parse(DAEMON, "--preview", "--ledger");
 		assertThat(Network.hasLedger(), is(true));
 	}
 
 	@Example
 	public void tellsWhetherTheLedgerProtocolIsOffered() {
-		OptionsCli.parse(DAEMON, "--ledger");
+		OptionsCli.parse(DAEMON, "--preview", "--ledger");
 		assertThat(Network.hasLedger(Network.getProtocols()), is(true));
 
 		OptionsCli.parse(DAEMON);

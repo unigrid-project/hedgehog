@@ -31,7 +31,7 @@ public class SocksOptions {
 	public static final int OFF = 0;
 	static final int MAX_PORT = 0xFFFF;
 
-	@Getter @Option(names = "--socks-host", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--socks-host", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Hostname or IP the SOCKS5 proxy binds to (defaults to the loopback address "
 		+ "'${DEFAULT-VALUE}'). The proxy has no authentication, so any other address offers it to the network. "
 		+ "Ignored while --socks-port is 0.",
@@ -40,12 +40,14 @@ public class SocksOptions {
 	private static String host;
 
 	@Getter @Option(names = "--socks-port", scope = CommandLine.ScopeType.INHERIT, converter = PortConverter.class,
+		hidden = true,
 		description = "SOCKS5 proxy port from 0 to 65535, 0 for no proxy (defaults to ${DEFAULT-VALUE}).",
 		defaultValue = "0"
 	)
 	private static int port;
 
 	@Option(names = "--socks-country", scope = CommandLine.ScopeType.INHERIT, converter = CountryConverter.class,
+		hidden = true,
 		description = "ISO 3166-1 alpha-2 code of the country to choose the exit in for a SOCKS5 connection that "
 		+ "names none as its username (defaults to any country).",
 		defaultValue = ""
@@ -53,7 +55,7 @@ public class SocksOptions {
 	private static String country;
 
 	/* An empty default, so that a database one parse names is not taken as the default of the next */
-	@Option(names = "--socks-geoip", scope = CommandLine.ScopeType.INHERIT,
+	@Option(names = "--socks-geoip", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Country database in the MMDB format to find the country of each gridnode in (defaults to "
 		+ "geoip/country.mmdb in the data directory), such as IP to Country Lite of DB-IP, licensed CC BY 4.0 with "
 		+ "attribution to DB-IP.com required. Any MMDB file whose records hold country.iso_code works. Without it, "

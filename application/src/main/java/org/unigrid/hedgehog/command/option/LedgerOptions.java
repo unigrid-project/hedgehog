@@ -25,18 +25,18 @@ import picocli.CommandLine.Option;
 
 public class LedgerOptions {
 
-	@Getter @Option(names = "--ledger", scope = CommandLine.ScopeType.INHERIT, defaultValue = "false",
+	@Getter @Option(names = "--ledger", scope = CommandLine.ScopeType.INHERIT, hidden = true, defaultValue = "false",
 		description = "Run the ledger: follow and serve its blocks (off by default)."
 	)
 	private static boolean ledger;
 
-	@Getter @Option(names = "--ledger-key", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--ledger-key", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Validate with the seed in this file, as made by 'util ledger-key-generate' "
 		+ "(without it the node follows the ledger and never signs)"
 	)
 	private static Path ledgerKeyFile;
 
-	@Getter @Option(names = "--ledger-genesis", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--ledger-genesis", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Use the genesis in this file instead of the one that comes with the node. A changed genesis "
 		+ "starts a new chain: its block log and sign state are kept in a directory of their own below 'ledger' "
 		+ "in the data directory, named by the start of its chain id, and those of the chain before stay there "
@@ -44,7 +44,7 @@ public class LedgerOptions {
 	)
 	private static Path ledgerGenesisFile;
 
-	@Getter @Option(names = "--ledger-trusted", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--ledger-trusted", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "The block a synced ledger must have, as <height>:<128 hexadecimal characters of its hash>"
 	)
 	private static String ledgerTrusted;

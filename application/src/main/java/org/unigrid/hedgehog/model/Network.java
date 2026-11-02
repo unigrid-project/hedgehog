@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.model;
 import java.util.Arrays;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.PreviewOptions;
 
 public class Network {
 	/* The ledger protocol is offered first: a node that knows it settles on it with another that does, and a node that
@@ -98,8 +99,9 @@ public class Network {
 		return hasLedger() ? LEDGER_PROTOCOLS : PROTOCOLS;
 	}
 
+	/* The ledger is one of the parts of the node that this release leaves off, unless --preview turns them on */
 	public static boolean hasLedger() {
-		return LedgerOptions.isLedger();
+		return LedgerOptions.isLedger() && PreviewOptions.isPreview();
 	}
 
 	/* A node carries the ledger pipeline exactly when it offers the ledger protocol, so it never sends a ledger packet

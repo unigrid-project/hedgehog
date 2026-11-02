@@ -59,10 +59,11 @@ public class LedgerOptionsTest {
 
 	@Example
 	public void shouldTellInItsHelpThatAChangedGenesisStartsANewChainAndLeavesTheOldFiles() {
-		final String help = new CommandLine(Hedgehog.class).getSubcommands().get("daemon").getUsageMessage();
+		final String help = String.join(" ", new CommandLine(Hedgehog.class).getSubcommands().get("daemon")
+			.getCommandSpec().findOption("--ledger-genesis").description());
 
-		assertThat(help.replaceAll("\\s+", " "), containsString("A changed genesis starts a new chain"));
-		assertThat(help.replaceAll("\\s+", " "), containsString("and those of the chain before stay there"));
+		assertThat(help, containsString("A changed genesis starts a new chain"));
+		assertThat(help, containsString("and those of the chain before stay there"));
 	}
 
 	@Example

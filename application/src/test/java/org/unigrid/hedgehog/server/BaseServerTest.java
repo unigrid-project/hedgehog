@@ -31,6 +31,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.option.LedgerOptions;
 import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.command.option.PreviewOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -53,6 +54,9 @@ public class BaseServerTest extends BaseMockedWeldTest {
 
 	@Mocked
 	protected SocksOptions socksOptions;
+
+	@Mocked
+	protected PreviewOptions previewOptions;
 
 	@Inject @Instances(NUM_SERVERS)
 	private List<TestServer> servers;
@@ -86,6 +90,7 @@ public class BaseServerTest extends BaseMockedWeldTest {
 	public void before() {
 		new Expectations() {{
 			LedgerOptions.isLedger(); result = runsLedger(); minTimes = 0;
+			PreviewOptions.isPreview(); result = true; minTimes = 0;
 		}};
 
 		for (int i = 0; i < servers.size(); i++) {

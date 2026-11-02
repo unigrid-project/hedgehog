@@ -47,6 +47,8 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.Tuple;
+import net.jqwik.api.Tuple.Tuple2;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
@@ -221,11 +223,29 @@ public class DaemonTest {
 		assertThat(CONTAINERS.get(), equalTo(0));
 	}
 
+	@Provide
+	public Arbitrary<Tuple2<String, List<String>>> provideOptionOfAPartThisReleaseLeavesOff() {
+		return Arbitraries.of(Tuple.of("--ledger", List.of("--ledger")),
+			Tuple.of("--gridnode", List.of("-G", "/keys/gridnode.key")),
+			Tuple.of("--socks-port", List.of("--socks-port", "1080"))
+		);
+	}
+
+	/* A node that is told to run a part this release leaves off is refused, rather than started without it */
+	@Property
+	public void shouldRefuseAnOptionOfThePartsThisReleaseLeavesOffWithoutThePreview(
+		@ForAll("provideOptionOfAPartThisReleaseLeavesOff") Tuple2<String, List<String>> option) {
+
+		final String[] args = Stream.concat(Stream.of("daemon"), option.get2().stream()).toArray(String[]::new);
+
+		assertRefusedWithout(HedgehogCli.run(args), option.get1() + " is not part of this release");
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldRefuseAGridnodeKeyFileItCannotRead() {
 		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
-			assertRefusedWithout(runOn(fs, "daemon", "-G", "/keys/gridnode.key"),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "-G", "/keys/gridnode.key"),
 				"Cannot read the gridnode key file /keys/gridnode.key"
 			);
 		}
@@ -235,7 +255,7 @@ public class DaemonTest {
 	@SneakyThrows
 	public void shouldRefuseALedgerKeyFileItCannotRead() {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
-			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "--ledger", "--ledger-key", KEY_FILE),
 				"Cannot read the ledger key file " + KEY_FILE
 			);
 		}
@@ -247,7 +267,7 @@ public class DaemonTest {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.write(fs, KEY_FILE, "00".repeat(Ed25519.SEED_SIZE) + "\n", "rw-r--r--");
 
-			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "--ledger", "--ledger-key", KEY_FILE),
 				KEY_FILE, "chmod 600"
 			);
 		}
@@ -261,7 +281,7 @@ public class DaemonTest {
 				LedgerKeyFixtures.OWNER_ONLY
 			);
 
-			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE);
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--preview", "--ledger", "--ledger-key", KEY_FILE);
 
 			assertRefusedWithout(result, KEY_FILE);
 			assertThat(result.err(), not(containsString("abababab")));
@@ -272,7 +292,7 @@ public class DaemonTest {
 	@SneakyThrows
 	public void shouldRefuseALedgerGenesisFileThatIsNotThere() {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
-			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "--ledger", "--ledger-genesis", "/genesis.json"),
 				"/genesis.json"
 			);
 		}
@@ -280,7 +300,7 @@ public class DaemonTest {
 
 	@Property(tries = 5)
 	public void shouldRefuseATrustedCheckpointItCannotRead(@ForAll("provideBadCheckpoint") String checkpoint) {
-		assertRefusedWithout(HedgehogCli.run("daemon", "--ledger", "--ledger-trusted=" + checkpoint),
+		assertRefusedWithout(HedgehogCli.run("daemon", "--preview", "--ledger", "--ledger-trusted=" + checkpoint),
 			"--ledger-trusted"
 		);
 	}
@@ -288,7 +308,7 @@ public class DaemonTest {
 	@Example
 	@SneakyThrows
 	public void shouldRefuseALedgerThatHasNoGenesisToRunOn() {
-		assertRefusedWithout(HedgehogCli.run("daemon", "--ledger"),
+		assertRefusedWithout(HedgehogCli.run("daemon", "--preview", "--ledger"),
 			"--ledger needs a genesis: give --ledger-genesis <file>"
 		);
 	}
@@ -299,7 +319,7 @@ public class DaemonTest {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.write(fs, "/genesis.json", "{ not a genesis", null);
 
-			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "--ledger", "--ledger-genesis", "/genesis.json"),
 				"/genesis.json"
 			);
 		}
@@ -311,7 +331,7 @@ public class DaemonTest {
 		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
 			LedgerKeyFixtures.write(fs, "/genesis.json", "{\"colour\": 1}", null);
 
-			assertRefusedWithout(runOn(fs, "daemon", "--ledger", "--ledger-genesis", "/genesis.json"),
+			assertRefusedWithout(runOn(fs, "daemon", "--preview", "--ledger", "--ledger-genesis", "/genesis.json"),
 				"/genesis.json", "unknown field 'colour'"
 			);
 		}
@@ -324,7 +344,7 @@ public class DaemonTest {
 			LedgerKeyFixtures.writeSeed(fs, new byte[Ed25519.SEED_SIZE]);
 			LedgerKeyFixtures.writeGenesis(fs, "/genesis.json", new byte[Ed25519.SEED_SIZE]);
 
-			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE,
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--preview", "--ledger", "--ledger-key", KEY_FILE,
 				"--ledger-genesis", "/genesis.json", "--ledger-trusted=7:" + "ab".repeat(DIGEST_SIZE)
 			);
 
@@ -340,7 +360,7 @@ public class DaemonTest {
 			LedgerKeyFixtures.writeSeed(fs, new byte[Ed25519.SEED_SIZE]);
 			LedgerKeyFixtures.writeGenesis(fs, "/genesis.json", LedgerTestChain.seed(1));
 
-			final HedgehogCli.Result result = runOn(fs, "daemon", "--ledger", "--ledger-key", KEY_FILE,
+			final HedgehogCli.Result result = runOn(fs, "daemon", "--preview", "--ledger", "--ledger-key", KEY_FILE,
 				"--ledger-genesis", "/genesis.json"
 			);
 

@@ -36,6 +36,7 @@ import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
+import org.unigrid.hedgehog.model.PreviewSetup;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
@@ -70,6 +71,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Override
 	public void run() {
 		try {
+			PreviewSetup.validate();
 			GridnodeSetup.validate();
 			LedgerSetup.validate();
 		} catch (IllegalArgumentException ex) {

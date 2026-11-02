@@ -22,10 +22,16 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Stream;
+import net.jqwik.api.Arbitraries;
+import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
@@ -34,6 +40,7 @@ import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import picocli.CommandLine;
+import picocli.CommandLine.Option;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class PreviewOptionsTest {
@@ -69,5 +76,26 @@ public class PreviewOptionsTest {
 		assertThat(help.err(), help.exitCode(), equalTo(0));
 		assertThat(help.out(), containsString("--restport"));
 		assertThat(help.out(), not(containsString("--preview")));
+	}
+
+	@Provide
+	public Arbitrary<Field> provideOptionOfAPartItTurnsOn() {
+		return Arbitraries.of(Stream.of(GridnodeOptions.class, LedgerOptions.class, S3Options.class, SocksOptions.class)
+			.flatMap(type -> Arrays.stream(type.getDeclaredFields()))
+			.filter(field -> field.isAnnotationPresent(Option.class)).toList()
+		);
+	}
+
+	/* Without the switch the parts these options are for stay off, so the help leaves them out as well */
+	@Property
+	public void shouldLeaveTheOptionsOfThePartsItTurnsOnOutOfTheHelpOfTheDaemon(
+		@ForAll("provideOptionOfAPartItTurnsOn") Field field) {
+
+		final CommandLine daemon = new CommandLine(Hedgehog.class).getSubcommands().get("daemon");
+		final String[] names = field.getAnnotation(Option.class).names();
+		final String name = names[names.length - 1];
+
+		assertThat(name, daemon.getCommandSpec().findOption(name).hidden(), equalTo(true));
+		assertThat(daemon.getUsageMessage(), not(containsString(name)));
 	}
 }

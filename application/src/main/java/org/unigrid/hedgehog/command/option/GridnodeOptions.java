@@ -25,12 +25,12 @@ import picocli.CommandLine.Option;
 
 public class GridnodeOptions {
 
-	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
 	)
 	private static Path gridnodeKeyFile;
 
-	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT,
+	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT, hidden = true,
 		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
 	)
 	private static String announceAddress;
