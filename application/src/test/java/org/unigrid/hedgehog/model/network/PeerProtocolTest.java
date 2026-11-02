@@ -20,26 +20,74 @@ package org.unigrid.hedgehog.model.network;
 
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.incubator.codec.quic.QuicChannel;
+import java.util.List;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.AddLifecycleHook;
+import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
+import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.Network;
 import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 
 /* Over QUIC connections on loopback. The server takes the first of its protocols that the client offers too. */
+@AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class PeerProtocolTest {
+	private static final List<String> DAEMON = List.of("daemon");
+
 	private static String protocolOf(QuicChannel connection) {
 		return connection.sslEngine().getApplicationProtocol();
 	}
 
+	/* What a node of this release offers when it is run with the preview, which turns the proxy on */
+	private static String[] withThePreview() {
+		OptionsCli.parse(DAEMON, "--preview");
+		return Network.getProtocols();
+	}
+
+	private static String[] withoutThePreview() {
+		OptionsCli.parse(DAEMON);
+		return Network.getProtocols();
+	}
+
 	@Example
-	public void speaksProxyWithANodeOfThisReleaseAtEitherEndAndOnItsStreams() throws InterruptedException {
-		try (QuicLoopback loopback = QuicLoopback.between(Network.getProtocols(), Network.getProtocols())) {
+	public void speaksProxyWithANodeOfThisReleaseRunWithThePreviewAtEitherEndAndOnItsStreams()
+		throws InterruptedException {
+
+		try (QuicLoopback loopback = QuicLoopback.between(withThePreview(), withThePreview())) {
 			assertThat(protocolOf(loopback.clientEnd()), is(Network.PROXY_PROTOCOL));
 			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(true));
 			assertThat(PeerProtocol.speaksProxy(loopback.serverEnd()), is(true));
 			assertThat(PeerProtocol.speaksProxy(loopback.stream()), is(true));
+		}
+	}
+
+	/* The proxy is one of the parts of the node that this release leaves off */
+	@Example
+	public void speaksNoProxyBetweenNodesOfThisReleaseRunWithoutThePreview() throws InterruptedException {
+		try (QuicLoopback loopback = QuicLoopback.between(withoutThePreview(), withoutThePreview())) {
+			assertThat(protocolOf(loopback.clientEnd()), is(Network.SPORK_PROTOCOL));
+			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(false));
+			assertThat(PeerProtocol.speaksProxy(loopback.serverEnd()), is(false));
+			assertThat(PeerProtocol.speaksProxy(loopback.stream()), is(false));
+		}
+	}
+
+	/* Either way round: the end with the preview offers the proxy protocol, which the other end does not take */
+	@Example
+	public void speaksNoProxyBetweenANodeRunWithThePreviewAndOneRunWithoutIt() throws InterruptedException {
+		try (QuicLoopback loopback = QuicLoopback.between(withThePreview(), withoutThePreview())) {
+			assertThat(protocolOf(loopback.clientEnd()), is(Network.SPORK_PROTOCOL));
+			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(false));
+			assertThat(PeerProtocol.speaksProxy(loopback.serverEnd()), is(false));
+		}
+
+		try (QuicLoopback loopback = QuicLoopback.between(withoutThePreview(), withThePreview())) {
+			assertThat(protocolOf(loopback.serverEnd()), is(Network.SPORK_PROTOCOL));
+			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(false));
+			assertThat(PeerProtocol.speaksProxy(loopback.serverEnd()), is(false));
 		}
 	}
 
@@ -73,7 +121,7 @@ public class PeerProtocolTest {
 	public void speaksNoProxyWithANodeOfThisReleaseThatHasNone() throws InterruptedException {
 		final String[] withoutProxy = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
 
-		try (QuicLoopback loopback = QuicLoopback.between(withoutProxy, Network.getProtocols())) {
+		try (QuicLoopback loopback = QuicLoopback.between(withoutProxy, withThePreview())) {
 			assertThat(protocolOf(loopback.clientEnd()), is(Network.SPORK_PROTOCOL));
 			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(false));
 			assertThat(PeerProtocol.speaksProxy(loopback.stream()), is(false));
@@ -82,7 +130,7 @@ public class PeerProtocolTest {
 
 	@Example
 	public void speaksNoProxyWithAServerOfThePreviousRelease() throws InterruptedException {
-		try (QuicLoopback loopback = QuicLoopback.between(PREVIOUS_RELEASE, Network.getProtocols())) {
+		try (QuicLoopback loopback = QuicLoopback.between(PREVIOUS_RELEASE, withThePreview())) {
 			assertThat(protocolOf(loopback.clientEnd()), is(PREVIOUS_RELEASE[0]));
 			assertThat(PeerProtocol.speaksProxy(loopback.clientEnd()), is(false));
 			assertThat(PeerProtocol.speaksProxy(loopback.stream()), is(false));
@@ -91,7 +139,7 @@ public class PeerProtocolTest {
 
 	@Example
 	public void speaksNoProxyWithAClientOfThePreviousRelease() throws InterruptedException {
-		try (QuicLoopback loopback = QuicLoopback.between(Network.getProtocols(), PREVIOUS_RELEASE)) {
+		try (QuicLoopback loopback = QuicLoopback.between(withThePreview(), PREVIOUS_RELEASE)) {
 			assertThat(protocolOf(loopback.serverEnd()), is(PREVIOUS_RELEASE[0]));
 			assertThat(PeerProtocol.speaksProxy(loopback.serverEnd()), is(false));
 			assertThat(PeerProtocol.speaksProxy(loopback.stream()), is(false));
@@ -100,7 +148,7 @@ public class PeerProtocolTest {
 
 	@Example
 	public void speaksNoProxyBeforeTheHandshakeHasAgreedOnAProtocol() throws InterruptedException {
-		try (QuicLoopback loopback = QuicLoopback.unanswered(Network.getProtocols())) {
+		try (QuicLoopback loopback = QuicLoopback.unanswered(withThePreview())) {
 			assertThat(protocolOf(loopback.pendingClientEnd()), is(nullValue()));
 			assertThat(PeerProtocol.speaksProxy(loopback.pendingClientEnd()), is(false));
 		}
@@ -117,11 +165,11 @@ public class PeerProtocolTest {
 	public void agreesOnTheFirstProtocolOfTheServerThatTheClientOffers() throws InterruptedException {
 		final String[] newestLast = { PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1], Network.PROXY_PROTOCOL };
 
-		try (QuicLoopback loopback = QuicLoopback.between(newestLast, Network.getProtocols())) {
+		try (QuicLoopback loopback = QuicLoopback.between(newestLast, withThePreview())) {
 			assertThat(protocolOf(loopback.clientEnd()), is(PREVIOUS_RELEASE[0]));
 		}
 
-		try (QuicLoopback loopback = QuicLoopback.between(Network.getProtocols(), newestLast)) {
+		try (QuicLoopback loopback = QuicLoopback.between(withThePreview(), newestLast)) {
 			assertThat(protocolOf(loopback.clientEnd()), is(Network.PROXY_PROTOCOL));
 		}
 	}

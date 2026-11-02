@@ -49,11 +49,20 @@ public class NetworkTest {
 	/* A node that did not opt in offers the protocols of this release and what the earlier release did, so no ledger
 	   connection is ever settled on */
 	@Example
-	public void offersTheProtocolsOfThisReleaseAndThoseOfTheEarlierReleaseWhileTheLedgerIsOff() {
-		OptionsCli.parse(DAEMON);
+	public void offersTheProtocolsOfThisReleaseAndThoseOfTheEarlierReleaseWithThePreviewWhileTheLedgerIsOff() {
+		OptionsCli.parse(DAEMON, "--preview");
 
 		assertThat(Network.getProtocols(), arrayContaining(PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
 			EARLIER_RELEASE[1]));
+	}
+
+	/* The proxy is one of the parts of the node that this release leaves off, so a node run without the preview
+	   never settles on a connection that carries chain traffic */
+	@Example
+	public void offersTheProtocolOfThisReleaseAndThoseOfTheEarlierReleaseButNoProxyProtocolWithoutThePreview() {
+		OptionsCli.parse(DAEMON);
+
+		assertThat(Network.getProtocols(), arrayContaining(SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1]));
 	}
 
 	/* The ledger is one of the parts of the node that this release leaves off */
@@ -62,8 +71,7 @@ public class NetworkTest {
 		OptionsCli.parse(DAEMON, "--ledger");
 
 		assertThat(Network.hasLedger(), is(false));
-		assertThat(Network.getProtocols(), arrayContaining(PROXY_PROTOCOL, SPORK_PROTOCOL, EARLIER_RELEASE[0],
-			EARLIER_RELEASE[1]));
+		assertThat(Network.getProtocols(), arrayContaining(SPORK_PROTOCOL, EARLIER_RELEASE[0], EARLIER_RELEASE[1]));
 	}
 
 	@Example
@@ -88,5 +96,23 @@ public class NetworkTest {
 
 		assertThat(Network.hasLedger(EARLIER_RELEASE), is(false));
 		assertThat(Network.hasLedger(new String[0]), is(false));
+	}
+
+	@Example
+	public void tellsWhetherTheProxyProtocolIsOffered() {
+		OptionsCli.parse(DAEMON, "--preview", "--ledger");
+		assertThat(Network.hasPreview(Network.getProtocols()), is(true));
+
+		OptionsCli.parse(DAEMON, "--preview");
+		assertThat(Network.hasPreview(Network.getProtocols()), is(true));
+
+		OptionsCli.parse(DAEMON, "--ledger");
+		assertThat(Network.hasPreview(Network.getProtocols()), is(false));
+
+		OptionsCli.parse(DAEMON);
+		assertThat(Network.hasPreview(Network.getProtocols()), is(false));
+
+		assertThat(Network.hasPreview(EARLIER_RELEASE), is(false));
+		assertThat(Network.hasPreview(new String[0]), is(false));
 	}
 }

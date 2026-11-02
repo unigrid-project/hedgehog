@@ -29,15 +29,16 @@ public class Network {
 	   connection settled on it is what tells a node that the other end speaks the ledger. */
 	public static final String LEDGER_PROTOCOL = "hedgehog-ledger/0.0.2";
 
-	/* Offered by every node of this release right after the ledger protocol, if it offers that, and ahead of what
-	   earlier releases offer. A connection that settled on it, or on the ledger protocol, tells a node that the other
-	   end takes chain traffic and the communication spork, which every node of this release does, the one that runs
-	   the ledger as well. */
+	/* Offered by every node of this release that runs with --preview, right after the ledger protocol, if it offers
+	   that, and ahead of what earlier releases offer. A connection that settled on it, or on the ledger protocol,
+	   tells a node that the other end takes chain traffic and the communication spork, which every node run with
+	   --preview does, the one that runs the ledger as well. */
 	public static final String PROXY_PROTOCOL = "hedgehog-proxy/0.0.2";
 
-	/* Offered by every node of this release after those, and the only one of this release that a node built before the
-	   proxy offers. A connection that settled on it, on the proxy protocol or on the ledger protocol tells a node that
-	   the other end reads every spork type of this release, though only the first two take chain traffic. */
+	/* Offered by every node of this release after those, and the only one of this release that a node run without
+	   --preview offers, as does one built before the proxy. A connection that settled on it, on the proxy protocol or
+	   on the ledger protocol tells a node that the other end reads every spork type of this release, though only the
+	   first two take chain traffic. */
 	public static final String SPORK_PROTOCOL = "hedgehog/0.0.9";
 
 	/* The second stream a client opens on a connection, after the main one, which carries chain traffic: client
@@ -61,6 +62,12 @@ public class Network {
 	};
 
 	private static final String[] PROTOCOLS = {
+		SPORK_PROTOCOL,
+		EARLIER_PROTOCOLS[0],
+		EARLIER_PROTOCOLS[1]
+	};
+
+	private static final String[] PREVIEW_PROTOCOLS = {
 		PROXY_PROTOCOL,
 		SPORK_PROTOCOL,
 		EARLIER_PROTOCOLS[0],
@@ -94,9 +101,14 @@ public class Network {
 	public static final int IDLE_TIME_MINUTES = 15;
 	public static final int CONNECTION_TIMEOUT_MS = 2000;
 
-	/* Only a node that runs a ledger offers its protocol: one that did not opt in speaks no ledger */
+	/* Only a node that runs a ledger offers its protocol: one that did not opt in speaks no ledger. Only a node run with
+	   --preview offers the proxy protocol: one without it never settles on a connection that takes chain traffic. */
 	public static String[] getProtocols() {
-		return hasLedger() ? LEDGER_PROTOCOLS : PROTOCOLS;
+		if (hasLedger()) {
+			return LEDGER_PROTOCOLS;
+		}
+
+		return PreviewOptions.isPreview() ? PREVIEW_PROTOCOLS : PROTOCOLS;
 	}
 
 	/* The ledger is one of the parts of the node that this release leaves off, unless --preview turns them on */
@@ -108,6 +120,12 @@ public class Network {
 	   over a connection that did not settle on it */
 	public static boolean hasLedger(final String[] protocols) {
 		return Arrays.asList(protocols).contains(LEDGER_PROTOCOL);
+	}
+
+	/* A node carries the gridnode and storage stages exactly when it offers the proxy protocol, which only a node run
+	   with --preview does, so a node without it has no stage of the parts this release leaves off */
+	public static boolean hasPreview(final String[] protocols) {
+		return Arrays.asList(protocols).contains(PROXY_PROTOCOL);
 	}
 
 	public static String[] getSeeds() {

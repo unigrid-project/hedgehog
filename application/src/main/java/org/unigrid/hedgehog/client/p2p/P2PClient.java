@@ -107,6 +107,7 @@ public class P2PClient extends ConnectionContainer {
 
 		final String[] protocols = Network.getProtocols();
 		final boolean ledger = Network.hasLedger(protocols);
+		final boolean preview = Network.hasPreview(protocols);
 		final QuicSslContext context = QuicSslContextBuilder.forClient()
 			.trustManager(InsecureTrustManagerFactory.INSTANCE)
 			.applicationProtocols(protocols)
@@ -138,8 +139,8 @@ public class P2PClient extends ConnectionContainer {
 		// We create new stream so we can support bidirectional communication (in case we expect a response)
 		// TODO: Add support for ChannelCollector
 		final QuicStreamChannel main = quicChannel.createStream(QuicStreamType.BIDIRECTIONAL,
-			new RegisterQuicChannelInitializer(() -> handlers(ledger), () -> schedulers(ledger),
-				RegisterQuicChannelInitializer.Type.CLIENT)
+			new RegisterQuicChannelInitializer(() -> handlers(ledger, preview),
+				() -> schedulers(ledger, preview), RegisterQuicChannelInitializer.Type.CLIENT)
 		).sync().getNow();
 
 		if (PeerProtocol.speaksProxy(quicChannel)) {
@@ -162,23 +163,34 @@ public class P2PClient extends ConnectionContainer {
 	}
 
 	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
-	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. A frame
-	   that no stage takes, such as one of a stage the node does without, is dropped behind the last of them. */
-	static List<ChannelHandler> handlers(final boolean ledger) {
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. The
+	   gridnode and storage stages, and the schedule that announces gridnodes, are there only when the node offers the
+	   proxy protocol, which only a node run with --preview does. A frame that no stage takes, such as one of a stage
+	   the node does without, is dropped behind the last of them. */
+	static List<ChannelHandler> handlers(final boolean ledger, final boolean preview) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new PeerActivityHandler(),
 			new LoggingHandler(LogLevel.DEBUG),
 			new FrameDecoder(),
-			new HelloEncoder(),
-			new GridnodeEncoder(), new GridnodeDecoder(),
+			new HelloEncoder()
+		));
+
+		if (preview) {
+			handlers.addAll(List.of(new GridnodeEncoder(), new GridnodeDecoder()));
+		}
+
+		handlers.addAll(List.of(
 			new PingEncoder(), new PingDecoder(),
 			new PublishSporkEncoder(), new PublishSporkDecoder(),
 			new PublishPeersEncoder(), new PublishPeersDecoder(),
 			new PingChannelHandler(), new PublishSporkChannelHandler(),
-			new PublishPeersChannelHandler(), new PublishGridnodeChannelHandler()
+			new PublishPeersChannelHandler()
 		));
 
-		handlers.addAll(StoragePipeline.handlers());
+		if (preview) {
+			handlers.add(new PublishGridnodeChannelHandler());
+			handlers.addAll(StoragePipeline.handlers());
+		}
 
 		if (ledger) {
 			handlers.addAll(LedgerPipeline.handlers());
@@ -188,13 +200,16 @@ public class P2PClient extends ConnectionContainer {
 		return handlers;
 	}
 
-	static List<Schedulable> schedulers(final boolean ledger) {
+	static List<Schedulable> schedulers(final boolean ledger, final boolean preview) {
 		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
-			new PublishSporkSchedule(),
-			new PublishGridnodeSchedule()
+			new PublishSporkSchedule()
 		));
+
+		if (preview) {
+			schedulers.add(new PublishGridnodeSchedule());
+		}
 
 		if (ledger) {
 			schedulers.add(new LedgerStatusSchedule());

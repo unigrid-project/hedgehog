@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -36,9 +37,8 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
-import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.gridnode.Gridnode;
-import org.unigrid.hedgehog.model.gridnode.GridnodeFixtures;
+import org.unigrid.hedgehog.model.network.PreviewFrames;
+import static org.unigrid.hedgehog.model.network.PreviewFrames.frameOf;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
@@ -48,9 +48,9 @@ import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
-import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
+import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintSupply;
 
@@ -58,20 +58,25 @@ public class P2PServerPipelineTest {
 	private static final long SIGNED_AT = 1_700_000_000_000L;
 	private static final int SIGNATURE_BYTES = 139;
 
-	/* The stages a node without gridnodes leaves out, and the one that takes sporks, which needs a running node: the
-	   spork is read off the end of the stream instead */
-	private static final Set<Class<?>> LEFT_OUT = Set.of(GridnodeEncoder.class, GridnodeDecoder.class,
-		PublishGridnodeChannelHandler.class, PublishSporkChannelHandler.class);
+	/* Whether a node offers the ledger protocol and the proxy protocol: it offers the first only with the second */
+	private record Offer(boolean ledger, boolean preview) {
+		private List<ChannelHandler> handlers() {
+			return P2PServer.handlers(ledger, preview);
+		}
+	}
+
+	private static final List<Offer> OFFERS = List.of(new Offer(false, false), new Offer(false, true),
+		new Offer(true, true));
 
 	private static List<Class<?>> classesOf(final List<? extends ChannelHandler> handlers) {
 		return handlers.stream().<Class<?>>map(ChannelHandler::getClass).toList();
 	}
 
-	private static ByteBuf frameOf(final ChannelHandler encoder, final Object packet) {
-		final EmbeddedChannel encoding = new EmbeddedChannel(encoder);
-
-		encoding.writeOutbound(packet);
-		return encoding.readOutbound();
+	/* The stages of the parts of the node that only the preview turns on */
+	private static Set<Class<?>> previewStages() {
+		return Stream.concat(Stream.of(GridnodeEncoder.class, GridnodeDecoder.class,
+			PublishGridnodeChannelHandler.class), classesOf(StoragePipeline.handlers()).stream())
+			.collect(Collectors.toSet());
 	}
 
 	private static GridSpork mintSupply() {
@@ -90,22 +95,22 @@ public class P2PServerPipelineTest {
 	/* Every read shows the peer is there, also one of a piece of a frame that is still streaming in */
 	@Example
 	public void takesEachReadAsASignOfThePeerBeforeAnyFrameIsDecoded() {
-		for (boolean ledger : List.of(false, true)) {
-			assertThat(classesOf(P2PServer.handlers(ledger)).getFirst(), equalTo(PeerActivityHandler.class));
+		for (Offer offer : OFFERS) {
+			assertThat(classesOf(offer.handlers()).getFirst(), equalTo(PeerActivityHandler.class));
 		}
 	}
 
 	/* Behind every decoder, so that a frame no stage takes does not run into the frames after it */
 	@Example
 	public void dropsTheFramesNoStageTakesLast() {
-		for (boolean ledger : List.of(false, true)) {
-			assertThat(classesOf(P2PServer.handlers(ledger)).getLast(), equalTo(UnclaimedFrameHandler.class));
+		for (Offer offer : OFFERS) {
+			assertThat(classesOf(offer.handlers()).getLast(), equalTo(UnclaimedFrameHandler.class));
 		}
 	}
 
 	@Example
 	public void endsWithTheStoragePipelineAndThenTheLedgerPipelineBeforeTheDropWithTheLedgerProtocol() {
-		final List<Class<?>> handlers = classesOf(P2PServer.handlers(true));
+		final List<Class<?>> handlers = classesOf(P2PServer.handlers(true, true));
 		final List<Class<?>> appended = classesOf(Stream.concat(StoragePipeline.handlers().stream(),
 			LedgerPipeline.handlers().stream()).toList());
 
@@ -114,7 +119,7 @@ public class P2PServerPipelineTest {
 
 	@Example
 	public void endsWithTheStoragePipelineBeforeTheDropAndHasNoLedgerStageWithoutTheLedgerProtocol() {
-		final List<Class<?>> handlers = classesOf(P2PServer.handlers(false));
+		final List<Class<?>> handlers = classesOf(P2PServer.handlers(false, true));
 		final List<Class<?>> storage = classesOf(StoragePipeline.handlers());
 
 		assertThat(Collections.indexOfSubList(handlers, storage), equalTo(handlers.size() - storage.size() - 1));
@@ -122,16 +127,31 @@ public class P2PServerPipelineTest {
 			.forEach(type -> assertThat(handlers, not(hasItem(type))));
 	}
 
-	/* A node without the gridnode stages still hears the announcements of peers that have them */
 	@Example
-	public void readsTheSporkAfterAGridnodeFrameOnANodeWithoutTheGridnodeStages() throws Exception {
-		final EmbeddedChannel stream = new EmbeddedChannel(P2PServer.handlers(false).stream()
-			.filter(handler -> !LEFT_OUT.contains(handler.getClass())).toArray(ChannelHandler[]::new));
-		final Gridnode gridnode = GridnodeFixtures.signed(new Signature(), Gridnode.Status.ACTIVE,
-			"localhost:52884", SIGNED_AT);
+	public void carriesTheGridnodeAndStorageStagesWithTheProxyProtocol() {
+		assertThat(classesOf(P2PServer.handlers(false, true)), hasItems(previewStages().toArray(new Class<?>[0])));
+	}
+
+	/* A node without the preview keeps every other stage where it is, those of the sporks, peers and pings */
+	@Example
+	public void leavesOutOnlyTheGridnodeAndStorageStagesWithoutTheProxyProtocol() {
+		final Set<Class<?>> left = previewStages();
+		final List<Class<?>> handlers = classesOf(P2PServer.handlers(false, false));
+
+		left.forEach(type -> assertThat(handlers, not(hasItem(type))));
+		assertThat(handlers, equalTo(classesOf(P2PServer.handlers(false, true)).stream()
+			.filter(type -> !left.contains(type)).toList()));
+	}
+
+	/* A node without the gridnode stages still hears the sporks of peers that announce gridnodes. The stage that
+	   takes sporks needs a running node, so the spork is read off the end of the stream instead. */
+	@Example
+	public void readsTheSporkAfterAGridnodeFrameOnANodeWithoutTheGridnodeStages() {
+		final EmbeddedChannel stream = new EmbeddedChannel(P2PServer.handlers(false, false).stream()
+			.filter(handler -> !(handler instanceof PublishSporkChannelHandler)).toArray(ChannelHandler[]::new));
 		final GridSpork spork = mintSupply();
 
-		stream.writeInbound(frameOf(new GridnodeEncoder(), PublishGridnode.builder().gridnode(gridnode).build()));
+		stream.writeInbound(PreviewFrames.gridnode());
 		stream.writeInbound(frameOf(new PublishSporkEncoder(), PublishSpork.builder().gridSpork(spork).build()));
 
 		final Object read = stream.readInbound();
@@ -142,14 +162,47 @@ public class P2PServerPipelineTest {
 		assertThat(stream.isOpen(), is(true));
 	}
 
+	/* A peer run with the preview announces gridnodes and sends storage packets, and a node without it drops each
+	   of them whole and goes on: the ping that comes next, like the one that opens a stream, is answered */
+	@Example
+	public void dropsWhatAPeerWithThePreviewSendsForItsPartsAndAnswersAPingAfterIt() {
+		final EmbeddedChannel stream = new EmbeddedChannel(P2PServer.handlers(false, false)
+			.toArray(ChannelHandler[]::new));
+
+		for (ByteBuf frame : PreviewFrames.ofTheParts()) {
+			assertThat(stream.writeInbound(frame), is(false));
+			assertThat(frame.refCnt(), is(0));
+			assertThat(stream.isOpen(), is(true));
+		}
+
+		assertThat(stream.readOutbound(), is(nullValue()));
+		assertThat(stream.writeInbound(PreviewFrames.ping()), is(false));
+		PreviewFrames.assertThePingIsAnsweredAlone(stream);
+		assertThat(stream.isOpen(), is(true));
+	}
+
 	@Example
 	public void runsTheLedgerScheduleOnlyWithTheLedgerProtocol() {
-		final List<Class<?>> earlier = P2PServer.schedulers(false).stream().<Class<?>>map(Object::getClass).toList();
-		final List<Class<?>> later = P2PServer.schedulers(true).stream().<Class<?>>map(Object::getClass).toList();
+		final List<Class<?>> earlier = P2PServer.schedulers(false, true).stream().<Class<?>>map(Object::getClass)
+			.toList();
+		final List<Class<?>> later = P2PServer.schedulers(true, true).stream().<Class<?>>map(Object::getClass)
+			.toList();
 
 		assertThat(earlier, not(hasItem(LedgerStatusSchedule.class)));
 		assertThat(later, hasItems(earlier.toArray(new Class<?>[0])));
 		assertThat(later, hasItem(LedgerStatusSchedule.class));
 		assertThat(later.size(), equalTo(earlier.size() + 1));
+	}
+
+	@Example
+	public void announcesGridnodesOnlyWithTheProxyProtocol() {
+		final List<Class<?>> release = P2PServer.schedulers(false, false).stream().<Class<?>>map(Object::getClass)
+			.toList();
+		final List<Class<?>> preview = P2PServer.schedulers(false, true).stream().<Class<?>>map(Object::getClass)
+			.toList();
+
+		assertThat(release, not(hasItem(PublishGridnodeSchedule.class)));
+		assertThat(preview, hasItem(PublishGridnodeSchedule.class));
+		assertThat(release, equalTo(preview.stream().filter(type -> type != PublishGridnodeSchedule.class).toList()));
 	}
 }

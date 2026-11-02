@@ -110,6 +110,7 @@ public class P2PServer extends AbstractServer {
 		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final String[] protocols = Network.getProtocols();
 		final boolean ledger = Network.hasLedger(protocols);
+		final boolean preview = Network.hasPreview(protocols);
 		final QuicSslContext context = QuicSslContextBuilder.forServer(
 			certificate.privateKey(), null, certificate.certificate())
 			.applicationProtocols(protocols).build();
@@ -131,8 +132,8 @@ public class P2PServer extends AbstractServer {
 					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
 				}
 			})
-			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> handlers(ledger),
-				() -> schedulers(ledger), RegisterQuicChannelInitializer.Type.SERVER),
+			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> handlers(ledger, preview),
+				() -> schedulers(ledger, preview), RegisterQuicChannelInitializer.Type.SERVER),
 				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
 
 		channel = new Bootstrap().group(group)
@@ -146,24 +147,34 @@ public class P2PServer extends AbstractServer {
 	}
 
 	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
-	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. A frame
-	   that no stage takes, such as one of a stage the node does without, is dropped behind the last of them. */
-	static List<ChannelHandler> handlers(final boolean ledger) {
+	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. The
+	   gridnode and storage stages, and the schedule that announces gridnodes, are there only when the node offers the
+	   proxy protocol, which only a node run with --preview does. A frame that no stage takes, such as one of a stage
+	   the node does without, is dropped behind the last of them. */
+	static List<ChannelHandler> handlers(final boolean ledger, final boolean preview) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new PeerActivityHandler(),
 			new LoggingHandler(LogLevel.DEBUG),
 			new FrameDecoder(),
-			new HelloDecoder(),
-			new GridnodeEncoder(), new GridnodeDecoder(),
+			new HelloDecoder()
+		));
+
+		if (preview) {
+			handlers.addAll(List.of(new GridnodeEncoder(), new GridnodeDecoder()));
+		}
+
+		handlers.addAll(List.of(
 			new PingEncoder(), new PingDecoder(),
 			new PublishSporkEncoder(), new PublishSporkDecoder(),
 			new PublishPeersEncoder(), new PublishPeersDecoder(),
 			new PingChannelHandler(), new PublishSporkChannelHandler(),
-			new HelloChannelHandler(), new PublishPeersChannelHandler(),
-			new PublishGridnodeChannelHandler()
+			new HelloChannelHandler(), new PublishPeersChannelHandler()
 		));
 
-		handlers.addAll(StoragePipeline.handlers());
+		if (preview) {
+			handlers.add(new PublishGridnodeChannelHandler());
+			handlers.addAll(StoragePipeline.handlers());
+		}
 
 		if (ledger) {
 			handlers.addAll(LedgerPipeline.handlers());
@@ -173,13 +184,16 @@ public class P2PServer extends AbstractServer {
 		return handlers;
 	}
 
-	static List<Schedulable> schedulers(final boolean ledger) {
+	static List<Schedulable> schedulers(final boolean ledger, final boolean preview) {
 		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
 			new PingSchedule(),
 			new PublishPeersSchedule(),
-			new PublishSporkSchedule(),
-			new PublishGridnodeSchedule()
+			new PublishSporkSchedule()
 		));
+
+		if (preview) {
+			schedulers.add(new PublishGridnodeSchedule());
+		}
 
 		if (ledger) {
 			schedulers.add(new LedgerStatusSchedule());
