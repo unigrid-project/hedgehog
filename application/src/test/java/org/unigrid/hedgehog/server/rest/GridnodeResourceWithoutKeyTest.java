@@ -23,13 +23,21 @@ import lombok.SneakyThrows;
 import mockit.Expectations;
 import mockit.Mocked;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 
 public class GridnodeResourceWithoutKeyTest extends BaseRestClientTest {
 	@Mocked private GridnodeOptions gridnodeOptions;
+
+	/* Only a node run with --preview serves the gridnode */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	/* A mocked option would otherwise hand out a mocked path instead of none */
 	@Override

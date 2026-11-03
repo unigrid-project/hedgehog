@@ -43,11 +43,13 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 
 /* The container queues whatever a client sends before a resource reads it, so what a request may hold is bounded
    where it arrives, on a real server, and not by the resource that reads it */
@@ -63,6 +65,12 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	private static final String JSON = "Content-Type: application/json";
 
 	private record Answer(String status, Map<String, String> headers, String body, boolean closed) { }
+
+	/* The submit of the ledger reads its body only on a node run with --preview */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
+	}
 
 	@SneakyThrows
 	private SSLSocket connect() {

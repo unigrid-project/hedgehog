@@ -67,6 +67,7 @@ import org.unigrid.hedgehog.service.ledger.LedgerService.Report;
 /* Every request reads the newest ledger the service has at that moment, so a node that replaces its ledger is read
    whole, from one ledger or the other and never a mix, and while there is none the answer is that it is not running */
 @Slf4j
+@PreviewPart
 @Path("/ledger")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)

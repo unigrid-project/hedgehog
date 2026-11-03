@@ -34,10 +34,12 @@ import mockit.MockUp;
 import mockit.Mocked;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterProperty;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.Collateral;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -63,6 +65,12 @@ public class GridnodeResourceTest extends BaseRestClientTest {
 	@SneakyThrows
 	private static Signature newKey() {
 		return new Signature();
+	}
+
+	/* Only a node run with --preview serves the gridnode */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
 	}
 
 	/* The identity is created from the options, so they have to be in place before the server starts */

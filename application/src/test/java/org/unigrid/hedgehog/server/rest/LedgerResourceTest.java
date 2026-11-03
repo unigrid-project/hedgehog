@@ -55,6 +55,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AfterTry;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -68,6 +69,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.Expect;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.AccountKey;
@@ -304,6 +306,12 @@ public class LedgerResourceTest extends BaseRestClientTest {
 			unanswered.add(future);
 			return future;
 		};
+	}
+
+	/* Only a node run with --preview serves the ledger */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
 	}
 
 	@BeforeTry

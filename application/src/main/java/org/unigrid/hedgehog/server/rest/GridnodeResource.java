@@ -37,6 +37,7 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 
 @Slf4j
+@PreviewPart
 @Path("/gridnode")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes({MediaType.APPLICATION_JSON, MediaType.TEXT_PLAIN})

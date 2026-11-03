@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.enterprise.inject.spi.CDI;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -35,8 +36,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
-import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.storage.Fingerprint;
 import org.unigrid.hedgehog.service.storage.DataLossException;
 import org.unigrid.hedgehog.service.storage.FingerprintNotFoundException;
@@ -49,14 +48,18 @@ import org.unigrid.hedgehog.service.storage.StorageService;
 /* The fingerprint is the only key to a file, so it travels in a header rather than the path where access logs
    and proxies would record it. */
 @Slf4j
+@PreviewPart
 @Path("/storage")
-public class StorageResource extends CDIBridgeResource {
+public class StorageResource {
 	public static final String FINGERPRINT_HEADER = "X-Fingerprint";
 	public static final String FILE_SIZE_HEADER = "X-File-Size";
 	public static final long MAX_UPLOAD_BYTES = 64L << 30;
 
-	@CDIBridgeInject
-	private StorageService storageService;
+	/* Asked for by the call rather than bridged in: the service comes with the fragment store and its directory, and
+	   the resource is made before a node run without --preview turns the request away */
+	private static StorageService storageService() {
+		return CDI.current().select(StorageService.class).get();
+	}
 
 	private interface StorageCall {
 		Response call() throws IOException, StorageException;
@@ -81,7 +84,7 @@ public class StorageResource extends CDIBridgeResource {
 		}
 
 		return respond(() -> Response.status(Response.Status.CREATED)
-			.entity(Map.of("fingerprint", storageService.store(body).encode())).build());
+			.entity(Map.of("fingerprint", storageService().store(body).encode())).build());
 	}
 
 	/* The size travels in its own header so that the body can stream chunked. A stripe lost after the first one can
@@ -90,7 +93,7 @@ public class StorageResource extends CDIBridgeResource {
 	@Produces(MediaType.APPLICATION_OCTET_STREAM)
 	public Response retrieve(@NotNull @HeaderParam(FINGERPRINT_HEADER) final String fingerprint) {
 		return withFingerprint(fingerprint, parsed -> {
-			final Retrieval retrieval = storageService.open(parsed);
+			final Retrieval retrieval = storageService().open(parsed);
 			final StreamingOutput stream = output -> write(retrieval, output);
 
 			return Response.ok(stream).header(FILE_SIZE_HEADER, retrieval.size()).build();
@@ -100,7 +103,7 @@ public class StorageResource extends CDIBridgeResource {
 	@DELETE
 	public Response delete(@NotNull @HeaderParam(FINGERPRINT_HEADER) final String fingerprint) {
 		return withFingerprint(fingerprint, parsed -> {
-			storageService.delete(parsed);
+			storageService().delete(parsed);
 			return Response.noContent().build();
 		});
 	}

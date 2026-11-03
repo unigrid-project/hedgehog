@@ -93,6 +93,7 @@ public class RestServer extends AbstractServer {
 		config.register(JsonExceptionMapper.class);
 		config.register(ValidationFeature.class);
 		config.register(authentication);
+		config.register(PreviewPartFilter.class);
 
 		return config;
 	}
