@@ -28,9 +28,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 
 @Slf4j
-@Eager
+@Eager @Preview
 @ApplicationScoped
 public class RepairService {
 	private static final int CHECK_MINUTES = 1;

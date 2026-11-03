@@ -28,11 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtension;
@@ -72,6 +74,12 @@ public class ChainHostEagerTest extends BaseMockedWeldTest {
 			HOSTS_CREATED.incrementAndGet();
 			return peer -> Optional.empty();
 		}
+	}
+
+	/* The host is a part that this release leaves off, which the container starts only with --preview */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
 	}
 
 	@Example

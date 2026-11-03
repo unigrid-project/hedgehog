@@ -21,28 +21,41 @@ package org.unigrid.hedgehog.model.cdi;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.spi.AfterDeploymentValidation;
+import jakarta.enterprise.inject.spi.Annotated;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.enterprise.inject.spi.Extension;
 import jakarta.enterprise.inject.spi.ProcessBean;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.command.option.PreviewOptions;
 
+/* A bean of the preview is not vetoed, as others inject it: without --preview it is only not started, and so is
+   created by its first use, if any */
 @Slf4j
 public class EagerExtension implements Extension {
 	private final List<Bean<?>> eagerBeansList = new ArrayList<>();
+	private final Set<Bean<?>> previewBeans = new HashSet<>();
 
 	public <T> void collect(@Observes ProcessBean<T> event) {
-		if (event.getAnnotated().isAnnotationPresent(Eager.class)
-			&& event.getAnnotated().isAnnotationPresent(ApplicationScoped.class)) {
+		final Annotated annotated = event.getAnnotated();
 
+		if (annotated.isAnnotationPresent(Eager.class) && annotated.isAnnotationPresent(ApplicationScoped.class)) {
 			eagerBeansList.add(event.getBean());
+
+			if (annotated.isAnnotationPresent(Preview.class)) {
+				previewBeans.add(event.getBean());
+			}
 		}
 	}
 
 	public void load(@Observes AfterDeploymentValidation event, BeanManager beanManager) {
-		eagerBeansList.forEach((bean) -> {
+		final boolean preview = PreviewOptions.isPreview();
+
+		eagerBeansList.stream().filter(bean -> preview || !previewBeans.contains(bean)).forEach((bean) -> {
 			log.atDebug().log("@Eager instantiation detected on {}", bean);
 
 			beanManager.getReference(bean, bean.getBeanClass(),

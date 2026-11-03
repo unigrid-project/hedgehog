@@ -58,6 +58,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
@@ -85,7 +86,7 @@ import org.unigrid.hedgehog.service.chain.DeliveryQueue.Delivery;
 /* Hosts the chains of this node's shard group while a valid communication spork says the proxy is on. Ticks on a
    scheduler of its own, so a spork that changes while nothing else happens still starts and stops the hosting. */
 @Slf4j
-@Eager @ApplicationScoped
+@Eager @Preview @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainHost implements ChainService {
 	/* A client keeps one writer on a chain, and a few chains at most, so more is a stream hoarding places */

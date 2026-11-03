@@ -36,6 +36,7 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.S3Options;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;
 import org.unigrid.hedgehog.s3.index.Namespace;
 import org.unigrid.hedgehog.s3.index.NamespaceConfig;
@@ -49,7 +50,7 @@ import org.unigrid.hedgehog.service.storage.StorageBlobStore;
 import org.unigrid.hedgehog.service.storage.StorageService;
 
 @Slf4j
-@Eager @ApplicationScoped
+@Eager @Preview @ApplicationScoped
 public class S3Gateway {
 	@Inject
 	private StorageService storage;

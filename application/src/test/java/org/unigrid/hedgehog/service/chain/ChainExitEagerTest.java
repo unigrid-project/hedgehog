@@ -38,6 +38,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import org.jboss.weld.environment.se.WeldContainer;
+import org.unigrid.hedgehog.command.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtension;
@@ -90,6 +91,12 @@ public class ChainExitEagerTest extends BaseMockedWeldTest {
 				}
 			};
 		}
+	}
+
+	/* The exit is a part that this release leaves off, which the container starts only with --preview */
+	@BeforeContainer
+	private static void turnThePreviewOn() {
+		new PreviewMockUp();
 	}
 
 	/* The announced address is made of options that only a started daemon has set. It is none of this node's own,

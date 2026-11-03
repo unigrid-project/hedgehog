@@ -46,6 +46,7 @@ import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.model.geo.HostLiteral;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.gridnode.SealingKey;
@@ -76,7 +77,7 @@ import org.unigrid.hedgehog.proxy.session.SessionContext;
 
    The outbox of a session does not bound what waits in it, and the relays hear of a pause at the next tick, so in the
    worst case the exit holds one second of what all its destinations send. */
-@Slf4j @Eager @ApplicationScoped
+@Slf4j @Eager @Preview @ApplicationScoped
 @NoArgsConstructor(access = AccessLevel.PROTECTED, force = true) /* The proxy of a normal scoped bean needs it */
 public class ChainExit implements ChainDrain {
 	/* A first estimate of what one gridnode relays at once: each relay holds a connection to a destination and up

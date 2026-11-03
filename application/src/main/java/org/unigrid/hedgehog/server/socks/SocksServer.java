@@ -37,6 +37,7 @@ import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.command.option.SocksOptions;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.proxy.socks.SocksInitializer;
 import org.unigrid.hedgehog.proxy.socks.Tunnel;
 import org.unigrid.hedgehog.server.AbstractServer;
@@ -44,7 +45,7 @@ import org.unigrid.hedgehog.server.AbstractServer;
 /* The local SOCKS5 proxy. It offers no authentication, so it binds to loopback unless --socks-host says
    otherwise, and it stays off while --socks-port is 0. */
 @Slf4j
-@Eager @ApplicationScoped
+@Eager @Preview @ApplicationScoped
 public class SocksServer extends AbstractServer {
 	private static final int COMMUNICATION_THREADS = 2;
 	private static final int MAX_CONNECTIONS = 512;

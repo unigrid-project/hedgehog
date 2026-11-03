@@ -59,6 +59,7 @@ import org.unigrid.hedgehog.ledger.Transaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.Eager;
+import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkLag;
@@ -76,7 +77,7 @@ import org.unigrid.hedgehog.model.spork.SporkLag;
    the service (LedgerRuntime). Whoever reads the ledger, from any thread, reads the newest one the driver has built
    and gets nothing before there is one. */
 @Slf4j
-@Eager
+@Eager @Preview
 @ApplicationScoped
 public class LedgerService {
 	private static final String THREADS = "ledger";
