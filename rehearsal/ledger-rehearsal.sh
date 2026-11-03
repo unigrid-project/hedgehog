@@ -113,11 +113,12 @@ done
 hedgehog util ledger-genesis "$WORK/snapshot.dat" --network-keys "$NETWORK_KEYS" "${VALIDATORS[@]}" \
 	--time "$(date +%s%3N)" --round-millis 3600000 --output genesis.json | tee genesis.txt
 
-# start_node <n>: starts node n, adding to its log. A node logs its warnings, such as a spork it leaves out.
+# start_node <n>: starts node n, adding to its log. A node logs its warnings, such as a spork it leaves out. The ledger
+# is not part of this release, so --preview turns it on.
 start_node() {
 	local n=$1
 	XDG_DATA_HOME="$WORK/n$n" HEDGEHOG_REST_TOKEN="token$n" "$JAVA" -jar "$JAR" daemon --no-seeds -H 127.0.0.1 \
-		-p $((P2P_BASE + n)) -r $((REST_BASE + n)) --network-keys "$NETWORK_KEYS" --ledger \
+		-p $((P2P_BASE + n)) -r $((REST_BASE + n)) --network-keys "$NETWORK_KEYS" --preview --ledger \
 		--ledger-genesis "$WORK/genesis.json" --ledger-key "$WORK/v$n.key" -vv >> "n$n.log" 2>&1 &
 	PIDS[n]=$!
 }

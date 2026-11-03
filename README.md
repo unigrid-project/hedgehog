@@ -12,14 +12,14 @@ Hedgehog is a high-performance, concurrent peer-to-peer treechain (blockchain) n
 
 __What works today:__
 - Peer-to-peer distribution over QUIC
-- Gridnode sporks: network parameters that take effect only when two network keys have signed them
-- Network storage: files encrypted, erasure coded and spread over the gridnodes, which repair lost fragments themselves
-- An S3-compatible endpoint over network storage, for the AWS SDKs, rclone, restic and other S3 clients
+- Gridnode sporks: network parameters that one board key signs and a second co-signs before they take effect, so the mints they hold can be viewed on any node
 - REST interface
 - A signed snapshot of the legacy chain: every address, balance and transaction
-- Built in SOCKS5 proxy through shard groups of gridnodes
 
 __In development or planned:__
+- Network storage: files encrypted, erasure coded and spread over the gridnodes, which repair lost fragments themselves
+- An S3-compatible endpoint over network storage, for the AWS SDKs, rclone, restic and other S3 clients
+- Built in SOCKS5 proxy through shard groups of gridnodes
 - Access to network storage through [Janus](https://github.com/unigrid-project/janus-java) and virtual desktop drives
 - WebAssembly support, compute and GPU workloads
 - Duality consensus
