@@ -34,7 +34,7 @@ import org.unigrid.hedgehog.model.spork.LedgerBlacklist.SporkData;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
 
-@Command(name = "ledger-blacklist",
+@Command(name = "ledger-blacklist", hidden = true,
 	description = "The legacy addresses held back from claims; to set them, the data is a file with one per line."
 )
 public class LedgerBlacklist extends SporkCommand<SporkData> {

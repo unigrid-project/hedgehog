@@ -76,11 +76,15 @@ public class CommandGroupTest {
 	}
 
 	@Property
-	public void shouldListEverySubcommandInItsHelp(@ForAll("provideGroup") String group, @ForAll boolean longName) {
+	public void shouldListEveryShownSubcommandInItsHelp(@ForAll("provideGroup") String group,
+		@ForAll boolean longName) {
+
 		final HedgehogCli.Result result = HedgehogCli.run(words(group, longName ? "--help" : "-h"));
+		final List<String> leftOut = HelpTest.LEFT_OUT.getOrDefault(group, List.of());
 
 		assertThat(result.exitCode(), equalTo(0));
-		GROUPS.get(group).forEach(subcommand -> assertThat(result.out(), containsString(" " + subcommand)));
+		GROUPS.get(group).stream().filter(subcommand -> !leftOut.contains(subcommand))
+			.forEach(subcommand -> assertThat(result.out(), containsString(" " + subcommand)));
 	}
 
 	@Property

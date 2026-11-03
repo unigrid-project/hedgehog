@@ -20,7 +20,7 @@ package org.unigrid.hedgehog.command.cli;
 
 import picocli.CommandLine.Command;
 
-@Command(name = "gridnode-stop")
+@Command(name = "gridnode-stop", hidden = true)
 public class GridnodeStop extends GridnodeStatusCommand {
 	public GridnodeStop() {
 		super("/gridnode/stop");

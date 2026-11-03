@@ -138,7 +138,10 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 	public void run() {
 		try (RestClient rest = connect()) {
 			dispatch(rest);
-		} catch (ResponseOddityException | IOException ex) {
+		} catch (ResponseOddityException ex) {
+			System.err.println(refusal(ex));
+			exitCode = ExitCode.FAILED;
+		} catch (IOException ex) {
 			System.err.println(describe(ex));
 			exitCode = ExitCode.FAILED;
 		} catch (LocalFileException ex) {
@@ -193,6 +196,11 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 
 	public void setHeaders(MultivaluedMap<String, Object> headers) {
 		this.headers = Optional.of(headers);
+	}
+
+	/* The line printed when the node answers with a status that the client takes for no answer at all */
+	protected String refusal(ResponseOddityException oddity) {
+		return describe(oddity);
 	}
 
 	protected Response post(final RestClient rest) throws ResponseOddityException {

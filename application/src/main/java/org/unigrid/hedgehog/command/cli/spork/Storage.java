@@ -27,7 +27,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
 
 /* The data replaces the parameters as a whole, and a parameter it leaves out takes its default */
-@Command(name = "storage")
+@Command(name = "storage", hidden = true)
 public class Storage extends SporkCommand<SporkData> {
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(SporkData.class);
 

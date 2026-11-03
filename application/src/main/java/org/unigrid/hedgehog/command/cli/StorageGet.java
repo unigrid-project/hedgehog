@@ -33,7 +33,7 @@ import org.unigrid.hedgehog.server.rest.StorageResource;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
-@Command(name = "storage-get", description = "Read a stored file back using its fingerprint.")
+@Command(name = "storage-get", description = "Read a stored file back using its fingerprint.", hidden = true)
 public class StorageGet extends FingerprintCommand {
 	private static final String INCOMPLETE = "The file could not be read back completely";
 

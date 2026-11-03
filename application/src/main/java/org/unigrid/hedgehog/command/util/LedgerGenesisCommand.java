@@ -40,7 +40,7 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
 
-@Command(name = "ledger-genesis",
+@Command(name = "ledger-genesis", hidden = true,
 	description = "Makes the genesis file of the ledger from a bootstrap snapshot and prints the numbers operators"
 		+ " compare."
 )

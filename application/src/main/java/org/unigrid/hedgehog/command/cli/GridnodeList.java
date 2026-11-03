@@ -29,7 +29,7 @@ import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import picocli.CommandLine.Command;
 
-@Command(name = "gridnode-list")
+@Command(name = "gridnode-list", hidden = true)
 public class GridnodeList extends RestClientCommand {
 	public GridnodeList() {
 		super(HttpMethod.GET, "/gridnode", Optional.of(() -> new HashSet<Gridnode>()));

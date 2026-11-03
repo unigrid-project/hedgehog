@@ -20,7 +20,7 @@ package org.unigrid.hedgehog.command.cli.ledger;
 
 import picocli.CommandLine.Command;
 
-@Command(name = "ledger", description = "Read the ledger of a node and send transfers and votes to it.",
+@Command(name = "ledger", description = "Read the ledger of a node and send transfers and votes to it.", hidden = true,
 	subcommands = { LedgerInfoCommand.class, LedgerBalanceCommand.class, LedgerBlockCommand.class,
 		LedgerTransferCommand.class, LedgerClaimCommand.class, LedgerVoteCommand.class }
 )

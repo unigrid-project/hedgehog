@@ -21,9 +21,12 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 
 public abstract class GridnodeStatusCommand extends RestClientCommand {
+	private static final String LEFT_OFF = "Gridnodes are not part of this release";
+
 	protected GridnodeStatusCommand(String location) {
 		super(HttpMethod.PUT, location);
 	}
@@ -37,9 +40,16 @@ public abstract class GridnodeStatusCommand extends RestClientCommand {
 	@Override
 	protected void execute(Response response) {
 		if (response.getStatus() == Response.Status.CONFLICT.getStatusCode()) {
-			System.err.println("This daemon was not started with -G, so it is not a gridnode");
+			System.err.println("This daemon is not running as a gridnode");
 		} else {
 			System.out.println(response.getStatusInfo());
 		}
+	}
+
+	/* A node of this release answers every gridnode request as unavailable */
+	@Override
+	protected String refusal(ResponseOddityException oddity) {
+		return oddity.getStatusCode() == Response.Status.SERVICE_UNAVAILABLE.getStatusCode()
+			? LEFT_OFF : super.refusal(oddity);
 	}
 }

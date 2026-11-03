@@ -24,7 +24,7 @@ import org.unigrid.hedgehog.model.spork.LedgerFee.SporkData;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.ParameterException;
 
-@Command(name = "ledger-fee",
+@Command(name = "ledger-fee", hidden = true,
 	description = "The minimum fee of a transfer and the minimum amount of a transfer that opens an account; to set "
 		+ "them, the data is the fee in coins, like 0.001, or the fee and the amount, like 0.001:1."
 )

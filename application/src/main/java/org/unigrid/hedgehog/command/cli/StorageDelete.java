@@ -22,7 +22,7 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import picocli.CommandLine.Command;
 
-@Command(name = "storage-delete", description = "Delete a stored file using its fingerprint.")
+@Command(name = "storage-delete", description = "Delete a stored file using its fingerprint.", hidden = true)
 public class StorageDelete extends FingerprintCommand {
 	public StorageDelete() {
 		super(HttpMethod.DELETE);

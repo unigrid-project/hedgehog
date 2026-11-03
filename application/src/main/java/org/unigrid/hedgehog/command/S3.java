@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.command;
 import org.unigrid.hedgehog.command.s3.S3Key;
 import picocli.CommandLine.Command;
 
-@Command(name = "s3", subcommands = S3Key.class, description = "Manage the S3 endpoint of this node.")
+@Command(name = "s3", subcommands = S3Key.class, description = "Manage the S3 endpoint of this node.", hidden = true)
 public class S3 {
 	/* Empty on purpose */
 }

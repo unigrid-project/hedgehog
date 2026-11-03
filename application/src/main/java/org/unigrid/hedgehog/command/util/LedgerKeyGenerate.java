@@ -27,7 +27,7 @@ import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
 
-@Command(name = "ledger-key-generate",
+@Command(name = "ledger-key-generate", hidden = true,
 	description = "Makes the key file of a ledger validator and prints its public key, as put in a genesis."
 )
 public class LedgerKeyGenerate implements Runnable {

@@ -32,7 +32,7 @@ import org.unigrid.hedgehog.command.util.RestClientCommand;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
-@Command(name = "storage-put", description = "Store a file on the network and print its fingerprint.")
+@Command(name = "storage-put", description = "Store a file on the network and print its fingerprint.", hidden = true)
 public class StoragePut extends RestClientCommand {
 	@Parameters(index = "0", description = "The file to store.")
 	private Path file;

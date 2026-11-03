@@ -33,6 +33,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
@@ -73,8 +74,29 @@ public class GridnodeStatusCommandTest {
 			final String[] output = outputOf(command, Response.status(Response.Status.CONFLICT).build());
 
 			assertThat(output[0], is(""));
-			assertThat(output[1], containsString("-G"));
+			assertThat(output[1], containsString("not running as a gridnode"));
+			assertThat(output[1], not(containsString("-G")));
 		}
+	}
+
+	/* The node refuses the request before the command sees an answer, as the status is none it takes for one */
+	@Property(tries = 4)
+	public void shouldTellThatGridnodesAreNotPartOfThisRelease(@ForAll boolean start, @ForAll boolean body) {
+		final GridnodeStatusCommand command = start ? new GridnodeStart() : new GridnodeStop();
+		final Result result = RestCommandFixture.runWithOddity(command, new ResponseOddityException(
+			Response.Status.SERVICE_UNAVAILABLE, body ? "This release does not include the gridnode part" : ""));
+
+		assertThat(result.out(), is(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("Gridnodes are not part of this release")));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	@Example
+	public void shouldDescribeAnyOtherRefusalByItsStatus() {
+		final ResponseOddityException oddity = new ResponseOddityException(Response.Status.BAD_GATEWAY);
+		final Result result = RestCommandFixture.runWithOddity(new GridnodeStart(), oddity);
+
+		assertThat(result.err().lines().toList(), equalTo(List.of(oddity.getMessage())));
 	}
 
 	@Property(tries = 30)

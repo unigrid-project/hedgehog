@@ -33,9 +33,8 @@ import picocli.CommandLine.Option;
 )
 public class GridSporkSet {
 	@Getter @Option(names = { "-D", "--data" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "JSON describing the spork data; for mint-supply the supply in coins, for ledger-blacklist "
-			+ "the file of addresses, for ledger-fee the fee in coins, for communication the parameters of the "
-			+ "proxy, for board-keys the change file that the board approved.", required = true
+		description = "JSON describing the spork data; for mint-supply the supply in coins, for board-keys the "
+			+ "change file that the board approved.", required = true
 	)
 	private static String data;
 
