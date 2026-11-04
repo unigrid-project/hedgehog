@@ -44,7 +44,8 @@ public class NativeImage {
 		try {
 			return executor.execute(cmdLine);
 
-		/* error code 1/2 is just a generic error from PicoCLI that we can ignore */
+		/* error code 1/2 comes from PicoCLI, which has already printed it: it is handed on as the exit code,
+		   without a stack trace */
 		} catch (ExecuteException ex) {
 			if (ex.getExitValue() != 1 && ex.getExitValue() != 2) {
 				throw ex;
@@ -68,6 +69,6 @@ public class NativeImage {
 			Unzipper.unzip(channel, applicationDirectory.getUserDataDir());
 		}
 
-		start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack"));
+		System.exit(start(jlinkDistribution, ArrayUtils.removeAllOccurrences(args, "--force-unpack")));
 	}
 }
