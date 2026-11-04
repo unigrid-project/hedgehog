@@ -29,6 +29,9 @@ authorized() { curl -fsSk -H "Authorization: Bearer $TOKEN" "$@"; }
 # status_of <path>: the HTTP status that the node answers an authorized GET with
 status_of() { curl -sk -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$REST$1"; }
 
+# uncolored: the text on stdin without ANSI colour codes, which the help of the Windows binary has
+uncolored() { sed -e "s/$(printf '\033')\[[0-9;]*m//g"; }
+
 # listed <name>: whether a line of the help on stdin starts with the name, as
 # the lines that list a command or an option do
 listed() { grep -Eq -e "^[[:space:]]+([^[:space:]]+, )*$1([[:space:],=[]|\$)"; }
@@ -39,6 +42,7 @@ for pair in ":bootstrap" "cli:gridspork-cosign" "util:spork-db" "daemon:--restpo
 	words="${pair%%:*}"
 	# shellcheck disable=SC2086 # the words of the command, none for the top
 	help="$("$BINARY" $words --help 2>"$LOG")" || fail "$BINARY $words --help failed."
+	help="$(uncolored <<<"$help")"
 	listed "${pair#*:}" <<<"$help" || fail "$BINARY $words --help does not list ${pair#*:}."
 
 	for name in s3 ledger storage-put gridnode-start ledger-genesis --ledger --gridnode --socks-port --preview; do
