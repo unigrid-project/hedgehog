@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
@@ -81,6 +82,10 @@ public class StorageNetworkTest extends BaseServerTest {
 
 	private record Member(String container, Gridnode gridnode, Node client) { }
 
+	/* Seeded by the first property to join and kept for the class. The servers keep what earlier properties stored,
+	   and a property that restarted the stream from a seed drawn before would store the same groups again. */
+	private static SeededSecureRandom clientRandom;
+
 	private final List<Member> members = new ArrayList<>();
 	private final Set<Node> reachable = ConcurrentHashMap.newKeySet();
 	private StorageService service;
@@ -134,6 +139,12 @@ public class StorageNetworkTest extends BaseServerTest {
 			return;
 		}
 
+		/* Printed because a later property that fails reports only its own samples */
+		if (Objects.isNull(clientRandom)) {
+			clientRandom = new SeededSecureRandom(seed);
+			System.out.println(StorageNetworkTest.class.getSimpleName() + " client seed = " + seed);
+		}
+
 		for (int i = 0; i < servers().size(); i++) {
 			final String container = containerName(i);
 			final P2PServer p2p = servers().get(i).getP2p();
@@ -158,7 +169,7 @@ public class StorageNetworkTest extends BaseServerTest {
 
 		service = new StorageService(new TopologyGridnodeDirectory(() -> gridnodes, () -> "client"),
 			new NettyFragmentTransport(() -> reachable, pending, Optional::empty, StorageNetworkTest::noLocalKeeper),
-			() -> Optional.of(PARAMETERS), new SeededSecureRandom(seed), Duration.ZERO);
+			() -> Optional.of(PARAMETERS), clientRandom, Duration.ZERO);
 	}
 
 	private static FragmentKeeper noLocalKeeper() {
