@@ -20,6 +20,7 @@ fail() {
 	printf '%s\n' "$*" >&2
 	printf -- '--- node output ---\n' >&2
 	cat "$LOG" >&2
+	[ -z "${help:-}" ] || printf -- '--- help output ---\n%s\n' "$help" >&2
 	exit 1
 }
 
@@ -37,7 +38,7 @@ listed() { grep -Eq -e "^[[:space:]]+([^[:space:]]+, )*$1([[:space:],=[]|\$)"; }
 for pair in ":bootstrap" "cli:gridspork-cosign" "util:spork-db" "daemon:--restport"; do
 	words="${pair%%:*}"
 	# shellcheck disable=SC2086 # the words of the command, none for the top
-	help="$("$BINARY" $words --help)" || fail "$BINARY $words --help failed."
+	help="$("$BINARY" $words --help 2>"$LOG")" || fail "$BINARY $words --help failed."
 	listed "${pair#*:}" <<<"$help" || fail "$BINARY $words --help does not list ${pair#*:}."
 
 	for name in s3 ledger storage-put gridnode-start ledger-genesis --ledger --gridnode --socks-port --preview; do
