@@ -46,7 +46,7 @@ Hedgehog requires Java 25+ and [Maven](https://maven.apache.org/). From the Hedg
 
 > mvn clean install
 
-This creates `application/target/hedgehog-<version>-jar-with-dependencies.jar`. Start it with `java -jar`, and pass `--help` to see every command and option. Depending on the options, Hedgehog acts as a network daemon, a client or a stand-alone application.
+This creates `application/target/hedgehog-<version>-jar-with-dependencies.jar`. Start it with `java -jar`, and pass `--help` to see the commands and options of this release. Depending on the options, Hedgehog acts as a network daemon, a client or a stand-alone application.
 
 The native executable wraps a JVM and the Hedgehog jar. Build it with `mvn package` inside `native-image`, with `GRAALVM_HOME` pointing at a GraalVM 25 installation. The result is `native-image/target/hedgehog.bin`, or `hedgehog.exe` on Windows.
 
