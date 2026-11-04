@@ -206,7 +206,7 @@ public class GridSpork implements Serializable, Signable {
 		}
 
 		if (Objects.isNull(timeStamp)) {
-			return !(Objects.nonNull(otherSpork) && Objects.nonNull(otherSpork.timeStamp));
+			return false;
 		}
 
 		return timeStamp.isAfter(otherSpork.timeStamp);
