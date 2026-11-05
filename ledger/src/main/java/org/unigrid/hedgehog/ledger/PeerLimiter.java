@@ -367,7 +367,7 @@ public final class PeerLimiter {
 	   is scored as any other, but it takes nothing that all peers share: the node does no work for it, and the copies
 	   that every neighbour relays of one item must not empty what the new items need. A copy takes nothing that all
 	   peers share, so nothing of the quota either. */
-	public boolean allowCopy(String id, Quota quota, Kind kind) {
+	public boolean allowCopy(String id, Kind kind) {
 		return ownToken(id, kind, advance()).map(own -> {
 			own.take();
 			return true;

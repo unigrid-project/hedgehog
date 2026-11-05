@@ -158,7 +158,7 @@ final class InboundLanes {
 
 	private boolean admitted(Sender sender, Kind kind, boolean junk, BooleanSupplier known) {
 		if (known.getAsBoolean()) {
-			limiter.allowCopy(sender.id(), sender.quota(), kind);
+			limiter.allowCopy(sender.id(), kind);
 			return false;
 		}
 

@@ -86,9 +86,9 @@ public class PeerLimiterTest {
 		return limiter.allow(peer, new Quota(peer), kind, Grade.JUNK);
 	}
 
-	/* A copy, sent by a peer that has its limits to itself */
+	/* A copy of an item that the node holds already, sent by a peer */
 	private static boolean allowCopy(PeerLimiter limiter, String peer, Kind kind) {
-		return limiter.allowCopy(peer, new Quota(peer), kind);
+		return limiter.allowCopy(peer, kind);
 	}
 
 	private static int granted(PeerLimiter limiter, String peer, Kind kind, int attempts) {
@@ -707,8 +707,7 @@ public class PeerLimiterTest {
 	public void shouldLetThePeersOfOneQuotaShareFourTimesTheBucketOfOne() {
 		final PeerLimiter limiter = new PeerLimiter(() -> START, uniform(3, 1, 2, 60_000, 100));
 
-		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", new Quota("site"), Kind.CONSENSUS)),
-			is(true));
+		assertThat(IntStream.range(0, 3).allMatch(n -> limiter.allowCopy("c", Kind.CONSENSUS)), is(true));
 		assertThat(IntStream.range(0, 4).allMatch(peer -> IntStream.range(0, 3)
 			.allMatch(n -> limiter.allow("p" + peer, new Quota("site"), Kind.CONSENSUS, Grade.PLAUSIBLE))),
 			is(true));
