@@ -65,7 +65,7 @@ final class SporkSuccession {
 	   has no previous version either. */
 	private static boolean isMadeFrom(final GridSpork spork, final GridSpork stored) {
 		if (Objects.isNull(stored)) {
-			return Instant.EPOCH.equals(spork.getPreviousTimeStamp()) && spork.getSignatureLog().isEmpty();
+			return isFirstVersion(spork);
 		}
 
 		final boolean isNextVersion = isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(),
