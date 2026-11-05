@@ -72,7 +72,7 @@ public class GridSpork implements Serializable, Signable {
 	private Type type;
 
 	private ChunkData data;
-	private ChunkData previousData; /* Flag.DELTA controls the content */
+	private ChunkData previousData; /* The data of the previous version, held whole: nothing sets Flag.DELTA */
 	private byte[] signature;
 	private byte[] cosignature;
 
@@ -105,7 +105,7 @@ public class GridSpork implements Serializable, Signable {
 
 	@AllArgsConstructor
 	public enum Flag {
-		GOVERNED((short) 0x01),	/* Governed sporks have to be voted on to accept the change on the network */
+		GOVERNED((short) 0x01),	/* Reserved: some types set it, but nothing reads it and no spork is voted on */
 		DELTA((short) 0x02),	/* Is either delta-data or a raw representation of the previous value */
 		WIRE_SIGNABLE((short) 0x04);	/* Signed over its wire encoding rather than its Java serialization */
 
@@ -599,7 +599,8 @@ public class GridSpork implements Serializable, Signable {
 		previousTimeStamp = SerializationUtils.clone(timeStamp);
 		timeStamp = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 
-		/* Make sure we don't haver empty null properties (instead, we give them a reasonable default "zero") */
+		/* A previous time stamp of null becomes the epoch. Previous data of null gets no default: empty() below is
+		   called on null and throws a NullPointerException */
 
 		if (Objects.isNull(previousData)) {
 			previousData = previousData.empty();
