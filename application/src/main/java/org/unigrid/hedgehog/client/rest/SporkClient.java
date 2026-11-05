@@ -45,6 +45,7 @@ import org.unigrid.hedgehog.model.spork.BoardKeysRecord;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.RecordedChainException;
+import org.unigrid.hedgehog.model.util.TerminalText;
 
 /* The sporks of a node as a board member's command line reads them and hands them back: in the form peers exchange, so
    that what is signed on this machine covers the bytes every node reads. The client trusts any certificate, and the
@@ -58,7 +59,6 @@ public class SporkClient {
 
 	private static final ObjectMapper JSON = new ObjectMapper();
 	private static final String AHEAD = "stamped ahead of the clock of this machine";
-	private static final int SHOWN_HEX = 16;
 	private static final String SWITCHED_OFF = " (switched off)";
 	private static final String UNROOTED = "The board keys that the node holds do not hold from the root of this"
 		+ " machine, or two of their keys did not sign them (see --network-keys)";
@@ -139,7 +139,7 @@ public class SporkClient {
 		final Set<String> active = NetworkKey.getActiveKeys().active();
 
 		return "signed by " + signersOf(spork).stream().map(signer -> signer.map(key -> StringUtils.left(key,
-			SHOWN_HEX) + (active.contains(key) ? "" : SWITCHED_OFF)).orElse("no board key"))
+			TerminalText.SHOWN_HEX) + (active.contains(key) ? "" : SWITCHED_OFF)).orElse("no board key"))
 			.collect(Collectors.joining(" and "));
 	}
 

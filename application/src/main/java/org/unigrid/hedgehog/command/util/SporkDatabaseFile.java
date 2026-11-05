@@ -55,8 +55,6 @@ import picocli.CommandLine.ParameterException;
    it so too. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkDatabaseFile {
-	static final int SHOWN_HEX = 16;
-
 	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown */
 	public static SporkDatabase load(CommandSpec spec, Path file) {
 		final SporkDatabase database;
@@ -228,12 +226,13 @@ public final class SporkDatabaseFile {
 			return "none";
 		}
 
-		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, SHOWN_HEX)).orElse("not a board key");
+		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, TerminalText.SHOWN_HEX))
+			.orElse("not a board key");
 	}
 
 	private static String describe(GridSpork spork) {
 		return spork.getType() + ": made " + spork.getTimeStamp() + ", digest "
-			+ StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX) + ", signer "
+			+ StringUtils.left(PendingSporks.digestOf(spork), TerminalText.SHOWN_HEX) + ", signer "
 			+ keyOf(spork, spork.getSignature()) + ", co-signer " + keyOf(spork, spork.getCosignature())
 			+ ", log entries " + spork.getSignatureLog().size() + ", " + signingOf(spork) + ", content "
 			+ contentProblem(spork).map(problem -> "not valid: " + problem).orElse("valid");

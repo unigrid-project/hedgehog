@@ -57,8 +57,6 @@ public final class SporkProposal {
 	private static final ObjectWriter JSON = new JsonConfiguration().getContext(ChunkData.class)
 		.writerWithDefaultPrettyPrinter();
 
-	private static final int SHOWN_HEX = 16;
-
 	static final String FIRST_VERSION = "Make the first version of the spork when the node holds none. A first version"
 		+ " takes the place of the one the network holds, so give this only for a spork the network has none of.";
 
@@ -139,8 +137,9 @@ public final class SporkProposal {
 	   that the network took, and only another node tells whether it is the one the network holds */
 	public static void showHead(Optional<GridSpork> stored) {
 		stored.ifPresent(spork -> System.out.println("Stored " + spork.getType() + " made at " + spork.getTimeStamp()
-			+ ", digest " + StringUtils.left(PendingSporks.digestOf(spork), SHOWN_HEX) + ", signed by "
-			+ keyOf(spork, spork.getSignature()) + " and " + keyOf(spork, spork.getCosignature())));
+			+ ", digest " + StringUtils.left(PendingSporks.digestOf(spork), TerminalText.SHOWN_HEX)
+			+ ", signed by " + keyOf(spork, spork.getSignature())
+			+ " and " + keyOf(spork, spork.getCosignature())));
 	}
 
 	/* A spork that a key signed which the board switched off since counts for nothing, and the node may hand out one
@@ -156,7 +155,8 @@ public final class SporkProposal {
 		+ " each such type.";
 
 	private static String keyOf(GridSpork spork, byte[] signature) {
-		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, SHOWN_HEX)).orElse("no board key");
+		return spork.signerOfHead(signature).map(key -> StringUtils.left(key, TerminalText.SHOWN_HEX))
+			.orElse("no board key");
 	}
 
 	/* What the data of the command asks for is judged with the stored spork, so it is refused like data that does

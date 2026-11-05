@@ -57,8 +57,6 @@ import picocli.CommandLine.ParameterException;
    signs what the file says of the keys before the change, those are taken from the chain that it follows on. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ChangeFile {
-	static final int SHOWN_HEX = 16;
-
 	/* A full change, its keys and approvals in hex and base64, with room to spare */
 	private static final int MAX_BYTES = 1 << 16;
 
@@ -199,6 +197,6 @@ public final class ChangeFile {
 	}
 
 	static String shortly(String key) {
-		return StringUtils.left(key, SHOWN_HEX);
+		return StringUtils.left(key, TerminalText.SHOWN_HEX);
 	}
 }

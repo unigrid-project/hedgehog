@@ -27,6 +27,9 @@ import lombok.NoArgsConstructor;
    tabs, which are spaces. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class TerminalText {
+	/* How many characters of a key or a digest in hex an operator is shown */
+	public static final int SHOWN_HEX = 16;
+
 	public static String printable(String text) {
 		final StringBuilder printable = new StringBuilder(text.length());
 

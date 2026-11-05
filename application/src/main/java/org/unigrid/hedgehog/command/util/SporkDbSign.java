@@ -170,7 +170,7 @@ public class SporkDbSign implements Runnable {
 			type + " flags: " + version.getFlags(), type + " data:\n" + json(version, version.getData()),
 			type + " previous data:\n" + json(version, version.getPreviousData()),
 			type + " signature log: " + log.size() + " entries, head " + (log.isEmpty() ? "none"
-				: StringUtils.left(Hex.encodeHexString(log.headHash()), SporkDatabaseFile.SHOWN_HEX))));
+				: StringUtils.left(Hex.encodeHexString(log.headHash()), TerminalText.SHOWN_HEX))));
 
 		if (Objects.nonNull(version.getSignature()) && version.isPending()) {
 			lines.add(type + " first signer: " + SporkDatabaseFile.keyOf(version, version.getSignature()));
