@@ -94,7 +94,7 @@ public class LedgerService {
 	private static final int TRANSACTIONS_PER_SECOND = 50;
 	private static final int MAX_RESTARTS = 3;
 	private static final long RESTART_POLLS = 12;
-	private static final long RESTART_WINDOW_MILLIS = 6 * 60 * 60 * 1_000;
+	private static final long DRIVER_RESTART_WINDOW_MILLIS = 6 * 60 * 60 * 1_000;
 
 	/* Where the service finds its files and how it runs, read from the options of the daemon by setup(), which is
 	   what a test of it replaces. `pollMillis` is how often it looks for the snapshot, and for a halt of the driver. */
@@ -293,7 +293,7 @@ public class LedgerService {
 	private void halted(final String reason) {
 		final long now = clock.getAsLong();
 
-		restarts.removeIf(time -> now - time > RESTART_WINDOW_MILLIS);
+		restarts.removeIf(time -> now - time > DRIVER_RESTART_WINDOW_MILLIS);
 
 		if (restarts.size() >= MAX_RESTARTS) {
 			log.atError().addArgument(restarts.size()).addArgument(reason)
