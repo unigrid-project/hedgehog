@@ -72,7 +72,7 @@ public class GridSpork implements Serializable, Signable {
 	private Type type;
 
 	private ChunkData data;
-	private ChunkData previousData; /* The data of the previous version, held whole: nothing sets Flag.DELTA */
+	private ChunkData previousData; /* The data of the previous version, held whole: nothing reads Flag.DELTA */
 	private byte[] signature;
 	private byte[] cosignature;
 
