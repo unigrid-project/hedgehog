@@ -192,10 +192,6 @@ public final class BlockParser {
 		return HexFormat.of().formatHex(reverse(hash));
 	}
 
-	public static byte[] fromDisplayString(String hash) {
-		return reverse(HexFormat.of().parseHex(hash));
-	}
-
 	public static boolean isGenesis(byte[] hash) {
 		return Arrays.equals(GENESIS_HASH, hash);
 	}
