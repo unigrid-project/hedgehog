@@ -95,8 +95,8 @@ public class BoardKeysSpork extends SporkCommand<ProposedKeyChange> {
 		final Set<String> removed = ChangeFile.onTheChain(spec(), chain, read).getRemoved();
 		final List<String> uncounted = new ArrayList<>();
 
-		for (GridSpork.Type type : GridSpork.Type.values()) {
-			if (type != GridSpork.Type.UNDEFINED && type != GridSpork.Type.BOARD_KEYS) {
+		for (GridSpork.Type type : GridSpork.Type.defined()) {
+			if (type != GridSpork.Type.BOARD_KEYS) {
 				sporks.held(type).filter(GridSpork::isTakenByTheNetwork)
 					.filter(spork -> isSignedByAnyOf(spork, removed))
 					.ifPresent(spork -> uncounted.add(type + " " + SporkClient.signingOf(spork)));

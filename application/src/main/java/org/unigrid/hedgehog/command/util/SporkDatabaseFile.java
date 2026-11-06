@@ -179,7 +179,7 @@ public final class SporkDatabaseFile {
 	}
 
 	static List<Type> types() {
-		return Arrays.stream(Type.values()).filter(type -> type != Type.UNDEFINED).toList();
+		return Type.defined();
 	}
 
 	static List<GridSpork> sporksOf(SporkDatabase database) {

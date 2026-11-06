@@ -97,10 +97,8 @@ public class GridSporkRenew implements Runnable, IExitCodeGenerator {
 
 		final List<GridSpork> stored = new ArrayList<>();
 
-		for (GridSpork.Type type : GridSpork.Type.values()) {
-			if (type != GridSpork.Type.UNDEFINED) {
-				sporks.held(type).ifPresent(stored::add);
-			}
+		for (GridSpork.Type type : GridSpork.Type.defined()) {
+			sporks.held(type).ifPresent(stored::add);
 		}
 
 		requireNamed(stored);

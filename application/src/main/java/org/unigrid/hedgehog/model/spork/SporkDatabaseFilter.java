@@ -19,7 +19,6 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.ObjectInputFilter;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
@@ -61,11 +60,10 @@ final class SporkDatabaseFilter implements ObjectInputFilter {
 	private static Set<Class<?>> classesOfTheTypes(Set<Class<?>> others) {
 		final Set<Class<?>> classes = new HashSet<>(others);
 
-		Arrays.stream(GridSpork.Type.values()).filter(type -> type != GridSpork.Type.UNDEFINED)
-			.map(GridSpork::create).forEach(spork -> {
-				classes.add(spork.getClass());
-				classes.add(spork.getData().getClass());
-			});
+		GridSpork.Type.defined().stream().map(GridSpork::create).forEach(spork -> {
+			classes.add(spork.getClass());
+			classes.add(spork.getData().getClass());
+		});
 
 		return Set.copyOf(classes);
 	}

@@ -26,7 +26,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -106,8 +105,7 @@ public class SporkDatabaseProducer {
 			.filter(boardKeys -> !PendingSporks.isAheadOf(now, boardKeys))
 			.ifPresent(BoardKeysAuthority::install);
 
-		final List<GridSpork.Type> leftOut = Arrays.stream(GridSpork.Type.values())
-			.filter(type -> type != GridSpork.Type.UNDEFINED)
+		final List<GridSpork.Type> leftOut = GridSpork.Type.defined().stream()
 			.filter(type -> isLeftOut(database, type, now)).toList();
 
 		if (!leftOut.isEmpty()) {

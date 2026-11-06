@@ -129,6 +129,10 @@ public class GridSpork implements Serializable, Signable {
 		public static Type get(short value) {
 			return Arrays.stream(values()).filter(type -> type.value == value).findFirst().orElse(UNDEFINED);
 		}
+
+		public static List<Type> defined() {
+			return Arrays.stream(values()).filter(type -> type != UNDEFINED).toList();
+		}
 	}
 
 	/* Sporks stored by builds from before the log existed deserialize with a null log */
