@@ -136,7 +136,7 @@ public final class Ledger implements ConsensusApp {
 
 		final List<Transaction> transactions = applicableAt(blockTime);
 
-		if (transactions.isEmpty() && !emptyBlockIsDue(blockTime)) {
+		if (transactions.isEmpty() && !state.emptyBlockDueAt(blockTime)) {
 			return Optional.empty();
 		}
 
@@ -157,13 +157,7 @@ public final class Ledger implements ConsensusApp {
 
 		dropPassedVotes(blockTime);
 		state.askAuthorityAt(blockTime);
-		return emptyBlockIsDue(blockTime) || !isPlainlyQuiet(blockTime) && !applicableAt(blockTime).isEmpty();
-	}
-
-	/* A block of this time is due even with nothing in it, to pay out the fees that wait or to close a round that
-	   holds votes */
-	private boolean emptyBlockIsDue(long blockTime) {
-		return state.pool() > 0 || state.closesRoundWithVotes(blockTime);
+		return state.emptyBlockDueAt(blockTime) || !isPlainlyQuiet(blockTime) && !applicableAt(blockTime).isEmpty();
 	}
 
 	private boolean isPlainlyQuiet(long blockTime) {

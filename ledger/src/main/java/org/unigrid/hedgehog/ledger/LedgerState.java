@@ -794,11 +794,17 @@ public final class LedgerState {
 	   is over, so a quiet chain holds back neither. The votes leave with the round, so that makes at most one empty
 	   block a round, and none on a quiet chain where nobody votes. */
 	private boolean mayBeEmpty(Block block) {
-		return pool > 0 || closesRoundWithVotes(block.getTime());
+		return emptyBlockDueAt(block.getTime());
+	}
+
+	/* A block of this time is due even with nothing in it, to pay out the fees that wait or to close a round that
+	   holds votes */
+	public boolean emptyBlockDueAt(long blockTime) {
+		return pool > 0 || closesRoundWithVotes(blockTime);
 	}
 
 	/* Whether a block of this time would close the round of the tip while it holds votes */
-	public boolean closesRoundWithVotes(long blockTime) {
+	private boolean closesRoundWithVotes(long blockTime) {
 		return !votes.isEmpty() && roundAt(blockTime) > round;
 	}
 
