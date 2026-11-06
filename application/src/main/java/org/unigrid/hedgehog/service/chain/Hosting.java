@@ -46,6 +46,17 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 
 	static final Hosting OFF = new Hosting(Optional.empty(), OptionalInt.empty(), List.of(), Map.of(), Map.of());
 
+	/* A chain this node stopped hosting is kept for the sessions that still run on it and the members that lag
+	   while the epoch it was created for is at most this many epochs behind the current one, and dropped when
+	   it is more behind. It is the epoch of the chain that counts, not how often the topology made the node
+	   rebuild its hosting since. */
+	static final int RETIRED_EPOCHS = 4;
+
+	/* The most retired chains held, whatever their age, as a node must not end up holding every chain it ever
+	   hosted: the oldest epoch goes first, and within it the chain that retired first. Maintenance trims a retired
+	   chain every second, so an idle one holds next to nothing, but the count is bounded all the same. */
+	static final int MAX_RETIRED_CHAINS = 1024;
+
 	record Basis(ProxySettings settings, Epoch epoch, Set<String> activeIds, Optional<String> own) {
 		/* Everything the groups and chains of a hosting follow from, so an equal basis needs no new ranking */
 	}
@@ -77,6 +88,31 @@ record Hosting(Optional<Basis> basis, OptionalInt group, List<String> peers, Map
 
 		kept.keySet().removeAll(dropped);
 		return new Hosting(basis, group, peers, current, Collections.unmodifiableMap(kept));
+	}
+
+	/* The chains held and not wanted now are retired, in the order they retired. A retired chain that is wanted
+	   again leaves them to be a current one, and one whose epoch is more than RETIRED_EPOCHS behind the current
+	   epoch is dropped. An epoch ahead of the current one, as after a clock that stepped back, is not behind. This
+	   runs when a hosting is rebuilt and only then, since the wanted chains and the epoch change only then: a
+	   reused hosting has the retired chains it had, less those the drain dropped. */
+	Map<ChainId, HostedChain> retiredBy(final Set<ChainId> wanted, final Epoch now) {
+		final Map<ChainId, HostedChain> kept = new LinkedHashMap<>(retired);
+
+		kept.putAll(current);
+		kept.keySet().removeAll(wanted);
+		kept.values().removeIf(hosted -> now.number() - hosted.getEpoch().number() > RETIRED_EPOCHS);
+		dropBeyondTheCap(kept);
+		return Collections.unmodifiableMap(kept);
+	}
+
+	/* The sort is stable, so within an epoch the chain that retired first goes first */
+	private static void dropBeyondTheCap(final Map<ChainId, HostedChain> retired) {
+		final List<ChainId> oldest = retired.values().stream()
+			.sorted(Comparator.comparingLong((HostedChain hosted) -> hosted.getEpoch().number()))
+			.limit(Math.max(0, retired.size() - MAX_RETIRED_CHAINS))
+			.map(hosted -> hosted.getChain().id()).toList();
+
+		retired.keySet().removeAll(oldest);
 	}
 
 	Optional<HostedChain> find(final ChainId id) {
