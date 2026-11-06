@@ -21,7 +21,9 @@ package org.unigrid.hedgehog.client.p2p;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.logging.LoggingHandler;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,10 +37,21 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import org.unigrid.hedgehog.model.network.PreviewFrames;
+import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
 import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
+import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
+import org.unigrid.hedgehog.model.network.codec.PingDecoder;
+import org.unigrid.hedgehog.model.network.codec.PingEncoder;
+import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
+import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
+import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
+import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
 import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
+import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
+import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
@@ -56,8 +69,24 @@ public class P2PClientPipelineTest {
 	private static final List<Offer> OFFERS = List.of(new Offer(false, false), new Offer(false, true),
 		new Offer(true, true));
 
+	private static final List<Class<?>> HEAD = List.of(PeerActivityHandler.class, LoggingHandler.class,
+		FrameDecoder.class, HelloEncoder.class);
+
+	private static final List<Class<?>> GRIDNODE_CODECS = List.of(GridnodeEncoder.class, GridnodeDecoder.class);
+
+	private static final List<Class<?>> CORE = List.of(PingEncoder.class, PingDecoder.class,
+		PublishSporkEncoder.class, PublishSporkDecoder.class, PublishPeersEncoder.class, PublishPeersDecoder.class,
+		PingChannelHandler.class, PublishSporkChannelHandler.class, PublishPeersChannelHandler.class);
+
+	private static final List<Class<?>> GRIDNODE_STAGE = List.of(PublishGridnodeChannelHandler.class);
+	private static final List<Class<?>> DROP = List.of(UnclaimedFrameHandler.class);
+
 	private static List<Class<?>> classesOf(final List<? extends ChannelHandler> handlers) {
 		return handlers.stream().<Class<?>>map(ChannelHandler::getClass).toList();
+	}
+
+	private static List<Class<?>> joined(final List<List<Class<?>>> parts) {
+		return parts.stream().flatMap(List::stream).toList();
 	}
 
 	/* The stages of the parts of the node that only the preview turns on */
@@ -80,6 +109,30 @@ public class P2PClientPipelineTest {
 	public void dropsTheFramesNoStageTakesLast() {
 		for (Offer offer : OFFERS) {
 			assertThat(classesOf(offer.handlers()).getLast(), equalTo(UnclaimedFrameHandler.class));
+		}
+	}
+
+	@Example
+	public void buildsEveryStageInItsPlaceForEachMixOfTheProtocols() {
+		final List<Class<?>> storage = classesOf(StoragePipeline.handlers());
+		final List<Class<?>> ledger = classesOf(LedgerPipeline.handlers());
+
+		assertThat(classesOf(P2PClient.handlers(false, false)), equalTo(joined(List.of(HEAD, CORE, DROP))));
+		assertThat(classesOf(P2PClient.handlers(false, true)),
+			equalTo(joined(List.of(HEAD, GRIDNODE_CODECS, CORE, GRIDNODE_STAGE, storage, DROP))));
+		assertThat(classesOf(P2PClient.handlers(true, false)), equalTo(joined(List.of(HEAD, CORE, ledger, DROP))));
+		assertThat(classesOf(P2PClient.handlers(true, true)),
+			equalTo(joined(List.of(HEAD, GRIDNODE_CODECS, CORE, GRIDNODE_STAGE, storage, ledger, DROP))));
+	}
+
+	/* The decoders keep state, so a stream never shares a stage with another one */
+	@Example
+	public void buildsFreshStagesForEachStream() {
+		for (Offer offer : OFFERS) {
+			final Set<ChannelHandler> earlier = Collections.newSetFromMap(new IdentityHashMap<>());
+
+			earlier.addAll(offer.handlers());
+			offer.handlers().forEach(handler -> assertThat(earlier.contains(handler), is(false)));
 		}
 	}
 
