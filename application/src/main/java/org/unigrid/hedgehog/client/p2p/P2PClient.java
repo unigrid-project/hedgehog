@@ -25,8 +25,6 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.handler.logging.LoggingHandler;
 import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicClientCodecBuilder;
 import io.netty.incubator.codec.quic.QuicSslContext;
@@ -36,12 +34,9 @@ import io.netty.incubator.codec.quic.QuicStreamType;
 import io.netty.util.concurrent.Future;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutionException;
-import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.internal.logging.InternalLoggerFactory;
 import io.netty.util.internal.logging.Slf4JLoggerFactory;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -52,30 +47,9 @@ import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.PeerProtocol;
 import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
-import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
-import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
-import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
-import org.unigrid.hedgehog.model.network.codec.GridnodeDecoder;
-import org.unigrid.hedgehog.model.network.codec.GridnodeEncoder;
-import org.unigrid.hedgehog.model.network.codec.HelloEncoder;
-import org.unigrid.hedgehog.model.network.codec.PingDecoder;
-import org.unigrid.hedgehog.model.network.codec.PingEncoder;
-import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
-import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
-import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
-import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
-import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
+import org.unigrid.hedgehog.model.network.initializer.PeerPipeline;
 import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PingSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishPeersSchedule;
 import org.unigrid.hedgehog.model.network.schedule.Schedulable;
 
 @Slf4j
@@ -162,59 +136,11 @@ public class P2PClient extends ConnectionContainer {
 		}
 	}
 
-	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
-	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. The
-	   gridnode and storage stages, and the schedule that announces gridnodes, are there only when the node offers the
-	   proxy protocol, which only a node run with --preview does. A frame that no stage takes, such as one of a stage
-	   the node does without, is dropped behind the last of them. */
 	static List<ChannelHandler> handlers(final boolean ledger, final boolean preview) {
-		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
-			new PeerActivityHandler(),
-			new LoggingHandler(LogLevel.DEBUG),
-			new FrameDecoder(),
-			new HelloEncoder()
-		));
-
-		if (preview) {
-			handlers.addAll(List.of(new GridnodeEncoder(), new GridnodeDecoder()));
-		}
-
-		handlers.addAll(List.of(
-			new PingEncoder(), new PingDecoder(),
-			new PublishSporkEncoder(), new PublishSporkDecoder(),
-			new PublishPeersEncoder(), new PublishPeersDecoder(),
-			new PingChannelHandler(), new PublishSporkChannelHandler(),
-			new PublishPeersChannelHandler()
-		));
-
-		if (preview) {
-			handlers.add(new PublishGridnodeChannelHandler());
-			handlers.addAll(StoragePipeline.handlers());
-		}
-
-		if (ledger) {
-			handlers.addAll(LedgerPipeline.handlers());
-		}
-
-		handlers.add(new UnclaimedFrameHandler());
-		return handlers;
+		return PeerPipeline.handlers(RegisterQuicChannelInitializer.Type.CLIENT, ledger, preview);
 	}
 
 	static List<Schedulable> schedulers(final boolean ledger, final boolean preview) {
-		final List<Schedulable> schedulers = new ArrayList<>(Arrays.asList(
-			new PingSchedule(),
-			new PublishPeersSchedule(),
-			new PublishSporkSchedule()
-		));
-
-		if (preview) {
-			schedulers.add(new PublishGridnodeSchedule());
-		}
-
-		if (ledger) {
-			schedulers.add(new LedgerStatusSchedule());
-		}
-
-		return schedulers;
+		return PeerPipeline.schedulers(ledger, preview);
 	}
 }
