@@ -40,6 +40,9 @@ public class LedgerRoundTest {
 	private static final byte[] GRIDNODE_ONE = seed(201);
 	private static final byte[] GRIDNODE_TWO = seed(202);
 
+	/* For sets of 1 to 12 validators, the fewest votes that are more than two thirds of the set */
+	private static final int[] FEWEST_PASSING_VOTES = { 1, 2, 3, 3, 4, 5, 5, 6, 7, 7, 8, 9 };
+
 	/* Every seed the tests may need, so the fixtures can sign for whoever is in the set */
 	private static List<byte[]> everyone() {
 		final List<byte[]> all = new ArrayList<>(FOUNDATION);
@@ -95,6 +98,20 @@ public class LedgerRoundTest {
 		applyAt(state, startOf(0), votes);
 		applyAt(state, startOf(1), mint(1, 1));
 		return state;
+	}
+
+	/* In a set of `size` validators the first `voters` vote a gridnode in during round 0, and a block of round 1
+	   closes it */
+	private static boolean addedBy(int size, int voters) {
+		final List<byte[]> validators = seeds(1, size);
+		final LedgerState state = state(ROUND, ANY_MINT, validators);
+		final List<Transaction> votes = new ArrayList<>(validators.subList(0, voters).stream()
+			.<Transaction>map(voter -> vote(state, 0, voter, GRIDNODE_ONE, Vote.Action.ADD)).toList());
+
+		votes.add(mint(1, 1));
+		state.apply(block(state, validators, size, startOf(0), votes));
+		state.apply(block(state, validators, size, startOf(1), List.of(mint(2, 1))));
+		return state.validators().contains(Ed25519.publicKey(GRIDNODE_ONE));
 	}
 
 	@Example
@@ -174,6 +191,16 @@ public class LedgerRoundTest {
 
 		assertThat(state.round(), equalTo(1L));
 		assertThat(state.validators().size(), equalTo(3));
+	}
+
+	@Example
+	public void shouldAddAKeyAtTheEndOfTheRoundOnlyWithMoreThanTwoThirdsOfEverySetSize() {
+		for (int size = 1; size <= FEWEST_PASSING_VOTES.length; size++) {
+			for (int voters = 0; voters <= size; voters++) {
+				assertThat(voters + " of " + size + " voted", addedBy(size, voters),
+					equalTo(voters >= FEWEST_PASSING_VOTES[size - 1]));
+			}
+		}
 	}
 
 	/* The votes in the block that closes a round are for the round it opens, so they are not counted with the votes
