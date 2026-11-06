@@ -193,6 +193,31 @@ public class ChainCapacityTest {
 	}
 
 	@Example
+	public void shouldAnswerWhatIsWrongWithAnEntryBeforeRefusingForRoom() {
+		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 5, NOW);
+		final long prev = entries.get(4).hash();
+		final Entry next = ChainFixtures.signed(WRITER, CHAIN, 5, prev, NOW + 5000);
+		final Entry ahead = ChainFixtures.signed(WRITER, CHAIN, 7, 7, NOW + 7000);
+		final Entry elsewhere = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 5, prev, NOW + 5000);
+		final Entry subSecond = ChainFixtures.signed(WRITER, CHAIN, 5, prev, NOW + 5001);
+		final Entry future = ChainFixtures.signed(WRITER, CHAIN, 5, prev, NOW + 31_000);
+		final Entry expired = ChainFixtures.signed(WRITER, CHAIN, 5, prev, NOW - 31_000);
+		final Entry aheadElsewhere = ChainFixtures.signed(WRITER, ChainFixtures.chainId(2), 7, 7, NOW + 7000);
+		final List<Entry> refused = List.of(elsewhere, subSecond, future, expired, aheadElsewhere);
+		final List<Admission> answers = List.of(Admission.WRONG_CHAIN, Admission.MALFORMED, Admission.FUTURE,
+			Admission.EXPIRED, Admission.WRONG_CHAIN);
+
+		entries.forEach(chain::offer);
+		assertThat(chain.offer(next).admission(), is(Admission.FULL));
+		assertThat(chain.offer(ahead).admission(), is(Admission.FULL));
+		assertThat(refused.stream().map(entry -> chain.check(entry, 0)).toList(), equalTo(answers));
+		assertThat(refused.stream().map(entry -> chain.offer(entry).admission()).toList(), equalTo(answers));
+		assertThat(chain.entries(), equalTo(entries));
+		assertThat(chain.heldBytes(), is(0L));
+	}
+
+	@Example
 	public void shouldNotAnswerFullToAnEntryThatIsNotAuthentic() {
 		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
 		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 6, NOW);

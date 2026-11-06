@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.proxy.chain;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -120,5 +121,16 @@ public class ChainCheckTest {
 		assertThat(chain.check(entries.get(2), room - ENTRY_SIZE), is(Admission.AHEAD));
 		assertThat(chain.check(entries.get(2), room), is(Admission.FULL));
 		assertThat(chain.heldBytes(), is(0L));
+	}
+
+	@Example
+	public void leavesNoFeedBehindForAWriterItOnlyChecks() {
+		final Chain chain = new Chain(CHAIN, FOUR_ENTRIES, () -> NOW);
+		final List<Entry> entries = ChainFixtures.linked(WRITER, CHAIN, 3, NOW);
+
+		assertThat(chain.check(entries.get(0), 0), is(Admission.ACCEPTED));
+		assertThat(chain.check(entries.get(2), 0), is(Admission.AHEAD));
+		assertThat(chain.heads(), equalTo(Map.of()));
+		assertThat(chain.anchor(WRITER.id(), new Head(0, 1)), is(true));
 	}
 }
