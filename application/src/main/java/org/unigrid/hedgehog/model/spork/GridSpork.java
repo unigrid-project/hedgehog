@@ -161,6 +161,10 @@ public class GridSpork implements Serializable, Signable {
 		return type.factory.get();
 	}
 
+	public static ChunkData emptyDataOf(Type type) {
+		return create(type).<ChunkData>getData().empty();
+	}
+
 	/**
 	* Starts the next version of a spork from the stored one. The data of a proposal still awaiting its
 	* co-signature is carried over, so several changes can be proposed in a row and co-signed once. The version

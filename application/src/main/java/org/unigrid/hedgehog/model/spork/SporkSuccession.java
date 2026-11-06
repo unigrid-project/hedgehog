@@ -102,7 +102,7 @@ final class SporkSuccession {
 
 	private static byte[] encoded(final GridSpork spork, final ChunkData chunk) {
 		return SporkContentEncoder.encode(spork.getType(), Objects.requireNonNullElseGet(chunk,
-			() -> GridSpork.create(spork.getType()).<ChunkData>getData().empty()));
+			() -> GridSpork.emptyDataOf(spork.getType())));
 	}
 
 	private static boolean succeeds(final GridSpork spork, final GridSpork stored, final BooleanSupplier mayVerify,

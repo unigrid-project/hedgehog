@@ -105,8 +105,6 @@ public final class SporkContentEncoder {
 
 	/* A spork that was never archived has no previous data; it travels, and is signed, as empty data */
 	private static ChunkData orEmpty(GridSpork spork, ChunkData data) {
-		return Objects.requireNonNullElseGet(data,
-			() -> GridSpork.create(spork.getType()).<ChunkData>getData().empty()
-		);
+		return Objects.requireNonNullElseGet(data, () -> GridSpork.emptyDataOf(spork.getType()));
 	}
 }
