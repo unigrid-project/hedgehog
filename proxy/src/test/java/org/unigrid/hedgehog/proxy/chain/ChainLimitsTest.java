@@ -42,6 +42,18 @@ public class ChainLimitsTest {
 	}
 
 	@Example
+	public void shouldTellAnEntryOfItsSmallestClass() {
+		final ChainLimits limits = new ChainLimits(32 * 1024 * 1024, 30, 16 * 1024);
+
+		assertThat(limits.isSmallestClass(1024), is(true));
+		assertThat(limits.isSmallestClass(1023), is(false));
+		assertThat(limits.isSmallestClass(1025), is(false));
+		assertThat(limits.isSmallestClass(4096), is(false));
+		assertThat(limits.isSmallestClass(16 * 1024), is(false));
+		assertThat(new ChainLimits(1024, 30, Entry.OVERHEAD + 10).isSmallestClass(Entry.OVERHEAD + 10), is(true));
+	}
+
+	@Example
 	public void shouldReserveASixteenthOfTheCapacityForTheSmallestClass() {
 		assertThat(new ChainLimits(32 * 1024 * 1024, 30, 16 * 1024).reserveBytes(), is(2L * 1024 * 1024));
 		assertThat(new ChainLimits(16 * 1024 + 15, 30, 16 * 1024).reserveBytes(), is(1024L));

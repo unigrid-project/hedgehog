@@ -324,7 +324,7 @@ final class HostedChain {
 				return Optional.of(Admission.FULL);
 			}
 
-			final boolean smallest = entry.size() == chain.limits().smallestClassBytes();
+			final boolean smallest = chain.limits().isSmallestClass(entry.size());
 
 			return Optional.of(chain.check(entry, embargo.bytes() + (smallest ? keptOfTheReserve() : 0)));
 		}

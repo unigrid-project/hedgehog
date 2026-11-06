@@ -231,7 +231,7 @@ public final class Chain {
 	}
 
 	private boolean isLarger(Entry entry) {
-		return entry.size() != limits.smallestClassBytes();
+		return !limits.isSmallestClass(entry.size());
 	}
 
 	private Offer hold(Entry entry) {
