@@ -391,7 +391,7 @@ public final class LedgerState {
 		final List<AccountKey> added = new ArrayList<>();
 
 		tally.forEach((choice, count) -> {
-			if (count * 3 > validators.size() * 2L) {
+			if (count >= validators.quorum()) {
 				(choice.action() == Vote.Action.ADD ? added : removed).add(choice.candidate());
 			}
 		});
