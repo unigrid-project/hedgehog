@@ -41,9 +41,7 @@ import org.unigrid.hedgehog.proxy.session.ClientSession;
 import org.unigrid.hedgehog.proxy.session.Close;
 import org.unigrid.hedgehog.proxy.session.CloseReason;
 import org.unigrid.hedgehog.proxy.session.Connect;
-import org.unigrid.hedgehog.proxy.session.SealedCodec;
 import org.unigrid.hedgehog.proxy.session.SealedMessage;
-import org.unigrid.hedgehog.proxy.session.SealingCipher;
 import org.unigrid.hedgehog.proxy.session.SessionContext;
 
 /* Runs the client sessions of this node over the chains it joined: opens each on the attachment for its country,
@@ -338,8 +336,7 @@ public final class ClientSessions implements SessionOpener {
 
 		@Override
 		public int maxDataBytes() {
-			return Optional.ofNullable(chain).map(joined -> joined.context().maxPayloadBytes()
-				- SealingCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD).orElse(0);
+			return Optional.ofNullable(chain).map(joined -> joined.context().maxDataBytes()).orElse(0);
 		}
 
 		@Override

@@ -52,6 +52,11 @@ public record SessionContext(FeedWriter writer, Consumer<Entry> outbox, LongSupp
 		return settings.chainLimits().maxPayloadBytes();
 	}
 
+	/* The most bytes one Data message can carry within one entry of the largest class */
+	public int maxDataBytes() {
+		return maxPayloadBytes() - SealingCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD;
+	}
+
 	/* The payload of an entry of the smallest size class, which openings and answers fill */
 	int smallestPayloadBytes() {
 		return paddedPayloadBytes(0);

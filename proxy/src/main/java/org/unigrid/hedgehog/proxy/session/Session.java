@@ -137,7 +137,7 @@ public final class Session {
 
 	/* The most bytes one Data message can carry within one entry of the largest class */
 	public int maxDataBytes() {
-		return context.maxPayloadBytes() - SealingCipher.OVERHEAD - SealedCodec.DATA_OVERHEAD;
+		return context.maxDataBytes();
 	}
 
 	/* Whether the entry is the peer's and carries its next tag, which is the only one that opens */
