@@ -77,26 +77,14 @@ public final class Chain {
 			return Offer.of(refusal.get());
 		}
 
-		final WriterId writer = entry.header().writer();
-		final Feed feed = feeds.getOrDefault(writer, new Feed(writer));
-		final Link link = feed.check(entry);
+		final Feed feed = feedOf(entry.header().writer());
+		final Admission admission = decide(entry, feed, 0);
 
-		if (REFUSALS.containsKey(link)) {
-			return Offer.of(REFUSALS.get(link));
-		}
-
-		/* The signature is the dear check, so an entry the feed refuses never gets it, only one it takes or holds
-		   for a gap does. Entries a chain already has arrive over and over from the other members and from anyone
-		   who replays them. */
-		if (!entry.isAuthentic()) {
-			return Offer.of(Admission.NOT_AUTHENTIC);
-		}
-
-		if (link == Link.AHEAD) {
-			return hold(entry);
-		}
-
-		return isFullFor(entry) ? Offer.of(Admission.FULL) : Offer.accepted(append(feed, entry));
+		return switch (admission) {
+			case ACCEPTED -> Offer.accepted(append(feed, entry));
+			case AHEAD -> hold(entry);
+			default -> Offer.of(admission);
+		};
 	}
 
 	/* What offer would answer if pendingBytes more were in the chain, the signature checked as there, while the entry
@@ -104,17 +92,23 @@ public final class Chain {
 	   caller holds back that will come in later */
 	public synchronized Admission check(Entry entry, long pendingBytes) {
 		trim();
-		return refusal(entry).orElseGet(() -> checkLinked(entry, pendingBytes));
+		return refusal(entry).orElseGet(() -> decide(entry, feedOf(entry.header().writer()), pendingBytes));
 	}
 
-	private Admission checkLinked(Entry entry, long pendingBytes) {
-		final WriterId writer = entry.header().writer();
-		final Link link = feeds.getOrDefault(writer, new Feed(writer)).check(entry);
+	private Feed feedOf(WriterId writer) {
+		return feeds.getOrDefault(writer, new Feed(writer));
+	}
+
+	private Admission decide(Entry entry, Feed feed, long pendingBytes) {
+		final Link link = feed.check(entry);
 
 		if (REFUSALS.containsKey(link)) {
 			return REFUSALS.get(link);
 		}
 
+		/* The signature is the dear check, so an entry the feed refuses never gets it, only one it takes or holds
+		   for a gap does. Entries a chain already has arrive over and over from the other members and from anyone
+		   who replays them. */
 		if (!entry.isAuthentic()) {
 			return Admission.NOT_AUTHENTIC;
 		}
@@ -227,10 +221,6 @@ public final class Chain {
 
 	/* An entry of the smallest class, which openings and answers fill, may also take the reserve past the capacity,
 	   so that a chain full of larger entries still lets sessions open, answer and close */
-	private boolean isFullFor(Entry entry) {
-		return isFullFor(entry, 0);
-	}
-
 	private boolean isFullFor(Entry entry, long pendingBytes) {
 		return bytes + pendingBytes + entry.size()
 			> limits.capacityBytes() + (isLarger(entry) ? 0 : limits.reserveBytes());
@@ -245,10 +235,6 @@ public final class Chain {
 	}
 
 	private Offer hold(Entry entry) {
-		if (isFullToHold(entry, 0)) {
-			return Offer.of(Admission.FULL);
-		}
-
 		final NavigableMap<Long, Entry> waiting = held.computeIfAbsent(entry.header().writer(),
 			writer -> new TreeMap<>());
 
