@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.server.p2p;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
@@ -27,9 +31,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Expectations;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -39,6 +46,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.*;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
@@ -47,6 +55,7 @@ import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Dialed;
+import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
@@ -56,6 +65,9 @@ import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 @WeldSetup({ TestServer.class, TopologyThread.class })
 public class TopologyThreadTest extends BaseMockedWeldTest {
+	private static final long SHORT_WAIT = 50;
+	private static final String FAILED_ADDRESS = "203.0.113.9";
+
 	@Mocked private Network network;
 	@Mocked private NetOptions netOptions;
 	@Mocked private RestOptions restOptions;
@@ -299,6 +311,75 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 
 	private static Node at(String address) {
 		return Node.builder().address(new InetSocketAddress(address, 1)).build();
+	}
+
+	/* A round that fails ends no more than itself: the thread waits as usual and goes on with the next round, which
+	   is what keeps the node dialing, and the failure is logged by its class alone, as a message may name an
+	   address */
+	@Example
+	public void shouldGoOnWithTheNextRoundAfterARoundThatFailed() {
+		final AtomicInteger later = new AtomicInteger();
+		final AtomicBoolean failed = new AtomicBoolean();
+
+		new MockUp<TopologyThread>() {
+			@Mock
+			long reconnectionTime(Invocation invocation, long nodes) {
+				return Thread.currentThread() == topologyThread ? SHORT_WAIT : invocation.<Long>proceed();
+			}
+		};
+
+		new MockUp<TopologyThread.NodeConnectionHandler>() {
+			@Mock
+			public void accept(Node node) { }
+		};
+
+		/* The fakes of a try stay on for the rest of the class, so the upkeep that the threads of other tries run
+		   is left out rather than proceeded to: an Invocation that proceeds from the upkeep reaches its overload
+		   as well */
+		new MockUp<GridnodeAnnouncer>() {
+			@Mock
+			public void maintain() {
+				if (Thread.currentThread() == topologyThread && failed.getAndSet(true)) {
+					later.incrementAndGet();
+				} else if (Thread.currentThread() == topologyThread) {
+					throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
+				}
+			}
+		};
+
+		final List<ILoggingEvent> warnings = warningsWhile(() -> {
+			topologyThread.start();
+			await().until(later::get, greaterThanOrEqualTo(1));
+		});
+
+		topologyThread.exit();
+		await().until(() -> !topologyThread.isAlive());
+
+		final List<String> messages = warnings.stream().map(ILoggingEvent::getFormattedMessage).toList();
+
+		assertThat(messages, hasItem(containsString(IllegalStateException.class.getName())));
+		assertThat(messages, everyItem(not(containsString(FAILED_ADDRESS))));
+		assertThat(warnings.stream().map(ILoggingEvent::getThrowableProxy).toList(), everyItem(nullValue()));
+	}
+
+	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
+	private static List<ILoggingEvent> warningsWhile(Runnable action) {
+		TopologyThreadTest.class.getModule()
+			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
+
+		final Logger logger = (Logger) LoggerFactory.getLogger(TopologyThread.class);
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try {
+			action.run();
+		} finally {
+			logger.detachAppender(appender);
+		}
+
+		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
 	}
 
 	/* Anyone can tell a node of as many addresses as they like, so of the nodes that no operator configured it dials one

@@ -148,37 +148,58 @@ public class TopologyThread extends Thread {
 		return RemoteAddress.groupOf(node.getAddress());
 	}
 
+	/* A round that fails is logged by the class of the failure, as a message may name an address, and the thread waits
+	   as long as after the last round that went through before it goes on: an exception that escaped would end the
+	   thread for good, and with it the dialing, the seeds and the upkeep of the gridnodes. An Error is no failure to
+	   carry on from, so it passes, but not before a line in the log, as the thread would end with it unseen. */
 	@Override
 	public void run() {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
+			int known = 0;
+
 			while (run) {
-				/* If we have no connections, we try the seed nodes again! */
-				if (topology.isEmpty()) {
-					topology.repopulate();
+				try {
+					known = round(topology);
+				} catch (RuntimeException ex) {
+					log.atWarn().log("A round of the topology thread failed with {}",
+						ex.getClass().getName());
+				} catch (Error ex) {
+					log.atError().log("A round of the topology thread ended with {}",
+						ex.getClass().getName());
+					throw ex;
 				}
-
-				topology.addSeeds();
-
-				final Set<Node> configured = topology.cloneConfigured();
-
-				CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
-
-				/* Every node first, as one that said hello is handed to the round only while it has a slot
-				   to be dialed in */
-				topology.letGoOfClosedStreams();
-
-				final Set<Node> nodes = topology.cloneNodes();
-				inTurn(nodes, configured).forEach(new NodeConnectionHandler(topology, configured));
 
 				synchronized (lock) {
 					try {
-						lock.wait(reconnectionTime(nodes.size()));
+						lock.wait(reconnectionTime(known));
 					} catch (InterruptedException ex) {
 						return; /* At this point we know we are done and can just bail out */
 					}
 				}
 			}
 		});
+	}
+
+	private int round(Topology topology) {
+		/* If we have no connections, we try the seed nodes again! */
+		if (topology.isEmpty()) {
+			topology.repopulate();
+		}
+
+		topology.addSeeds();
+
+		final Set<Node> configured = topology.cloneConfigured();
+
+		CDIUtil.resolveAndRun(GridnodeAnnouncer.class, GridnodeAnnouncer::maintain);
+
+		/* Every node first, as one that said hello is handed to the round only while it has a slot
+		   to be dialed in */
+		topology.letGoOfClosedStreams();
+
+		final Set<Node> nodes = topology.cloneNodes();
+		inTurn(nodes, configured).forEach(new NodeConnectionHandler(topology, configured));
+
+		return nodes.size();
 	}
 
 	public void exit() {
