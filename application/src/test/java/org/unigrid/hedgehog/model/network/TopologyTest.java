@@ -22,7 +22,19 @@ import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import mockit.Expectations;
 import mockit.Mocked;
 import mockit.Verifications;
@@ -149,6 +161,72 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.findGridnode(own.getId()).isPresent(), is(true));
 		assertThat(topology.findGridnode(stale.getId()).isPresent(), is(false));
 		assertThat(topology.findGridnode(fresh.getId()).isPresent(), is(true));
+	}
+
+	private static final int OFFERING_THREADS = 4;
+	private static final int OFFERED_BY_EACH = 75;
+	private static final long TIMEOUT_SECONDS = 60;
+
+	/* A key pair takes a dozen tries to find, so each thread signs its own entries before the start: the signing then
+	   runs in parallel and stays out of the race */
+	private Callable<List<Gridnode>> signThenOffer(CyclicBarrier start) {
+		return () -> {
+			final List<Gridnode> entries = new ArrayList<>();
+
+			for (int i = 0; i < OFFERED_BY_EACH; i++) {
+				entries.add(signed(new Signature(), Gridnode.Status.ACTIVE, "10.0.0.1:1", NOW));
+			}
+
+			start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			return entries.stream().filter(gridnode -> topology.offerGridnode(gridnode, NOW)).toList();
+		};
+	}
+
+	/* Peers offer entries on several event loops at once while the topology thread purges and copies the set, so no
+	   offer may change the set under an iteration or lose an entry that another offer stored */
+	@Example
+	public void shouldHoldEveryEntryOfferedOnSeveralThreadsWhileTheSetIsPurgedAndCopied() throws Exception {
+		final ExecutorService threads = Executors.newFixedThreadPool(OFFERING_THREADS + 1);
+		final CyclicBarrier start = new CyclicBarrier(OFFERING_THREADS + 1);
+		final AtomicBoolean offering = new AtomicBoolean(true);
+		final List<Gridnode> taken = new ArrayList<>();
+
+		try {
+			final Future<Integer> purges = threads.submit(() -> {
+				int rounds = 0;
+
+				start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+				while (offering.get()) {
+					topology.purgeGridnodes(NOW, Optional.empty());
+					topology.cloneGridnode();
+					rounds++;
+				}
+
+				return rounds;
+			});
+
+			final List<Future<List<Gridnode>>> offers = IntStream.range(0, OFFERING_THREADS)
+				.mapToObj(i -> threads.submit(signThenOffer(start))).toList();
+
+			try {
+				for (Future<List<Gridnode>> offer : offers) {
+					taken.addAll(offer.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+				}
+			} finally {
+				offering.set(false);
+			}
+
+			assertThat(purges.get(TIMEOUT_SECONDS, TimeUnit.SECONDS), greaterThan(0));
+		} finally {
+			threads.shutdownNow();
+		}
+
+		final Set<String> held = topology.cloneGridnode().stream().map(Gridnode::getId).collect(Collectors.toSet());
+
+		assertThat(taken.size(), is(OFFERING_THREADS * OFFERED_BY_EACH));
+		assertThat(taken.stream().filter(gridnode -> held.contains(gridnode.getId())).count(),
+			is((long) OFFERING_THREADS * OFFERED_BY_EACH));
 	}
 
 	@Property(tries = 1)

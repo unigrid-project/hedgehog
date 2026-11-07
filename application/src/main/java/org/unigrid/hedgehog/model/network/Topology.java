@@ -30,9 +30,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import lombok.Cleanup;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.configuration2.sync.LockMode;
@@ -54,6 +56,10 @@ public class Topology {
 
 	private HashSet<Node> nodes;
 	private HashMap<String, Gridnode> gridnodes;
+
+	/* An offer reaches the gridnodes through calls on the topology itself, which the container does not intercept, so
+	   the gridnodes have a lock of their own instead of the one of the interceptor */
+	private final ReentrantReadWriteLock gridnodeLock = new ReentrantReadWriteLock();
 
 	/* The seeds and the nodes that the operator added over REST, which are dialed whatever peers tell */
 	private final Set<Node> configured = new HashSet<>();
@@ -241,8 +247,10 @@ public class Topology {
 	}
 
 	/* The newer-than check is repeated under the lock, as the stored entry may have changed during verification */
-	@Protected @Lock(LockMode.WRITE)
 	public boolean storeVerified(Gridnode gridnode) {
+		@Cleanup("unlock") final ReentrantReadWriteLock.WriteLock writeLock = gridnodeLock.writeLock();
+
+		writeLock.lock();
 		final Optional<Gridnode> stored = Optional.ofNullable(gridnodes.get(gridnode.getId()));
 
 		if (isNewer(gridnode, stored) && (stored.isPresent() || gridnodes.size() < MAX_GRIDNODES)) {
@@ -257,19 +265,25 @@ public class Topology {
 		return stored.map(held -> gridnode.getTimestamp() > held.getTimestamp()).orElse(true);
 	}
 
-	@Protected @Lock(LockMode.READ)
 	public Optional<Gridnode> findGridnode(String id) {
+		@Cleanup("unlock") final ReentrantReadWriteLock.ReadLock readLock = gridnodeLock.readLock();
+
+		readLock.lock();
 		return Optional.ofNullable(gridnodes.get(id));
 	}
 
-	@Protected @Lock(LockMode.WRITE)
 	public void purgeGridnodes(long nowMillis, Optional<String> keep) {
+		@Cleanup("unlock") final ReentrantReadWriteLock.WriteLock writeLock = gridnodeLock.writeLock();
+
+		writeLock.lock();
 		gridnodes.values().removeIf(gridnode -> GridnodeSignature.isExpired(gridnode, nowMillis)
 			&& !keep.equals(Optional.of(gridnode.getId())));
 	}
 
-	@Protected @Lock(LockMode.READ)
 	public Set<Gridnode> cloneGridnode() {
+		@Cleanup("unlock") final ReentrantReadWriteLock.ReadLock readLock = gridnodeLock.readLock();
+
+		readLock.lock();
 		return new HashSet<>(gridnodes.values());
 	}
 }
