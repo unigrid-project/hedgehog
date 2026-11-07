@@ -55,6 +55,7 @@ import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.command.option.NetOptions;
 import org.unigrid.hedgehog.command.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.jqwik.FailsTopologyRounds;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.Connection;
@@ -381,6 +382,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	   is what keeps the node dialing, and the failure is logged by its class alone, as a message may name an
 	   address */
 	@Example
+	@FailsTopologyRounds
 	public void shouldGoOnWithTheNextRoundAfterARoundThatFailed() {
 		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
 			throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
@@ -396,6 +398,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	/* Netty rethrows the cause of a failed future as it is, checked or not, as the QuicException of a stream that a
 	   peer at its limit refuses, so a round that fails with a checked exception ends no more than itself either */
 	@Example
+	@FailsTopologyRounds
 	public void shouldGoOnWithTheNextRoundAfterARoundThatFailedWithACheckedException() {
 		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
 			throw new IOException("No stream to " + FAILED_ADDRESS);

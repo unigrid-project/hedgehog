@@ -30,6 +30,7 @@ import org.unigrid.hedgehog.model.ApplicationDirectoryMockUp;
 @Domain(DomainContext.Global.class)
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = WeldHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
+@AddLifecycleHook(value = TopologyRoundsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class BaseMockedWeldTest {
 	@BeforeContainer
