@@ -186,12 +186,14 @@ public class TopologyThread extends Thread {
 	}
 
 	/* An interrupt in a round ends the thread as one in its wait does, so the flag that the throw cleared is set again
-	   for the wait to see */
+	   for the wait to see. The trace of a failure goes to the debug level, where one that recurs can be found, as
+	   the warning names its class alone. */
 	private static void failed(Exception ex) {
 		if (ex instanceof InterruptedException) {
 			Thread.currentThread().interrupt();
 		} else {
 			log.atWarn().log("A round of the topology thread failed with {}", ex.getClass().getName());
+			log.atDebug().setCause(ex).log("A round of the topology thread failed");
 		}
 	}
 

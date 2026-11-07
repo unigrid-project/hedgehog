@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.server.p2p;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -31,6 +32,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -363,36 +365,40 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		return rounds;
 	}
 
-	/* What the thread under test warns about over two rounds, the first of which fails as the given call does */
-	private List<ILoggingEvent> warningsOfTwoRoundsFailingFirst(Callable<?> failure) {
+	/* What the thread under test logs over two rounds, the first of which fails as the given call does */
+	private List<ILoggingEvent> loggedOverTwoRoundsFailingFirst(Callable<?> failure) {
 		quickRounds();
 
 		final AtomicInteger rounds = roundsFailingFirst(failure);
-		final List<ILoggingEvent> warnings = warningsWhile(() -> {
+		final List<ILoggingEvent> logged = loggedWhile(() -> {
 			topologyThread.start();
 			await().until(rounds::get, greaterThanOrEqualTo(2));
 		});
 
 		topologyThread.exit();
 		await().until(() -> !topologyThread.isAlive());
-		return warnings;
+		return logged;
 	}
 
 	/* A round that fails ends no more than itself: the thread waits as usual and goes on with the next round, which
-	   is what keeps the node dialing, and the failure is logged by its class alone, as a message may name an
-	   address */
+	   is what keeps the node dialing. The warning names the class of the failure alone, as a message may name an
+	   address, and its trace is logged at debug level, where a failure that recurs can be found */
 	@Example
 	@FailsTopologyRounds
 	public void shouldGoOnWithTheNextRoundAfterARoundThatFailed() {
-		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
+		final List<ILoggingEvent> logged = loggedOverTwoRoundsFailingFirst(() -> {
 			throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
 		});
 
+		final List<ILoggingEvent> warnings = warnings(logged);
 		final List<String> messages = warnings.stream().map(ILoggingEvent::getFormattedMessage).toList();
 
 		assertThat(messages, hasItem(containsString(IllegalStateException.class.getName())));
 		assertThat(messages, everyItem(not(containsString(FAILED_ADDRESS))));
 		assertThat(warnings.stream().map(ILoggingEvent::getThrowableProxy).toList(), everyItem(nullValue()));
+		assertThat(logged.stream().filter(event -> event.getLevel() == Level.DEBUG)
+			.map(ILoggingEvent::getThrowableProxy).filter(Objects::nonNull).map(IThrowableProxy::getClassName).toList(),
+			hasItem(IllegalStateException.class.getName()));
 	}
 
 	/* Netty rethrows the cause of a failed future as it is, checked or not, as the QuicException of a stream that a
@@ -400,11 +406,11 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	@Example
 	@FailsTopologyRounds
 	public void shouldGoOnWithTheNextRoundAfterARoundThatFailedWithACheckedException() {
-		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
+		final List<ILoggingEvent> logged = loggedOverTwoRoundsFailingFirst(() -> {
 			throw new IOException("No stream to " + FAILED_ADDRESS);
 		});
 
-		assertThat(warnings.stream().map(ILoggingEvent::getFormattedMessage).toList(),
+		assertThat(warnings(logged).stream().map(ILoggingEvent::getFormattedMessage).toList(),
 			hasItem(containsString(IOException.class.getName())));
 	}
 
@@ -439,7 +445,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 	}
 
 	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
-	private static List<ILoggingEvent> warningsWhile(Runnable action) {
+	private static List<ILoggingEvent> loggedWhile(Runnable action) {
 		TopologyThreadTest.class.getModule()
 			.addReads(ModuleLayer.boot().findModule("ch.qos.logback.core").orElseThrow());
 
@@ -455,7 +461,14 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 			logger.detachAppender(appender);
 		}
 
-		return appender.list.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
+		/* The appender takes events under its own lock, which the thread under test may still hold */
+		synchronized (appender) {
+			return List.copyOf(appender.list);
+		}
+	}
+
+	private static List<ILoggingEvent> warnings(List<ILoggingEvent> logged) {
+		return logged.stream().filter(event -> event.getLevel().isGreaterOrEqual(Level.WARN)).toList();
 	}
 
 	/* Anyone can tell a node of as many addresses as they like, so of the nodes that no operator configured it dials one
