@@ -150,8 +150,10 @@ public class TopologyThread extends Thread {
 
 	/* A round that fails is logged by the class of the failure, as a message may name an address, and the thread waits
 	   as long as after the last round that went through before it goes on: an exception that escaped would end the
-	   thread for good, and with it the dialing, the seeds and the upkeep of the gridnodes. An Error is no failure to
-	   carry on from, so it passes, but not before a line in the log, as the thread would end with it unseen. */
+	   thread for good, and with it the dialing, the seeds and the upkeep of the gridnodes. Netty rethrows the cause of
+	   a failed future as it is, so a round fails with a checked exception as well, as when a peer at its limit refuses
+	   a stream. An Error is no failure to carry on from, so it passes, but not before a line in the log, as the thread
+	   would end with it unseen. */
 	@Override
 	public void run() {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
@@ -160,9 +162,8 @@ public class TopologyThread extends Thread {
 			while (run) {
 				try {
 					known = round(topology);
-				} catch (RuntimeException ex) {
-					log.atWarn().log("A round of the topology thread failed with {}",
-						ex.getClass().getName());
+				} catch (Exception ex) {
+					failed(ex);
 				} catch (Error ex) {
 					log.atError().log("A round of the topology thread ended with {}",
 						ex.getClass().getName());
@@ -178,6 +179,16 @@ public class TopologyThread extends Thread {
 				}
 			}
 		});
+	}
+
+	/* An interrupt in a round ends the thread as one in its wait does, so the flag that the throw cleared is set again
+	   for the wait to see */
+	private static void failed(Exception ex) {
+		if (ex instanceof InterruptedException) {
+			Thread.currentThread().interrupt();
+		} else {
+			log.atWarn().log("A round of the topology thread failed with {}", ex.getClass().getName());
+		}
 	}
 
 	private int round(Topology topology) {

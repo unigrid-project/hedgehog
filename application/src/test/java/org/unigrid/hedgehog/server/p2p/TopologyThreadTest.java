@@ -25,13 +25,16 @@ import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
@@ -42,6 +45,7 @@ import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.*;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -66,7 +70,9 @@ import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 @WeldSetup({ TestServer.class, TopologyThread.class })
 public class TopologyThreadTest extends BaseMockedWeldTest {
 	private static final long SHORT_WAIT = 50;
+	private static final Duration STOP_WAIT = Duration.ofSeconds(10);
 	private static final String FAILED_ADDRESS = "203.0.113.9";
+	private static final Set<Thread> QUICK = ConcurrentHashMap.newKeySet();
 
 	@Mocked private Network network;
 	@Mocked private NetOptions netOptions;
@@ -313,53 +319,105 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		return Node.builder().address(new InetSocketAddress(address, 1)).build();
 	}
 
+	/* The fakes of a try stay on for the rest of the class, so one fake serves every try and leaves the threads that
+	   were not asked to it alone: an Invocation that proceeds from a fake that a later try applied again reaches that
+	   fake once more, without end */
+	@BeforeContainer
+	private static void quickRoundsWhereAsked() {
+		new MockUp<TopologyThread>() {
+			@Mock
+			long reconnectionTime(Invocation invocation, long nodes) {
+				return QUICK.contains(Thread.currentThread()) ? SHORT_WAIT : invocation.<Long>proceed();
+			}
+
+			@Mock
+			List<Node> inTurn(Invocation invocation, Set<Node> nodes, Set<Node> configured) {
+				return QUICK.contains(Thread.currentThread()) ? List.of() : invocation.proceed();
+			}
+		};
+	}
+
+	/* The rounds of the thread under test dial no one, as the topology holds the nodes of other tries, and follow each
+	   other at once */
+	private void quickRounds() {
+		QUICK.add(topologyThread);
+	}
+
+	/* The rounds of the thread under test are counted by the upkeep, where the first of them fails as the given call
+	   does. The upkeep that the threads of other tries run is left out rather than proceeded to: an Invocation that
+	   proceeds from the upkeep reaches its overload as well */
+	private AtomicInteger roundsFailingFirst(Callable<?> failure) {
+		final AtomicInteger rounds = new AtomicInteger();
+
+		new MockUp<GridnodeAnnouncer>() {
+			@Mock
+			@SneakyThrows
+			public void maintain() {
+				if (Thread.currentThread() == topologyThread && rounds.getAndIncrement() == 0) {
+					failure.call();
+				}
+			}
+		};
+
+		return rounds;
+	}
+
+	/* What the thread under test warns about over two rounds, the first of which fails as the given call does */
+	private List<ILoggingEvent> warningsOfTwoRoundsFailingFirst(Callable<?> failure) {
+		quickRounds();
+
+		final AtomicInteger rounds = roundsFailingFirst(failure);
+		final List<ILoggingEvent> warnings = warningsWhile(() -> {
+			topologyThread.start();
+			await().until(rounds::get, greaterThanOrEqualTo(2));
+		});
+
+		topologyThread.exit();
+		await().until(() -> !topologyThread.isAlive());
+		return warnings;
+	}
+
 	/* A round that fails ends no more than itself: the thread waits as usual and goes on with the next round, which
 	   is what keeps the node dialing, and the failure is logged by its class alone, as a message may name an
 	   address */
 	@Example
 	public void shouldGoOnWithTheNextRoundAfterARoundThatFailed() {
-		final AtomicInteger later = new AtomicInteger();
-		final AtomicBoolean failed = new AtomicBoolean();
-
-		new MockUp<TopologyThread>() {
-			@Mock
-			long reconnectionTime(Invocation invocation, long nodes) {
-				return Thread.currentThread() == topologyThread ? SHORT_WAIT : invocation.<Long>proceed();
-			}
-		};
-
-		new MockUp<TopologyThread.NodeConnectionHandler>() {
-			@Mock
-			public void accept(Node node) { }
-		};
-
-		/* The fakes of a try stay on for the rest of the class, so the upkeep that the threads of other tries run
-		   is left out rather than proceeded to: an Invocation that proceeds from the upkeep reaches its overload
-		   as well */
-		new MockUp<GridnodeAnnouncer>() {
-			@Mock
-			public void maintain() {
-				if (Thread.currentThread() == topologyThread && failed.getAndSet(true)) {
-					later.incrementAndGet();
-				} else if (Thread.currentThread() == topologyThread) {
-					throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
-				}
-			}
-		};
-
-		final List<ILoggingEvent> warnings = warningsWhile(() -> {
-			topologyThread.start();
-			await().until(later::get, greaterThanOrEqualTo(1));
+		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
+			throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
 		});
-
-		topologyThread.exit();
-		await().until(() -> !topologyThread.isAlive());
 
 		final List<String> messages = warnings.stream().map(ILoggingEvent::getFormattedMessage).toList();
 
 		assertThat(messages, hasItem(containsString(IllegalStateException.class.getName())));
 		assertThat(messages, everyItem(not(containsString(FAILED_ADDRESS))));
 		assertThat(warnings.stream().map(ILoggingEvent::getThrowableProxy).toList(), everyItem(nullValue()));
+	}
+
+	/* Netty rethrows the cause of a failed future as it is, checked or not, as the QuicException of a stream that a
+	   peer at its limit refuses, so a round that fails with a checked exception ends no more than itself either */
+	@Example
+	public void shouldGoOnWithTheNextRoundAfterARoundThatFailedWithACheckedException() {
+		final List<ILoggingEvent> warnings = warningsOfTwoRoundsFailingFirst(() -> {
+			throw new IOException("No stream to " + FAILED_ADDRESS);
+		});
+
+		assertThat(warnings.stream().map(ILoggingEvent::getFormattedMessage).toList(),
+			hasItem(containsString(IOException.class.getName())));
+	}
+
+	/* An interrupt in a round ends the thread, as one in its wait does */
+	@Example
+	@SneakyThrows
+	public void shouldEndAfterARoundThatWasInterrupted() {
+		quickRounds();
+
+		final AtomicInteger rounds = roundsFailingFirst(() -> {
+			throw new InterruptedException();
+		});
+
+		topologyThread.start();
+		assertThat(topologyThread.join(STOP_WAIT), is(true));
+		assertThat(rounds.get(), is(1));
 	}
 
 	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
