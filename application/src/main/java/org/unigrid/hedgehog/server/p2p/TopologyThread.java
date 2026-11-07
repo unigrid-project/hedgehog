@@ -170,9 +170,13 @@ public class TopologyThread extends Thread {
 					throw ex;
 				}
 
+				/* An exit while the round ran notified no one, so the flag is read again under the
+				   lock before the wait */
 				synchronized (lock) {
 					try {
-						lock.wait(reconnectionTime(known));
+						if (run) {
+							lock.wait(reconnectionTime(known));
+						}
 					} catch (InterruptedException ex) {
 						return; /* At this point we know we are done and can just bail out */
 					}

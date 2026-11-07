@@ -423,6 +423,21 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(rounds.get(), is(1));
 	}
 
+	/* A node that stops while a round runs, as its container shuts down, can fail that round, and the thread ends at
+	   once rather than after the wait that follows it */
+	@Example
+	@FailsTopologyRounds
+	@SneakyThrows
+	public void shouldEndAtOnceAfterARoundThatFailedOnceTheThreadWasToldToExit() {
+		roundsFailingFirst(() -> {
+			topologyThread.exit();
+			throw new IllegalStateException("No answer from " + FAILED_ADDRESS);
+		});
+
+		topologyThread.start();
+		assertThat(topologyThread.join(STOP_WAIT), is(true));
+	}
+
 	/* The module descriptor reads logback-classic only, so the in-memory appender of logback-core is out of reach */
 	private static List<ILoggingEvent> warningsWhile(Runnable action) {
 		TopologyThreadTest.class.getModule()
