@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -30,7 +31,6 @@ import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
-import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.TestServer;
@@ -47,34 +47,50 @@ public class PingScheduleTest extends BaseScheduleTest<PingSchedule, Ping, Void>
 	@Property(tries = 5)
 	public void shoulBeAbleToSchedulePing(@ForAll("provideTestServers") List<TestServer> servers) throws Exception {
 		final AtomicInteger invocations = new AtomicInteger();
-		final List<Connection> connections = new ArrayList<>();
-
-		for (TestServer server : servers) {
-			final String host = server.getP2p().getHostName();
-			final int port = server.getP2p().getPort();
-
-			connections.add(new P2PClient(host, port));
-		}
-
-		final long start = System.nanoTime();
+		final AtomicBoolean counting = new AtomicBoolean();
+		final List<P2PClient> clients = new ArrayList<>();
 
 		setScheduleCallback(Optional.of(channel -> {
+			/* A period of 75 ms leaves a peer a few hundred milliseconds to answer before its connection is closed,
+			   which a busy machine misses; the closing is left to MissedPingsTest */
+			channel.attr(Ping.MISSED_PINGS_KEY).set(0);
+
 			/* Only count scheduling in one directon */
-			if (RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
+			if (counting.get() && RegisterQuicChannelInitializer.Type.CLIENT.is(channel)) {
 				invocations.incrementAndGet();
 			}
 		}));
 
-		await().atMost(PATIENCE).untilAtomic(invocations, greaterThanOrEqualTo(ROUNDS * servers.size()));
-		final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+		try {
+			for (TestServer server : servers) {
+				final String host = server.getP2p().getHostName();
+				final int port = server.getP2p().getPort();
 
-		setScheduleCallback(Optional.empty());
+				clients.add(new P2PClient(host, port));
+			}
 
-		for (Connection connection : connections) {
-			connection.close();
+			final long start = System.nanoTime();
+			counting.set(true);
+
+			await().atMost(PATIENCE).failFast("A connection closed while the pings were counted",
+				() -> clients.stream().anyMatch(client -> !client.getChannel().isActive()))
+				.untilAtomic(invocations, greaterThanOrEqualTo(ROUNDS * servers.size()));
+
+			final long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+
+			/* Half, because the fixed-rate schedule can make up a run delayed by a busy machine right after the count
+			   starts */
+			assertThat(elapsedMillis, greaterThanOrEqualTo((long) ROUNDS / 2 * PERIOD_MS));
+		} finally {
+			close(clients);
 		}
+	}
 
-		/* Half, because the fixed-rate schedule can make up a run delayed by a busy machine right after the count starts */
-		assertThat(elapsedMillis, greaterThanOrEqualTo((long) ROUNDS / 2 * PERIOD_MS));
+	/* Together, as each client waits out the quiet period of its event loop, and without waiting on its stream, whose
+	   shutdown fails once it died with its connection and would hide why the property failed */
+	private void close(List<P2PClient> clients) {
+		clients.forEach(P2PClient::closeDirty);
+		clients.forEach(client -> client.getGroup().ifPresent(group -> group.terminationFuture().awaitUninterruptibly()));
+		setScheduleCallback(Optional.empty());
 	}
 }

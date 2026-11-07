@@ -34,7 +34,7 @@ import org.unigrid.hedgehog.jqwik.MockOn;
 import org.unigrid.hedgehog.model.network.Packet;
 
 public class BaseScheduleTest<S extends Schedulable, T extends Packet, H> extends BaseHandlerTest<T, H> {
-	@Getter @Setter private Optional<Consumer<Channel>> scheduleCallback = Optional.empty();
+	@Getter @Setter private volatile Optional<Consumer<Channel>> scheduleCallback = Optional.empty();
 	private final Class<S> scheduleType;
 	private final int period;
 	private TimeUnit timeUnit;
@@ -73,9 +73,7 @@ public class BaseScheduleTest<S extends Schedulable, T extends Packet, H> extend
 				return channel -> {
 					originalConsumer.accept(channel);
 					
-					if (scheduleCallback.isPresent()) {
-						scheduleCallback.get().accept(channel);
-					}
+					scheduleCallback.ifPresent(callback -> callback.accept(channel));
 				};
 			}
 		};
