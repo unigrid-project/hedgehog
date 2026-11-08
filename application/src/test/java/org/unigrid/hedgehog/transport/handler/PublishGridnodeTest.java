@@ -18,7 +18,7 @@
 
 package org.unigrid.hedgehog.transport.handler;
 
-import jakarta.enterprise.inject.spi.CDI;
+import jakarta.inject.Inject;
 import java.util.List;
 import mockit.Mocked;
 import net.jqwik.api.ForAll;
@@ -38,11 +38,8 @@ import org.unigrid.hedgehog.transport.schedule.PublishGridnodeSchedule;
 import org.unigrid.hedgehog.server.TestServer;
 
 public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, PublishGridnodeChannelHandler> {
-	/* The servers resolve their topology through CDI.current(), so the test reads that one rather than an injected
-	   field, whose container depends on the order the fields are injected in */
-	private static Topology topology() {
-		return CDI.current().select(Topology.class).get();
-	}
+	@Inject
+	private Topology topology;
 
 	public PublishGridnodeTest() {
 		super(PublishGridnodeChannelHandler.class);
@@ -62,8 +59,8 @@ public class PublishGridnodeTest extends BaseHandlerTest<PublishGridnode, Publis
 
 			connection.send(PublishGridnode.builder().gridnode(entry).build());
 
-			await().until(() -> topology().findGridnode(entry.getId()).isPresent());
-			assertThat(topology().findGridnode(entry.getId()).get().getSignature(), is(entry.getSignature()));
+			await().until(() -> topology.findGridnode(entry.getId()).isPresent());
+			assertThat(topology.findGridnode(entry.getId()).get().getSignature(), is(entry.getSignature()));
 			connection.closeDirty();
 		}
 	}
