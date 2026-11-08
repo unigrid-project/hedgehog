@@ -16,22 +16,26 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.option;
 
 import java.nio.file.Path;
-import lombok.Getter;
+import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
-public class GridnodeOptions {
+public class SnapshotOptions {
+	public static final String SNAPSHOT_FILE = "bootstrap.dat";
 
-	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT, hidden = true,
-		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
+	@Option(names = { "-s", "--snapshot" }, scope = CommandLine.ScopeType.INHERIT,
+		description = "Converted bootstrap file (defaults to " + SNAPSHOT_FILE + " in the data directory)."
 	)
-	private static Path gridnodeKeyFile;
+	private static Path snapshot;
 
-	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT, hidden = true,
-		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
-	)
-	private static String announceAddress;
+	public static Path getSnapshot() {
+		return snapshot != null ? snapshot : defaultSnapshot();
+	}
+
+	public static Path defaultSnapshot() {
+		return ApplicationDirectory.create().getUserDataDir().resolve(SNAPSHOT_FILE);
+	}
 }

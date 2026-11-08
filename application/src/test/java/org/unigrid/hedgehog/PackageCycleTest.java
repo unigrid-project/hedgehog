@@ -42,6 +42,13 @@ public class PackageCycleTest {
 		slices().matching("(**)").should().beFreeOfCycles().check(production());
 	}
 
+	/* The command line sits on top of the model, which reads its settings from the option classes beside it */
+	@Example
+	public void shouldKeepTheModelFreeOfTheCommandLine() throws Exception {
+		noClasses().that().resideInAPackage("..model..").should().dependOnClassesThat()
+			.resideInAPackage("..command..").check(production());
+	}
+
 	/* The handlers, the schedules and the resources call the ledger service, which is the part of the node that
 	   knows nothing of them: whatever they share belongs with them or below the service, not in it */
 	@Example

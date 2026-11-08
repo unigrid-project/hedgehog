@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Objects;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;

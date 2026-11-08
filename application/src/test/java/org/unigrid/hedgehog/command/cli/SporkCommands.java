@@ -39,7 +39,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;

@@ -27,7 +27,7 @@ import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.LedgerOptions;
+import org.unigrid.hedgehog.model.option.LedgerOptions;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;

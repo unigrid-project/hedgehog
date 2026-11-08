@@ -22,10 +22,10 @@ import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.LedgerOptions;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
-import org.unigrid.hedgehog.command.option.SocksOptions;
+import org.unigrid.hedgehog.model.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.option.LedgerOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.SocksOptions;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PreviewSetup {

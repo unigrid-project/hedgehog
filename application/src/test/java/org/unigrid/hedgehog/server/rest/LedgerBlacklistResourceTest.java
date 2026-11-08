@@ -31,7 +31,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;

@@ -34,7 +34,7 @@ import lombok.AccessLevel;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.S3Options;
+import org.unigrid.hedgehog.model.option.S3Options;
 import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.cdi.Preview;
 import org.unigrid.hedgehog.s3.cache.CachingBlobStore;

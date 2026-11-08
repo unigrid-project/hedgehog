@@ -31,7 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
 
 /* A bean of the preview is not vetoed, as others inject it: without --preview it is only not started, and so is
    created by its first use, if any */

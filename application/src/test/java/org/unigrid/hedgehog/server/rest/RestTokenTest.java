@@ -38,7 +38,7 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.NumericChars;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.constraints.Whitespace;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 
 public class RestTokenTest extends BaseMockedWeldTest {

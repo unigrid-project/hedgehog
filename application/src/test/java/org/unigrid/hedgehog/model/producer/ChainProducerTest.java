@@ -45,7 +45,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.Node;

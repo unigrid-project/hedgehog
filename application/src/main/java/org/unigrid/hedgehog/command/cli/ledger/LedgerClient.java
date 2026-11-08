@@ -35,7 +35,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.ledger.Digests;
 import org.unigrid.hedgehog.ledger.LedgerDriver;

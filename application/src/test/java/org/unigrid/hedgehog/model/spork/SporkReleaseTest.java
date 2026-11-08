@@ -30,7 +30,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 

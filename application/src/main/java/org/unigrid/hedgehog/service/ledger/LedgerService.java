@@ -41,7 +41,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.LedgerOptions;
+import org.unigrid.hedgehog.model.option.LedgerOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Address;

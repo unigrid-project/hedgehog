@@ -18,7 +18,7 @@
 
 package org.unigrid.hedgehog.command;
 
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.command.util.BoardKeysCommand;
 import org.unigrid.hedgehog.command.util.KeyGenerate;
 import org.unigrid.hedgehog.command.util.KeySign;

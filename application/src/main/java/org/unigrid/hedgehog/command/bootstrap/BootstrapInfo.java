@@ -21,7 +21,7 @@ package org.unigrid.hedgehog.command.bootstrap;
 import java.io.IOException;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import picocli.CommandLine.Command;

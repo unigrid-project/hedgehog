@@ -32,7 +32,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)

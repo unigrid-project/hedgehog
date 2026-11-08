@@ -34,7 +34,7 @@ import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.JsonConfiguration;

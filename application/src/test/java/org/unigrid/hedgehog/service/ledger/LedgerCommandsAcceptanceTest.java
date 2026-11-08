@@ -56,7 +56,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.service.ledger.LedgerFleet.COIN;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.ledger.Claim;

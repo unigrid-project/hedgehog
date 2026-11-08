@@ -29,7 +29,7 @@ import mockit.MockUp;
 import org.objenesis.Objenesis;
 import org.objenesis.ObjenesisStd;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class BootstrapCli {

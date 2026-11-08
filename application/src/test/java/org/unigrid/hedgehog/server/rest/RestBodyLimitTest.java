@@ -49,7 +49,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 
 /* The container queues whatever a client sends before a resource reads it, so what a request may hold is bounded
    where it arrives, on a real server, and not by the resource that reads it */

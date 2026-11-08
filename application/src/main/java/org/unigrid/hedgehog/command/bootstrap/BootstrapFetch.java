@@ -27,7 +27,7 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
 import picocli.CommandLine.Command;

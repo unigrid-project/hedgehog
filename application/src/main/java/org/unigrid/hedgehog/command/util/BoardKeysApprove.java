@@ -28,7 +28,7 @@ import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import org.apache.commons.codec.binary.Hex;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.crypto.SigningException;

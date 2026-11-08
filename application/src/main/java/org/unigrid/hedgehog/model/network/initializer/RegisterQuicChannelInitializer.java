@@ -29,7 +29,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;

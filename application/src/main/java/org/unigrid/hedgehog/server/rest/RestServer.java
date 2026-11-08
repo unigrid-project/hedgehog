@@ -50,7 +50,7 @@ import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonP
 import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.spi.Container;
 import org.glassfish.jersey.server.validation.ValidationFeature;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.util.Reflection;

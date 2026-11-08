@@ -25,7 +25,7 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayContaining;
 import static org.hamcrest.Matchers.is;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)

@@ -19,7 +19,7 @@
 package org.unigrid.hedgehog.command.cli.spork;
 
 import lombok.Getter;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;

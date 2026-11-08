@@ -31,7 +31,7 @@ import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;

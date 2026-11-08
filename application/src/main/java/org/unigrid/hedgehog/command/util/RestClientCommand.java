@@ -40,7 +40,7 @@ import lombok.Setter;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.model.util.TerminalText;
 import org.unigrid.hedgehog.server.rest.RestToken;
 import picocli.CommandLine.IExitCodeGenerator;

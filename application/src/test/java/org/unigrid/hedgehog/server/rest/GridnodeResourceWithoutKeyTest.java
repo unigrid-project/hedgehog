@@ -27,8 +27,8 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 
 public class GridnodeResourceWithoutKeyTest extends BaseRestClientTest {
 	@Mocked private GridnodeOptions gridnodeOptions;

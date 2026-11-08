@@ -22,7 +22,7 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import picocli.CommandLine.Command;

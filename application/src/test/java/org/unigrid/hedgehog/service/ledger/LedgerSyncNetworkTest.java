@@ -46,7 +46,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.jqwik.NamedCDIProvider;
 import org.unigrid.hedgehog.ledger.Block;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;

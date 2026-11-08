@@ -50,7 +50,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;

@@ -45,7 +45,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 
 @Data
 @Slf4j

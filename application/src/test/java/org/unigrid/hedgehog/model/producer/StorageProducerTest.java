@@ -42,7 +42,7 @@ import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;

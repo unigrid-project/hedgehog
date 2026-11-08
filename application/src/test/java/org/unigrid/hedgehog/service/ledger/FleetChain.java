@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.ledger.Ed25519;
 import org.unigrid.hedgehog.ledger.LedgerGenesis;

@@ -31,7 +31,7 @@ import org.unigrid.hedgehog.client.rest.SporkClient;
 import org.unigrid.hedgehog.client.rest.UntrustedSporkException;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.cli.spork.SporkProposal;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.SigningException;

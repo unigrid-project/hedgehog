@@ -29,13 +29,13 @@ import net.jqwik.api.lifecycle.AroundTryHook;
 import net.jqwik.api.lifecycle.TryExecutionResult;
 import net.jqwik.api.lifecycle.TryExecutor;
 import net.jqwik.api.lifecycle.TryLifecycleContext;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.LedgerOptions;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
-import org.unigrid.hedgehog.command.option.S3Options;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.option.LedgerOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
+import org.unigrid.hedgehog.model.option.S3Options;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import picocli.CommandLine.Option;
 
 /*

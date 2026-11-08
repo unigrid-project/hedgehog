@@ -27,7 +27,7 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.Network;
 import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;

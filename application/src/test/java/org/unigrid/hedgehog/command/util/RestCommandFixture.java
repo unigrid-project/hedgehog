@@ -49,7 +49,7 @@ import mockit.MockUp;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
 import org.unigrid.hedgehog.server.rest.RestToken;
 

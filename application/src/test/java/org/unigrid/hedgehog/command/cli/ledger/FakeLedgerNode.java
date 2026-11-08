@@ -34,7 +34,7 @@ import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import org.unigrid.hedgehog.client.rest.RestClient;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.ledger.Transaction;

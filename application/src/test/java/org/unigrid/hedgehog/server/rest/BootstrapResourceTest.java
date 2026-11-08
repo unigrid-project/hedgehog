@@ -35,7 +35,7 @@ import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;

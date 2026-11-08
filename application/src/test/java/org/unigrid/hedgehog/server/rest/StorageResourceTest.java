@@ -97,7 +97,7 @@ import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.command.cli.StoragePut;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.network.packet.FragmentReply;
 import org.unigrid.hedgehog.model.network.packet.FragmentStatus;

@@ -406,7 +406,7 @@
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.ledger=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.cli.spork=info.picocli
-						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.option=info.picocli
+						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.model.option=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.command.util=info.picocli
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=ALL-UNNAMED
 						--add-opens org.unigrid.hedgehog/org.unigrid.hedgehog.jqwik=weld.core.impl

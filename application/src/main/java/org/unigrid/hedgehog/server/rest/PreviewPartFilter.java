@@ -26,7 +26,7 @@ import jakarta.ws.rs.container.ContainerRequestFilter;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
 
 /* The endpoints of a part that this release leaves off stay, so that a client is told why the node does not serve
    them, rather than that there are none. The filter runs once the token is checked and the resource is matched, and

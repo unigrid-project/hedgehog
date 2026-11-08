@@ -27,7 +27,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.SocksOptions;
+import org.unigrid.hedgehog.model.option.SocksOptions;
 import org.unigrid.hedgehog.model.geo.CountryLookup;
 import org.unigrid.hedgehog.model.geo.MmdbCountryLookup;
 import org.unigrid.hedgehog.model.network.PendingRequests;

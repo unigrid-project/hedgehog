@@ -57,7 +57,7 @@ import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.bloc
 import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.errorBody;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;

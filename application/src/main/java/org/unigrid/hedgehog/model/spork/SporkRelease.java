@@ -24,7 +24,7 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 
 /* The spork types that this node takes. Those of the parts this release leaves off are taken only by a node run with

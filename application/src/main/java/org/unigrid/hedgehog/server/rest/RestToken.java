@@ -30,7 +30,7 @@ import java.util.Optional;
 import java.util.function.Predicate;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)

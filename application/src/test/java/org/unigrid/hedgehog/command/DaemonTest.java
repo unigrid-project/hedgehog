@@ -58,7 +58,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.jqwik.MockitHook;

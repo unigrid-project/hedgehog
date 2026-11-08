@@ -19,9 +19,9 @@
 package org.unigrid.hedgehog.model;
 
 import java.util.Arrays;
-import org.unigrid.hedgehog.command.option.LedgerOptions;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.PreviewOptions;
+import org.unigrid.hedgehog.model.option.LedgerOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
+import org.unigrid.hedgehog.model.option.PreviewOptions;
 
 public class Network {
 	/* The ledger protocol is offered first: a node that knows it settles on it with another that does, and a node that

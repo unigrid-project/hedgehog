@@ -20,7 +20,7 @@ package org.unigrid.hedgehog.command.cli.ledger;
 
 import java.util.HexFormat;
 import java.util.Optional;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.ledger.Digests;
 import picocli.CommandLine.Model.CommandSpec;

@@ -37,7 +37,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.option.GridnodeOptions;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.InMemoryDataDirectoryMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;

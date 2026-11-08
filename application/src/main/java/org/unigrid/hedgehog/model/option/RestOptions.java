@@ -16,26 +16,29 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.option;
 
-import java.nio.file.Path;
-import org.unigrid.hedgehog.common.model.ApplicationDirectory;
+import lombok.Getter;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
-public class SnapshotOptions {
-	public static final String SNAPSHOT_FILE = "bootstrap.dat";
+public class RestOptions {
+	private static final String DEFAULT_PORT_STR = "52884";
+	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
 
-	@Option(names = { "-s", "--snapshot" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Converted bootstrap file (defaults to " + SNAPSHOT_FILE + " in the data directory)."
+	@Getter @Option(names = { "-R", "--resthost" }, scope = CommandLine.ScopeType.INHERIT,
+		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "localhost"
 	)
-	private static Path snapshot;
+	private static String host;
 
-	public static Path getSnapshot() {
-		return snapshot != null ? snapshot : defaultSnapshot();
-	}
+	@Getter @Option(names = { "-r", "--restport" }, scope = CommandLine.ScopeType.INHERIT,
+		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
+	)
+	private static int port;
 
-	public static Path defaultSnapshot() {
-		return ApplicationDirectory.create().getUserDataDir().resolve(SNAPSHOT_FILE);
-	}
+	@Getter @Option(names = "--resttoken", scope = CommandLine.ScopeType.INHERIT,
+		description = "REST bearer token (defaults to $HEDGEHOG_REST_TOKEN, then a token generated into the "
+			+ "data directory).", defaultValue = "${env:HEDGEHOG_REST_TOKEN}"
+	)
+	private static String token;
 }

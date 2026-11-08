@@ -69,7 +69,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.Expect;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.ledger.AccountKey;

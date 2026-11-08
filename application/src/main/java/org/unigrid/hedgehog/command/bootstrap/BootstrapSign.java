@@ -27,7 +27,7 @@ import java.util.Objects;
 import java.util.concurrent.Callable;
 import lombok.Cleanup;
 import org.unigrid.hedgehog.command.ExitCode;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.command.util.SporkDatabaseFile;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;

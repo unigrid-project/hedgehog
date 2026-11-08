@@ -26,7 +26,7 @@ import net.jqwik.api.Property;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.server.BaseServerTest;
 import org.unigrid.hedgehog.server.TestServer;
 

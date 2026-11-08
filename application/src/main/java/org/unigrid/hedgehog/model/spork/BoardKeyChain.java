@@ -45,7 +45,7 @@ import lombok.SneakyThrows;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.Validate;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.crypto.ActiveKeys;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;

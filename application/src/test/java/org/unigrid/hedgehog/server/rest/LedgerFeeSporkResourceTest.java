@@ -32,7 +32,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.comparesEqualTo;
 import static org.hamcrest.Matchers.equalTo;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerFee;

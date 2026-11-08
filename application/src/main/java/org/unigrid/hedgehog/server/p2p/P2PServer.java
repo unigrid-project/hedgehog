@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.Connection;

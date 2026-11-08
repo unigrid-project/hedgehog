@@ -24,8 +24,8 @@ import org.unigrid.hedgehog.command.bootstrap.BootstrapHistory;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapImport;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapInfo;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapSign;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 

@@ -27,7 +27,7 @@ import mockit.Expectations;
 import net.jqwik.api.lifecycle.AfterContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.jboss.weld.environment.se.WeldContainer;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.server.BaseServerTest;
 
 /* The base of a test on a fleet of ledger nodes. The fleet is started by the first example that asks for it and is

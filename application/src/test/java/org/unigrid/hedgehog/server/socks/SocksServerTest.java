@@ -68,7 +68,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import org.slf4j.LoggerFactory;
-import org.unigrid.hedgehog.command.option.SocksOptions;
+import org.unigrid.hedgehog.model.option.SocksOptions;
 import org.unigrid.hedgehog.jqwik.Expect;
 import org.unigrid.hedgehog.proxy.socks.Tunnel;
 import org.unigrid.hedgehog.proxy.socks.TunnelFailure;

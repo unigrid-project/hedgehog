@@ -27,7 +27,7 @@ import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;

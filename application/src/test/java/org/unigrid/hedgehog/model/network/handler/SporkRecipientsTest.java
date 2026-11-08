@@ -43,7 +43,7 @@ import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.sporkTypesWrittenTo;
 import static org.unigrid.hedgehog.service.ledger.LedgerStreams.stream;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.QuicLoopback;

@@ -21,8 +21,8 @@ package org.unigrid.hedgehog.model.gridnode;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
-import org.unigrid.hedgehog.command.option.GridnodeOptions;
-import org.unigrid.hedgehog.command.option.NetOptions;
+import org.unigrid.hedgehog.model.option.GridnodeOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 
 public final class GridnodeSetup {

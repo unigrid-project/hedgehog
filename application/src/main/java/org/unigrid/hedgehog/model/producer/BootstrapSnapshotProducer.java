@@ -23,7 +23,7 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import org.unigrid.hedgehog.command.option.SnapshotOptions;
+import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
 

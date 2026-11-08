@@ -51,7 +51,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.Hedgehog;
-import org.unigrid.hedgehog.command.option.OptionsCli;
+import org.unigrid.hedgehog.model.option.OptionsCli;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.ledger.LedgerDriver.Checkpoint;
 import picocli.CommandLine;

@@ -45,7 +45,7 @@ import static org.hamcrest.Matchers.startsWith;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.HedgehogCli;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 

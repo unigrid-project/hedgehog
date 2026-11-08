@@ -27,7 +27,7 @@ import org.unigrid.hedgehog.command.Daemon;
 import org.unigrid.hedgehog.command.CLI;
 import org.unigrid.hedgehog.command.S3;
 import org.unigrid.hedgehog.command.Util;
-import org.unigrid.hedgehog.command.option.BoardKeyOptions;
+import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.model.VersionProvider;
 import org.unigrid.hedgehog.model.util.ApplicationLogLevel;
 import picocli.CommandLine;

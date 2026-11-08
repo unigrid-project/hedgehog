@@ -16,7 +16,7 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.option;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;

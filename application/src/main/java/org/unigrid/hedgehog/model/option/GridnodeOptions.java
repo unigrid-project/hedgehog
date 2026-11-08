@@ -16,29 +16,22 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.command.option;
+package org.unigrid.hedgehog.model.option;
 
+import java.nio.file.Path;
 import lombok.Getter;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
-public class RestOptions {
-	private static final String DEFAULT_PORT_STR = "52884";
-	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
+public class GridnodeOptions {
 
-	@Getter @Option(names = { "-R", "--resthost" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "Hostname or IP to bind to (defaults to '${DEFAULT-VALUE}').", defaultValue = "localhost"
+	@Getter @Option(names = { "-G", "--gridnode" }, scope = CommandLine.ScopeType.INHERIT, hidden = true,
+		description = "Run as a gridnode with the key pair in this file, as printed by 'util key-generate'"
 	)
-	private static String host;
+	private static Path gridnodeKeyFile;
 
-	@Getter @Option(names = { "-r", "--restport" }, scope = CommandLine.ScopeType.INHERIT,
-		description = "REST communcation port (defaults to ${DEFAULT-VALUE}).", defaultValue = DEFAULT_PORT_STR
+	@Getter @Option(names = "--announce-address", scope = CommandLine.ScopeType.INHERIT, hidden = true,
+		description = "The host:port other nodes reach this gridnode on (defaults to the bind address)"
 	)
-	private static int port;
-
-	@Getter @Option(names = "--resttoken", scope = CommandLine.ScopeType.INHERIT,
-		description = "REST bearer token (defaults to $HEDGEHOG_REST_TOKEN, then a token generated into the "
-			+ "data directory).", defaultValue = "${env:HEDGEHOG_REST_TOKEN}"
-	)
-	private static String token;
+	private static String announceAddress;
 }

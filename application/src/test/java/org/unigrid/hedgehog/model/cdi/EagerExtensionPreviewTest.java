@@ -23,7 +23,7 @@ import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.Matchers.*;
 import static org.hamcrest.MatcherAssert.*;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtensionTest.EagerTestClass;

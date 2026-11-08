@@ -37,8 +37,8 @@ import org.unigrid.hedgehog.command.cli.Stop;
 import org.unigrid.hedgehog.command.cli.StorageDelete;
 import org.unigrid.hedgehog.command.cli.StorageGet;
 import org.unigrid.hedgehog.command.cli.StoragePut;
-import org.unigrid.hedgehog.command.option.NetOptions;
-import org.unigrid.hedgehog.command.option.RestOptions;
+import org.unigrid.hedgehog.model.option.NetOptions;
+import org.unigrid.hedgehog.model.option.RestOptions;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 

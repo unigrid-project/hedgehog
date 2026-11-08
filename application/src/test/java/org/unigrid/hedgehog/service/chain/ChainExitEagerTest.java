@@ -38,7 +38,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import org.jboss.weld.environment.se.WeldContainer;
-import org.unigrid.hedgehog.command.option.PreviewMockUp;
+import org.unigrid.hedgehog.model.option.PreviewMockUp;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.cdi.EagerExtension;
