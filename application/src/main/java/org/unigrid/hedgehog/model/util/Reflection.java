@@ -22,7 +22,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -32,19 +32,19 @@ import org.apache.commons.lang3.reflect.MethodUtils;
 @Slf4j
 public class Reflection {
 	public static <T> Set<Field> getDeclaredFieldsWithParents(Class<T> clazz) {
-		final Set<Field> fields = new HashSet<>();
+		final Set<Field> fields = new LinkedHashSet<>();
 
 		/* Class.getFields() only fetches public fields in the class hierarchy. On the other hand,
 		Class.getDeclaredFields() fetches all fields regardless of accessor. So, in order to get all fields in the
 		class hierarchy (not just the public ones), we have to loop through the hierachy and use
-		Class.getDeclaredFields(). */
-
-		fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+		Class.getDeclaredFields(). The fields of the parents come first, then those of the class itself, each in
+		declaration order, so that the order does not change with the names of the classes. */
 
 		if (Objects.nonNull(clazz.getSuperclass())) {
 			fields.addAll(getDeclaredFieldsWithParents(clazz.getSuperclass()));
 		}
 
+		fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
 		return fields;
 	}
 
