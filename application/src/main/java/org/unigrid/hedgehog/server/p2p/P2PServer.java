@@ -49,14 +49,14 @@ import org.unigrid.hedgehog.model.cdi.Eager;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
-import org.unigrid.hedgehog.model.network.initializer.PeerPipeline;
-import org.unigrid.hedgehog.model.network.initializer.StreamRouter;
-import org.unigrid.hedgehog.model.network.handler.ConnectionHandler;
-import org.unigrid.hedgehog.model.network.handler.EncryptedTokenHandler;
-import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
-import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.schedule.Schedulable;
+import org.unigrid.hedgehog.transport.initializer.ChainStreamInitializer;
+import org.unigrid.hedgehog.transport.initializer.PeerPipeline;
+import org.unigrid.hedgehog.transport.initializer.StreamRouter;
+import org.unigrid.hedgehog.transport.handler.ConnectionHandler;
+import org.unigrid.hedgehog.transport.handler.EncryptedTokenHandler;
+import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
+import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.transport.schedule.Schedulable;
 import org.unigrid.hedgehog.server.AbstractServer;
 
 @Slf4j

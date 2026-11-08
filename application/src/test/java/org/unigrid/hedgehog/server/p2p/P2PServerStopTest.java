@@ -37,7 +37,7 @@ import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.handler.ConnectionHandler;
+import org.unigrid.hedgehog.transport.handler.ConnectionHandler;
 import org.unigrid.hedgehog.server.BaseServerTest;
 
 /* A peer drops a connection only once its channel is inactive, and a QUIC connection that no one closes stays active

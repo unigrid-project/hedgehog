@@ -36,7 +36,7 @@ import static org.hamcrest.Matchers.lessThan;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
-import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.SporkLag.Pool;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;

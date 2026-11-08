@@ -1,0 +1,125 @@
+/*
+    Unigrid Hedgehog
+    Copyright © 2021-2026 Stiftelsen The Unigrid Foundation
+
+    Stiftelsen The Unigrid Foundation (org. nr: 802482-2408)
+
+    This program is free software: you can redistribute it and/or modify it under the terms of the
+    addended GNU Affero General Public License as published by the The Unigrid Foundation and
+    the Free Software Foundation, version 3 of the License (see COPYING and COPYING.addendum).
+
+    This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+    even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+    GNU Affero General Public License and the addendum for more details.
+
+    You should have received an addended copy of the GNU Affero General Public License with this program.
+    If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
+ */
+
+package org.unigrid.hedgehog.transport.handler;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import mockit.Mock;
+import mockit.MockUp;
+import net.jqwik.api.Arbitrary;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
+import net.jqwik.api.Provide;
+import net.jqwik.api.ShrinkingMode;
+import net.jqwik.api.constraints.ShortRange;
+import net.jqwik.api.constraints.Size;
+import net.jqwik.api.lifecycle.BeforeProperty;
+import net.jqwik.api.domains.Domain;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.client.p2p.P2PClient;
+import org.unigrid.hedgehog.jqwik.NotNull;
+import org.unigrid.hedgehog.jqwik.SuiteDomain;
+import org.unigrid.hedgehog.model.network.Connection;
+import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.model.network.packet.PublishSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSporkProvider;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
+import org.unigrid.hedgehog.server.TestServer;
+
+public class PublishSporkChannelHandlerTest extends BaseHandlerTest<PublishSpork, PublishSporkChannelHandler> {
+	private final GridSporkProvider gridSporkProvider = new GridSporkProvider();
+
+	public PublishSporkChannelHandlerTest() {
+		super(PublishSporkChannelHandler.class);
+	}
+
+	@BeforeProperty
+	private void mockBeforePublishSpork() {
+		new MockUp<GridSpork>() {
+			@Mock public boolean isDoublySigned() {
+				return true;
+			}
+		};
+	}
+
+	@Provide(ignoreExceptions = IllegalArgumentException.class)
+	public Arbitrary<GridSpork> provideGridSpork(@ForAll GridSpork.Type gridSporkType,
+		@ForAll @ShortRange(min = 0, max = 3) short flags, @ForAll @Size(value = 60) byte[] signature,
+		@ForAll Instant time, @ForAll Instant previousTime) {
+
+		return gridSporkProvider.provide(gridSporkType, flags, signature, time, previousTime);
+	}
+
+	@Domain(SuiteDomain.class)
+	@Property(tries = 30, shrinking = ShrinkingMode.OFF)
+	public void shoulBeAbleToPublishSpork(@ForAll("provideTestServers") List<TestServer> servers,
+		@ForAll("provideGridSpork") @NotNull GridSpork gridSpork) throws Exception {
+
+		final AtomicInteger invocations = new AtomicInteger();
+		final AtomicInteger recordings = new AtomicInteger();
+		final List<String> sources = new CopyOnWriteArrayList<>();
+		int expectedInvocations = 0;
+
+		new MockUp<SporkLag>() {
+			@Mock public void record(GridSpork spork, SporkDatabase db, SporkLag.Turn turn) {
+				sources.add(turn.getSource());
+				recordings.incrementAndGet();
+			}
+		};
+
+		setChannelCallback(Optional.of((ctx, spork) -> {
+			/* Only count triggers on the server-side */
+			if (RegisterQuicChannelInitializer.Type.SERVER.is(ctx.channel())) {
+				invocations.incrementAndGet();
+			}
+		}));
+
+		for (TestServer server : servers) {
+			final String host = server.getP2p().getHostName();
+			final int port = server.getP2p().getPort();
+			final Connection connection = new P2PClient(host, port);
+			final PublishSpork publishSpork = PublishSpork.builder().gridSpork(gridSpork).build();
+
+			connection.send(publishSpork);
+			expectedInvocations++;
+
+			/* We do greaterThanOrEqualTo() because it's difficult to predict exactly how these are distributed
+			   between the nodes. For example, the server might share it's connected nodes with some node(s) and
+			   instantly increase the amount of sends on the network... */
+
+			await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+			connection.closeDirty();
+		}
+
+		await().untilAtomic(invocations, is(greaterThanOrEqualTo(expectedInvocations)));
+
+		/* Every spork the handler receives has to reach the lag tracker, accepted or not */
+		await().untilAtomic(recordings, is(greaterThanOrEqualTo(expectedInvocations)));
+
+		/* The lag tracker limits by the peer, so each spork has to come with the name of the one that sent it */
+		assertThat(sources, everyItem(not(emptyOrNullString())));
+	}
+}

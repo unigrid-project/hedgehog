@@ -38,7 +38,7 @@ import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
+import org.unigrid.hedgehog.transport.handler.RemoteAddress;
 
 @Slf4j
 public class TopologyThread extends Thread {

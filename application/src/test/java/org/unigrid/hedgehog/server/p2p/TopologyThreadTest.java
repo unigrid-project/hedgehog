@@ -65,7 +65,7 @@ import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.GridnodeAnnouncer;
 import org.unigrid.hedgehog.model.network.Node;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.handler.RemoteAddress;
+import org.unigrid.hedgehog.transport.handler.RemoteAddress;
 import org.unigrid.hedgehog.model.util.Reflection;
 import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;

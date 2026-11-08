@@ -71,7 +71,7 @@ import org.unigrid.hedgehog.model.network.codec.LedgerConsensusDecoder;
 import org.unigrid.hedgehog.model.network.codec.LedgerHeartbeatDecoder;
 import org.unigrid.hedgehog.model.network.codec.LedgerStatusDecoder;
 import org.unigrid.hedgehog.model.network.codec.LedgerTransactionDecoder;
-import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
+import org.unigrid.hedgehog.transport.initializer.LedgerPipeline;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockBatch;
 import org.unigrid.hedgehog.model.network.packet.LedgerBlockRequest;
 import org.unigrid.hedgehog.model.network.packet.LedgerConsensus;

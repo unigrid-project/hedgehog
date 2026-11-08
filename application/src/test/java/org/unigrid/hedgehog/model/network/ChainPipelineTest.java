@@ -49,7 +49,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import org.unigrid.hedgehog.client.p2p.P2PClient;
 import org.unigrid.hedgehog.model.network.codec.ChainArbitraries;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
-import org.unigrid.hedgehog.model.network.initializer.ChainPipeline;
+import org.unigrid.hedgehog.transport.initializer.ChainPipeline;
 import org.unigrid.hedgehog.model.network.packet.ChainEntry;
 import org.unigrid.hedgehog.model.network.packet.ChainHeads;
 import org.unigrid.hedgehog.model.network.packet.ChainStem;

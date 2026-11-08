@@ -47,16 +47,16 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
-import org.unigrid.hedgehog.model.network.handler.PeerActivityHandler;
-import org.unigrid.hedgehog.model.network.handler.PingChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishGridnodeChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishPeersChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.PublishSporkChannelHandler;
-import org.unigrid.hedgehog.model.network.handler.UnclaimedFrameHandler;
-import org.unigrid.hedgehog.model.network.initializer.LedgerPipeline;
-import org.unigrid.hedgehog.model.network.initializer.StoragePipeline;
-import org.unigrid.hedgehog.model.network.schedule.LedgerStatusSchedule;
-import org.unigrid.hedgehog.model.network.schedule.PublishGridnodeSchedule;
+import org.unigrid.hedgehog.transport.handler.PeerActivityHandler;
+import org.unigrid.hedgehog.transport.handler.PingChannelHandler;
+import org.unigrid.hedgehog.transport.handler.PublishGridnodeChannelHandler;
+import org.unigrid.hedgehog.transport.handler.PublishPeersChannelHandler;
+import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.transport.handler.UnclaimedFrameHandler;
+import org.unigrid.hedgehog.transport.initializer.LedgerPipeline;
+import org.unigrid.hedgehog.transport.initializer.StoragePipeline;
+import org.unigrid.hedgehog.transport.schedule.LedgerStatusSchedule;
+import org.unigrid.hedgehog.transport.schedule.PublishGridnodeSchedule;
 
 public class P2PClientPipelineTest {
 	/* Whether a node offers the ledger protocol and the proxy protocol: it offers the first only with the second */

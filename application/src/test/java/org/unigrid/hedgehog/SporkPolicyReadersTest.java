@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 import net.jqwik.api.Example;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
-import org.unigrid.hedgehog.model.network.schedule.PublishSporkSchedule;
+import org.unigrid.hedgehog.transport.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.server.rest.BootstrapResource;

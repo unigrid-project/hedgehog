@@ -46,11 +46,11 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.ConnectionContainer;
 import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.PeerProtocol;
-import org.unigrid.hedgehog.model.network.initializer.ChainStreamInitializer;
-import org.unigrid.hedgehog.model.network.initializer.PeerPipeline;
-import org.unigrid.hedgehog.model.network.handler.ProtocolMismatchHandler;
-import org.unigrid.hedgehog.model.network.initializer.RegisterQuicChannelInitializer;
-import org.unigrid.hedgehog.model.network.schedule.Schedulable;
+import org.unigrid.hedgehog.transport.initializer.ChainStreamInitializer;
+import org.unigrid.hedgehog.transport.initializer.PeerPipeline;
+import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
+import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer;
+import org.unigrid.hedgehog.transport.schedule.Schedulable;
 
 @Slf4j
 public class P2PClient extends ConnectionContainer {

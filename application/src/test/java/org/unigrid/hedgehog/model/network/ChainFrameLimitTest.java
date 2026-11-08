@@ -40,7 +40,7 @@ import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.network.codec.ChainCodecs;
 import org.unigrid.hedgehog.model.network.codec.FrameDecoder;
-import org.unigrid.hedgehog.model.network.initializer.ChainPipeline;
+import org.unigrid.hedgehog.transport.initializer.ChainPipeline;
 import org.unigrid.hedgehog.model.network.Packet;
 
 /* Any peer may open the stream chain traffic has to itself, so its frame decoder takes no frame larger than a

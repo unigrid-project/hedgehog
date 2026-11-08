@@ -49,12 +49,19 @@ public class PackageCycleTest {
 			.resideInAPackage("..command..").check(production());
 	}
 
+	/* The services, the servers and the clients all build on the model, which knows nothing of them */
+	@Example
+	public void shouldKeepTheModelFreeOfTheServices() throws Exception {
+		noClasses().that().resideInAPackage("..model..").should().dependOnClassesThat()
+			.resideInAnyPackage("..service..", "..server..", "..client..").check(production());
+	}
+
 	/* The handlers, the schedules and the resources call the ledger service, which is the part of the node that
 	   knows nothing of them: whatever they share belongs with them or below the service, not in it */
 	@Example
 	public void shouldLetTheTransportCallTheLedgerServiceAndNotTheOtherWayRound() throws Exception {
 		noClasses().that().resideInAPackage("..service.ledger..").should().dependOnClassesThat()
-			.resideInAnyPackage("..model.network.handler..", "..model.network.schedule..", "..server..")
+			.resideInAnyPackage("..transport.handler..", "..transport.schedule..", "..server..")
 			.check(production());
 	}
 }
