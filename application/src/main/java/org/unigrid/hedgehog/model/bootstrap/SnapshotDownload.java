@@ -27,6 +27,8 @@ import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryIteratorException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -87,10 +89,12 @@ public final class SnapshotDownload {
 	static void install(URL source, Path target, long maximumSize, IntConsumer progress) throws IOException {
 		final byte[] publishedHash = publishedHash(source);
 
-		Files.createDirectories(target.toAbsolutePath().getParent());
+		final Path directory = target.toAbsolutePath().getParent();
 
-		final Path partial = Files.createTempFile(target.toAbsolutePath().getParent(),
-			PARTIAL_PREFIX, PARTIAL_SUFFIX);
+		Files.createDirectories(directory);
+		sweepStale(directory);
+
+		final Path partial = Files.createTempFile(directory, PARTIAL_PREFIX, PARTIAL_SUFFIX);
 
 		try {
 			if (!MessageDigest.isEqual(copy(source, partial, maximumSize, progress), publishedHash)) {
@@ -207,6 +211,22 @@ public final class SnapshotDownload {
 			return MessageDigest.getInstance(HASH_ALGORITHM);
 		} catch (NoSuchAlgorithmException ex) {
 			throw new IllegalStateException(ex);
+		}
+	}
+
+	/*
+	   A kill or an exit skips the clean-up of a download, so the partial file of an earlier start can
+	   still be here, as large as the ceiling allows, and nothing else would ever remove it. Only a
+	   download names its files this way, and a data directory has one download at a time.
+	*/
+	private static void sweepStale(Path directory) {
+		try (DirectoryStream<Path> stale = Files.newDirectoryStream(directory,
+			PARTIAL_PREFIX + "*" + PARTIAL_SUFFIX)) {
+
+			stale.forEach(SnapshotDownload::discard);
+
+		} catch (IOException | DirectoryIteratorException ex) {
+			log.atWarn().log("Could not look for partial downloads in {}: {}", directory, ex.getMessage());
 		}
 	}
 

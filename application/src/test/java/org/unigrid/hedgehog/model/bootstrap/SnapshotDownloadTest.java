@@ -21,9 +21,12 @@ package org.unigrid.hedgehog.model.bootstrap;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -41,6 +44,8 @@ import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class SnapshotDownloadTest {
+	private static final String PLAIN = "/bootstrap.dat";
+
 	@Example
 	@SneakyThrows
 	public void shouldInstallASignedSnapshot() {
@@ -230,6 +235,77 @@ public class SnapshotDownloadTest {
 					equalTo(false));
 			}
 		}
+	}
+
+	/*
+	   A kill or an exit skips the clean-up of a download, so the partial file of an earlier start is
+	   still in the data directory when the next start comes to download.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldSweepThePartialDownloadsOfAnEarlierStartWhenTheDownloadFails() {
+		final Path target = dataDirectoryWithAnOldPartial();
+
+		try (LoopbackHost host = new LoopbackHost()) {
+			host.serve(PLAIN, "not a snapshot".getBytes(StandardCharsets.US_ASCII));
+			publish(host, PLAIN, hashLine(PLAIN, "another body".getBytes(StandardCharsets.US_ASCII)));
+
+			try {
+				SnapshotDownload.install(host.url(PLAIN), target);
+				throw new AssertionError("A download that does not match its hash was installed");
+
+			} catch (IOException expected) {
+				assertThat(expected.getMessage(), containsString("does not match the hash"));
+			}
+		}
+
+		assertThat(leftoverCount(target.getParent()), equalTo(0L));
+		assertThat(Files.exists(target.resolveSibling("notes.txt")), equalTo(true));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldSweepThePartialDownloadsOfAnEarlierStartWhenTheDownloadSucceeds() {
+		final byte[] snapshot = Files.readAllBytes(signedSnapshot());
+		final Path target = dataDirectoryWithAnOldPartial();
+
+		try (LoopbackHost host = new LoopbackHost()) {
+			host.serve(PLAIN, snapshot);
+			publish(host, PLAIN, hashLine(PLAIN, snapshot));
+			SnapshotDownload.install(host.url(PLAIN), target);
+		}
+
+		assertThat(Files.readAllBytes(target), equalTo(snapshot));
+		assertThat(leftoverCount(target.getParent()), equalTo(0L));
+		assertThat(Files.exists(target.resolveSibling("notes.txt")), equalTo(true));
+	}
+
+	@SneakyThrows
+	private static Path inMemoryTarget() {
+		final Path directory = Jimfs.newFileSystem(Configuration.unix()).getPath("/data");
+
+		Files.createDirectories(directory);
+		return directory.resolve("bootstrap.dat");
+	}
+
+	@SneakyThrows
+	private static Path dataDirectoryWithAnOldPartial() {
+		final Path target = inMemoryTarget();
+
+		Files.write(target.resolveSibling("snapshot-1.part"), new byte[] { 1, 2, 3 });
+		Files.write(target.resolveSibling("notes.txt"), new byte[] { 4 });
+		return target;
+	}
+
+	private static void publish(LoopbackHost host, String path, String hashFile) {
+		final byte[] contents = hashFile.getBytes(StandardCharsets.US_ASCII);
+
+		host.serve(path + SnapshotDownload.HASH_SUFFIX, contents);
+		host.serve(path + SnapshotDownload.HASH_SIGNATURE_SUFFIX, ReleaseKeyFixture.trusted().sign(contents));
+	}
+
+	private static String hashLine(String path, byte[] contents) {
+		return DigestUtils.sha256Hex(contents) + "  " + path.substring(1) + "\n";
 	}
 
 	@SneakyThrows
