@@ -235,6 +235,47 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 		assertThat(topology.cloneConfigured(), hasItem(configured));
 	}
 
+	/* Netty rethrows the cause of a failed future as it is, so a dial that a peer refuses ends in a checked exception
+	   that the constructor of the client does not declare, as the QuicException of a stream that a peer at its limit
+	   refuses. It ends that dial alone: the node that refused is forgotten, and the nodes that follow it in the round
+	   are dialed all the same. */
+	@Example
+	public void shouldDialTheNodesAfterOneWhoseDialFailedWithACheckedException() {
+		final Node refusing = at("86.0.0.1");
+		final Node next = at("86.1.0.1");
+		final List<String> hosts = new ArrayList<>();
+
+		new MockUp<P2PClient>() {
+			@Mock
+			@SneakyThrows
+			public void $init(String hostname, int port, Dialed why) {
+				hosts.add(hostname);
+
+				if (refusing.getAddress().getHostString().equals(hostname)) {
+					throw new IOException("No stream to " + hostname);
+				}
+			}
+		};
+
+		topology.addNode(refusing);
+
+		final Optional<Exception> escaped = thrownBy(() -> List.of(refusing, next)
+			.forEach(topologyThread.new NodeConnectionHandler(topology, Set.of())));
+
+		assertThat(escaped, is(Optional.empty()));
+		assertThat(hosts, contains("86.0.0.1", "86.1.0.1"));
+		assertThat(topology.containsNode(refusing), is(false));
+	}
+
+	private static Optional<Exception> thrownBy(Runnable action) {
+		try {
+			action.run();
+			return Optional.empty();
+		} catch (Exception ex) {
+			return Optional.of(ex);
+		}
+	}
+
 	/* A node that connected to this one, and that the operator then configures, is dialed as a configured node in the
 	   next round, whose connection is marked so (P2PClient) and pays from a share of its own among the dialed peers */
 	@Example

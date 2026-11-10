@@ -25,8 +25,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
@@ -77,8 +75,10 @@ public class TopologyThread extends Thread {
 						topology.getChannels().set(client.getChannel(), n);
 					});
 				}
-			} catch (ExecutionException | InterruptedException | TimeoutException | RuntimeException ex) {
-
+			} catch (Exception ex) {
+				/* Netty rethrows the cause of a failed future as it is, so a dial can also end in a checked
+				   exception that the constructor of the client does not declare, as when a peer at its limit
+				   refuses a stream, and that ends this dial alone, not the round */
 				log.atWarn().log("Node connection to {} failed", node, ex);
 
 				node.getConnection().ifPresent(connection -> {
