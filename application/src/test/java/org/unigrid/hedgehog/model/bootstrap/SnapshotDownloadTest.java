@@ -18,11 +18,14 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThan;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URL;
@@ -30,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.zip.GZIPOutputStream;
@@ -45,6 +49,8 @@ import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class SnapshotDownloadTest {
 	private static final String PLAIN = "/bootstrap.dat";
+	private static final String COMPRESSED = "/bootstrap.dat.gz";
+	private static final Duration WAIT = Duration.ofSeconds(3);
 
 	@Example
 	@SneakyThrows
@@ -280,6 +286,59 @@ public class SnapshotDownloadTest {
 		assertThat(Files.exists(target.resolveSibling("notes.txt")), equalTo(true));
 	}
 
+	/*
+	   The decompressor reads its header when it is constructed and gives up on a body that is not gzip
+	   without closing the transfer it was handed. The host keeps writing without end, so a write on
+	   its side fails only when the node has closed the transfer.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldCloseTheTransferOfABodyThatIsNotGzip() {
+		try (LoopbackHost host = new LoopbackHost()) {
+			host.serve(COMPRESSED, LoopbackHost.filled((byte) 'x', Long.MAX_VALUE));
+			publish(host, COMPRESSED, hashLine(COMPRESSED, new byte[0]));
+
+			try {
+				SnapshotDownload.install(host.url(COMPRESSED), inMemoryTarget());
+				throw new AssertionError("A body that is not gzip was installed");
+
+			} catch (IOException expected) {
+				assertThat(expected.getMessage(), containsString("Not in GZIP format"));
+			}
+
+			await("The host finds the transfer closed").atMost(WAIT).until(host::abandoned, greaterThan(0));
+		}
+	}
+
+	/*
+	   The compressed stream ends where its last member ends, and whatever follows it is still read so
+	   the hash covers the transfer to its last byte. That read has to stop at the ceiling as well, or a
+	   host that never stops writing keeps the node reading.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldAbandonADownloadThatTrailsPastItsCeiling() {
+		final Path target = dataDirectoryWithAnOldPartial();
+
+		try (LoopbackHost host = new LoopbackHost()) {
+			host.serve(COMPRESSED, out -> {
+				out.write(gzipped(new byte[100]));
+				LoopbackHost.filled((byte) 'x', 32L << 20).writeTo(out);
+			});
+			publish(host, COMPRESSED, hashLine(COMPRESSED, new byte[0]));
+
+			try {
+				SnapshotDownload.install(host.url(COMPRESSED), target, 4096, percent -> { });
+				throw new AssertionError("A download that trails past its ceiling was installed");
+
+			} catch (IOException expected) {
+				assertThat(expected.getMessage(), containsString("was abandoned"));
+			}
+		}
+
+		assertThat(Files.exists(target), equalTo(false));
+	}
+
 	@SneakyThrows
 	private static Path inMemoryTarget() {
 		final Path directory = Jimfs.newFileSystem(Configuration.unix()).getPath("/data");
@@ -306,6 +365,17 @@ public class SnapshotDownloadTest {
 
 	private static String hashLine(String path, byte[] contents) {
 		return DigestUtils.sha256Hex(contents) + "  " + path.substring(1) + "\n";
+	}
+
+	@SneakyThrows
+	private static byte[] gzipped(byte[] contents) {
+		final ByteArrayOutputStream compressed = new ByteArrayOutputStream();
+
+		try (OutputStream stream = new GZIPOutputStream(compressed)) {
+			stream.write(contents);
+		}
+
+		return compressed.toByteArray();
 	}
 
 	@SneakyThrows
