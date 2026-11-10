@@ -35,6 +35,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.Cleanup;
@@ -130,11 +131,16 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 	}
 
 	@SneakyThrows
-	private static SporkDatabase produced(ApplicationDirectory directory) {
+	private static SporkDatabaseProducer producerOf(ApplicationDirectory directory) {
 		final SporkDatabaseProducer producer = new SporkDatabaseProducer();
 
 		FieldUtils.writeField(producer, "applicationDirectory", directory, true);
-		return Reflection.invoke(producer, "produce");
+		return producer;
+	}
+
+	@SneakyThrows
+	private static SporkDatabase produced(ApplicationDirectory directory) {
+		return Reflection.invoke(producerOf(directory), "produce");
 	}
 
 	@SneakyThrows
@@ -348,6 +354,117 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 
 			assertThat(SporkDatabase.load(file).getMintStorage(), notNullValue());
 			assertThat(db, equalTo(SporkDatabase.builder().build()));
+		}
+	}
+
+	private static GridSpork supplyOf(long maxSupply) {
+		final GridSpork spork = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+
+		spork.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.valueOf(maxSupply));
+		return spork;
+	}
+
+	@SneakyThrows
+	private static Map<String, Object> identityOf(Path file) {
+		return Files.readAttributes(file, "fileKey,lastModifiedTime");
+	}
+
+	@SneakyThrows
+	private static List<String> namesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.map(file -> file.getFileName().toString()).toList();
+		}
+	}
+
+	@SneakyThrows
+	private static BigDecimal maxSupplyIn(Path file) {
+		return SporkDatabase.load(file).getMintSupply().<MintSupply.SporkData>getData().getMaxSupply();
+	}
+
+	/* The saver runs every few minutes whether or not a spork came in, and each run serializes the database, writes
+	   it beside the file and forces it to the disk: a database that is what the last save wrote is left alone */
+	@Example
+	@SneakyThrows
+	public void shouldWriteNothingWhenTheDatabaseIsWhatTheLastSaveWrote() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+
+			final Map<String, Object> written = identityOf(file);
+			final byte[] original = Files.readAllBytes(file);
+
+			Reflection.invoke(producer, "save");
+
+			assertThat(identityOf(file), equalTo(written));
+			assertThat(Files.readAllBytes(file), equalTo(original));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldWriteAgainOnceTheDatabaseChanged() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Reflection.invoke(producer, "save");
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(10)));
+
+			db.set(supplyOf(20));
+			Reflection.invoke(producer, "save");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(20)));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	/* What came in after the last timed save is still on the disk when the node stops */
+	@Example
+	@SneakyThrows
+	public void shouldWriteWhatChangedSinceTheLastSaveWhenTheNodeStops() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Reflection.invoke(producer, "save");
+
+			db.set(supplyOf(20));
+			Reflection.invoke(producer, "destroy");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(20)));
+		}
+	}
+
+	/* A file that an operator removed while the node runs is written again, as it was before saves were skipped */
+	@Example
+	@SneakyThrows
+	public void shouldWriteAgainWhenTheFileIsGone() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Files.delete(file);
+			Reflection.invoke(producer, "save");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(10)));
 		}
 	}
 }

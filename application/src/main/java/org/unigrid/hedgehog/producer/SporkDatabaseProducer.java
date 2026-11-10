@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,6 +35,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
@@ -48,6 +50,7 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
 	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
+	private byte[] lastWritten;
 	private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(task -> {
 		final Thread thread = new Thread(task, "spork-database-saver");
 
@@ -199,10 +202,19 @@ public class SporkDatabaseProducer {
 		}
 	}
 
-	private void save() {
+	/* The timer runs whether or not a spork came in, and a write forces the whole file to the disk, so a database
+	   that is what the last save wrote is left as it is, unless its file is gone */
+	private synchronized void save() {
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
-			SporkDatabase.persist(path(), sporkDatabase.get());
+
+			final byte[] content = SporkDatabase.serialize(sporkDatabase.get());
+			final byte[] digest = DigestUtils.sha256(content);
+
+			if (!Arrays.equals(digest, lastWritten) || Files.notExists(path())) {
+				SporkDatabase.persist(path(), content);
+				lastWritten = digest;
+			}
 
 		} catch (Exception ex) {
 			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());

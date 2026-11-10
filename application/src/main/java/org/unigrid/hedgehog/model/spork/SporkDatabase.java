@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
@@ -99,6 +100,26 @@ public class SporkDatabase implements Serializable {
 	   an import never write into each other's, and saves of one process take turns, so the last one stays. */
 	public static synchronized void persist(Path path, SporkDatabase sporkDatabase) throws IOException {
 		replace(path, channel -> write(channel, sporkDatabase));
+	}
+
+	/* As persist() writes a database whose content was serialized before, so that a caller can leave a database as it
+	   is when its content is the one it wrote last */
+	public static synchronized void persist(Path path, byte[] content) throws IOException {
+		replace(path, channel -> {
+			Channels.newOutputStream(channel).write(content);
+			channel.force(true);
+		});
+	}
+
+	/* What write() puts into a file, as bytes */
+	public static byte[] serialize(SporkDatabase sporkDatabase) throws IOException {
+		final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+
+		try (ObjectOutputStream stream = new ObjectOutputStream(bytes)) {
+			stream.writeObject(sporkDatabase);
+		}
+
+		return bytes.toByteArray();
 	}
 
 	interface ChannelWriter {
