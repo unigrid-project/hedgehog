@@ -108,16 +108,24 @@ public class RestServer extends AbstractServer {
 		return (Container) constructor.newInstance(resourceConfig);
 	}
 
+	/* The certificate is written to a key file and a certificate file in the temporary directory, which the context
+	   has read once it is built, so they are deleted then rather than left there with the key in them */
+	private static SslContext serverContext() throws CertificateException, SSLException {
+		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+
+		try {
+			return SslContextBuilder.forServer(certificate.certificate(), certificate.privateKey()).build();
+		} finally {
+			certificate.delete();
+		}
+	}
+
 	private ChannelHandler getJerseyInitializerInstance(Container container) throws CertificateException,
 		ClassNotFoundException, IllegalAccessException, InstantiationException, InvocationTargetException,
 		MalformedURLException, NoSuchMethodException, SSLException, UnknownHostException, URISyntaxException {
 
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final String url = String.format("https://%s:%d", RestOptions.getHost(), RestOptions.getPort());
-
-		final SslContext context = SslContextBuilder.forServer(
-			certificate.certificate(), certificate.privateKey()
-		).build();
+		final SslContext context = serverContext();
 
 		final Constructor<?> constructor = Reflection.getConstructor(
 			"org.glassfish.jersey.netty.httpserver.JerseyServerInitializer", URI.class,

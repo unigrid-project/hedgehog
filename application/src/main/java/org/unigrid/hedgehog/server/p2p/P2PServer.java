@@ -38,6 +38,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.Getter;
@@ -80,13 +81,10 @@ public class P2PServer extends AbstractServer {
 	private void init() {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		log.atDebug().log("Init P2P server");
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final String[] protocols = Network.getProtocols();
 		final boolean ledger = Network.hasLedger(protocols);
 		final boolean preview = Network.hasPreview(protocols);
-		final QuicSslContext context = QuicSslContextBuilder.forServer(
-			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(protocols).build();
+		final QuicSslContext context = serverContext(protocols);
 		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
@@ -117,6 +115,19 @@ public class P2PServer extends AbstractServer {
 		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
+	}
+
+	/* The certificate is written to a key file and a certificate file in the temporary directory, which the context
+	   has read once it is built, so they are deleted then rather than left there with the key in them */
+	private static QuicSslContext serverContext(final String[] protocols) throws CertificateException {
+		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+
+		try {
+			return QuicSslContextBuilder.forServer(certificate.privateKey(), null, certificate.certificate())
+				.applicationProtocols(protocols).build();
+		} finally {
+			certificate.delete();
+		}
 	}
 
 	static List<ChannelHandler> handlers(final boolean ledger, final boolean preview) {
