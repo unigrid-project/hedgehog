@@ -46,7 +46,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 	private final Type type;
 
 	public RegisterQuicChannelInitializer(Supplier<List<ChannelHandler>> handlersCreator, Type type) {
-		this(handlersCreator, null, type);
+		this(handlersCreator, List::of, type);
 	}
 
 	public enum Type {
@@ -67,22 +67,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
 		log.atDebug().log("Schedulers");
-		if (Objects.nonNull(schedulersCreator.get())) {
-			schedulersCreator.get().forEach(s -> {
 
-				/* Netty schedulers just support Callable<A>, so in order to support something like a
-				Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
+		/* Asked once, as a supplier may hand out a different list each time */
+		final List<Schedulable> schedulers = schedulersCreator.get();
 
-				if (Objects.nonNull(s.getConsumer())) {
-					final Future<?> future = channel.eventLoop().scheduleAtFixedRate(() -> {
-						s.getConsumer().accept(channel);
-					}, s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
-
-					channel.closeFuture().addListener(f -> {
-						future.cancel(true);
-					});
-				}
-			});
+		if (Objects.nonNull(schedulers)) {
+			schedulers.forEach(s -> schedule(channel, s));
 		}
 		log.atDebug().log("CDIUtil");
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
@@ -91,5 +81,30 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				PublishSporkSchedule.writeAndFlush(channel, db, pendingSporks);
 			});
 		});
+	}
+
+	private static void schedule(QuicStreamChannel channel, Schedulable s) {
+		/* Netty schedulers just support Callable<A>, so in order to support something like a
+		Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
+
+		if (Objects.nonNull(s.getConsumer())) {
+			final Future<?> future = channel.eventLoop().scheduleAtFixedRate(() -> runOnce(channel, s),
+				s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
+
+			channel.closeFuture().addListener(f -> {
+				future.cancel(true);
+			});
+		}
+	}
+
+	/* A task of a fixed rate is never run again once a run of it throws, and says nothing of it, so a run that fails
+	   is logged here and the next one is still made: a ping that stopped would leave a dead peer open. */
+	private static void runOnce(QuicStreamChannel channel, Schedulable s) {
+		try {
+			s.getConsumer().accept(channel);
+		} catch (Throwable ex) {
+			log.atWarn().setCause(ex).addArgument(channel.remoteAddress())
+				.log("A scheduled run on the stream to {} failed, the next is still made");
+		}
 	}
 }
