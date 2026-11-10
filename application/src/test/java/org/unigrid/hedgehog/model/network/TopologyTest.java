@@ -18,12 +18,15 @@
 
 package org.unigrid.hedgehog.model.network;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,6 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -50,6 +54,7 @@ import net.jqwik.api.Property;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
@@ -306,6 +311,7 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.findGridnode(fresh.getId()).isPresent(), is(true));
 	}
 
+	private static final int RELAYED_TO = 40;
 	private static final int OFFERING_THREADS = 4;
 	private static final int OFFERED_BY_EACH = 75;
 	private static final long TIMEOUT_SECONDS = 60;
@@ -416,5 +422,51 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(dialed.<Packet>readOutbound(), nullValue());
 		assertThat(opened.<Packet>readOutbound(), is(packet));
 		topology.removeNode(node);
+	}
+
+	/* Counts the times it is rendered as text, as a spork is whole: all its data, its signatures and its log */
+	private static final class CountedPacket extends Packet {
+		private final AtomicInteger rendered = new AtomicInteger();
+
+		@Override
+		public String toString() {
+			rendered.incrementAndGet();
+			return "counted";
+		}
+	}
+
+	private static void withoutDebugLogging(Runnable action) {
+		final Logger[] loggers = { (Logger) LoggerFactory.getLogger(Node.class),
+			(Logger) LoggerFactory.getLogger(Topology.class) };
+		final Level[] levels = { loggers[0].getLevel(), loggers[1].getLevel() };
+
+		Arrays.stream(loggers).forEach(logger -> logger.setLevel(Level.INFO));
+
+		try {
+			action.run();
+		} finally {
+			IntStream.range(0, loggers.length).forEach(i -> loggers[i].setLevel(levels[i]));
+		}
+	}
+
+	/* A packet is relayed to every node on an event loop, under the read lock of the topology. Rendering it as text for
+	   a debug line that is not written costs a string of all that a spork holds for each of the nodes. */
+	@Example
+	public void shouldNotRenderAPacketAsTextWhenRelayingItWithDebugLoggingOff() {
+		final CountedPacket packet = new CountedPacket();
+		final List<EmbeddedChannel> streams = IntStream.rangeClosed(1, RELAYED_TO)
+			.mapToObj(i -> new EmbeddedChannel()).toList();
+		final List<Node> nodes = IntStream.range(0, RELAYED_TO)
+			.mapToObj(i -> NodeConnections.connected("10.1.0." + (i + 1) + ":52883", streams.get(i))).toList();
+
+		try {
+			nodes.forEach(node -> assertThat(topology.addNode(node), is(true)));
+			withoutDebugLogging(() -> Topology.sendAll(packet, topology, Optional.empty()));
+
+			assertThat("the packet was rendered as text with the debug level off", packet.rendered.get(), is(0));
+			streams.forEach(stream -> assertThat(stream.<Packet>readOutbound(), sameInstance(packet)));
+		} finally {
+			nodes.forEach(topology::removeNode);
+		}
 	}
 }

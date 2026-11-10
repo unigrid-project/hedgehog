@@ -232,7 +232,7 @@ public class Topology {
 	public static void sendAll(Packet packet, Topology topology, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 
-		log.atDebug().log("Send all packet " + packet.toString());
+		log.atDebug().log("Send all packet {}", packet);
 		topology.forEach(node -> Node.send(packet, node, recipients, consumer));
 	}
 

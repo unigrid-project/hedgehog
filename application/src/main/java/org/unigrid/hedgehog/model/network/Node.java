@@ -160,7 +160,7 @@ public class Node {
 	public static void send(Packet packet, Node node, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 
-		log.atDebug().log("Send all packet " + packet.toString());
+		log.atDebug().log("Send all packet {}", packet);
 		node.relays().stream().map(Connection::getChannel).filter(recipients).forEach(channel -> {
 			final ChannelFuture out = channel.writeAndFlush(packet);
 
