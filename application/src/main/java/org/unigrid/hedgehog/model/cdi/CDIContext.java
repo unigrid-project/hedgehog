@@ -30,6 +30,9 @@ import org.jboss.weld.environment.se.events.ContainerInitialized;
 public abstract class CDIContext implements Runnable {
 	private static final Object MONITOR = new Object();
 
+	/* Guarded by MONITOR. A stop is remembered, as the REST server answers one before run() gets to wait for it. */
+	private static boolean stopped;
+
 	private void shutdown(@Observes ContainerShutdown event) {
 		/* Gets rid of "Weld SE container {uuId} shut down by shutdown hook" */
 		System.setOut(new PrintStream(new OutputStream() {
@@ -40,11 +43,18 @@ public abstract class CDIContext implements Runnable {
 
 	@Override
 	public void run() {
+		synchronized (MONITOR) {
+			stopped = false;
+		}
+
 		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).initialize();
 
 		synchronized (MONITOR) {
 			try {
-				MONITOR.wait();
+				/* A wakeup is no stop unless one was asked for */
+				while (!stopped) {
+					MONITOR.wait();
+				}
 			} catch (InterruptedException e) {
 				log.atDebug().log("Received singal to exit");
 			}
@@ -53,6 +63,7 @@ public abstract class CDIContext implements Runnable {
 
 	public static void stop() {
 		synchronized (MONITOR) {
+			stopped = true;
 			MONITOR.notifyAll();
 		}
 	}
