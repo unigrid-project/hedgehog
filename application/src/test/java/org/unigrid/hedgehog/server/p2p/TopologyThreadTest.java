@@ -207,7 +207,7 @@ public class TopologyThreadTest extends BaseMockedWeldTest {
 			Network.getSeeds(); result = new String[] { "45.9.9.12:1234" };
 		}};
 
-		topology.addSeeds();
+		topology.addSeeds(Topology.resolveSeeds());
 		assertThat(topology.cloneConfigured(), hasItem(told));
 		assertThat(Dialed.of(stream), equalTo(Optional.of(Dialed.CONFIGURED)));
 	}

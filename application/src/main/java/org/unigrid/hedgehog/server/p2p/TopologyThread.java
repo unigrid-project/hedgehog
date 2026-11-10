@@ -222,12 +222,16 @@ public class TopologyThread extends Thread {
 	}
 
 	private int round(Topology topology) {
+		/* The seeds are looked up here, outside the lock of the topology, which a slow lookup would hold up for
+		   every reader */
+		final Set<Node> seeds = Topology.resolveSeeds();
+
 		/* If we have no connections, we try the seed nodes again! */
 		if (topology.isEmpty()) {
-			topology.repopulate();
+			topology.repopulate(seeds);
 		}
 
-		topology.addSeeds();
+		topology.addSeeds(seeds);
 
 		final Set<Node> configured = topology.cloneConfigured();
 

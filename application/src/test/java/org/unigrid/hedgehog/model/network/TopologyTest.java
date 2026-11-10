@@ -22,20 +22,27 @@ import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import lombok.SneakyThrows;
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import net.jqwik.api.Example;
@@ -82,6 +89,107 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.containsNode(Node.builder().address(original).build()), is(false));
 		assertThat(topology.containsNode(changed), is(true));
 		assertThat(topology.removeNode(changed), is(true));
+	}
+
+	/* A name that resolves slowly, or not at all, takes as long as the lookup does. Every event loop that reads the
+	   topology would wait that long if the lookup ran under its lock, so a read and an add must go through while it
+	   blocks. The lookup is held at the first seed, and the fake takes it on only for as long as the example runs. */
+	private boolean servesWhileASeedLookupBlocks(Consumer<Set<Node>> take, Node added) throws Exception {
+		final CountDownLatch entered = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final ExecutorService threads = Executors.newFixedThreadPool(2);
+
+		new MockUp<Node>() {
+			@Mock
+			@SneakyThrows
+			public /* static */ Node fromAddress(String address) {
+				entered.countDown();
+				release.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+				return Node.fromURI(new URI(null, address, null, null, null).parseServerAuthority());
+			}
+		};
+
+		try {
+			final Future<?> lookingUp = threads.submit(() -> take.accept(Topology.resolveSeeds()));
+			assertThat(entered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(true));
+
+			final Future<Boolean> serving = threads.submit(() -> {
+				topology.cloneNodes();
+				return topology.addNode(added);
+			});
+
+			try {
+				return serving.get(1, TimeUnit.SECONDS);
+			} catch (TimeoutException ex) {
+				return false;
+			} finally {
+				release.countDown();
+				lookingUp.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			}
+		} finally {
+			release.countDown();
+			threads.shutdownNow();
+		}
+	}
+
+	@Example
+	public void shouldReadAndAddWhileASeedLookupBlocksOnAddingTheSeeds() throws Exception {
+		final Node added = Node.builder().address(new InetSocketAddress("127.0.100.5", 1000)).build();
+		final boolean served = servesWhileASeedLookupBlocks(topology::addSeeds, added);
+
+		assertThat("the topology took no read and add for a second while a seed was looked up", served, is(true));
+		assertThat(topology.containsNode(added), is(true));
+		assertThat(topology.removeNode(added), is(true));
+	}
+
+	@Example
+	public void shouldReadAndAddWhileASeedLookupBlocksOnRepopulating() throws Exception {
+		final Node added = Node.builder().address(new InetSocketAddress("127.0.100.6", 1000)).build();
+		final boolean served = servesWhileASeedLookupBlocks(topology::repopulate, added);
+
+		assertThat("the topology took no read and add for a second while a seed was looked up", served, is(true));
+		assertThat(topology.cloneNodes().size(), is(Network.getSeeds().length));
+	}
+
+	/* The seeds are looked up outside the lock, but a seed that resolved is configured under it as before, so a writer
+	   that holds the lock keeps it from the seeds until it lets go */
+	@Example
+	public void shouldAddTheResolvedSeedsOnlyOnceAWriterLetsGoOfTheLock() throws Exception {
+		final Node seed = Node.fromAddress(Network.getSeeds()[0]);
+		final CountDownLatch writing = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final ExecutorService threads = Executors.newFixedThreadPool(2);
+		boolean addedWhileWriting = true;
+
+		try {
+			topology.addSeeds(Topology.resolveSeeds());
+			threads.submit(() -> topology.modifyNode(seed, node -> {
+				writing.countDown();
+				awaitQuietly(release);
+			}));
+			assertThat(writing.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(true));
+
+			final Future<Set<Node>> adding = threads.submit(
+				() -> topology.addSeeds(Topology.resolveSeeds()));
+
+			try {
+				adding.get(300, TimeUnit.MILLISECONDS);
+			} catch (TimeoutException ex) {
+				addedWhileWriting = false;
+			}
+
+			release.countDown();
+			assertThat("the seeds were added while another thread wrote to the topology", addedWhileWriting, is(false));
+			assertThat(adding.get(TIMEOUT_SECONDS, TimeUnit.SECONDS).size(), is(Network.getSeeds().length));
+		} finally {
+			release.countDown();
+			threads.shutdownNow();
+		}
+	}
+
+	@SneakyThrows
+	private static void awaitQuietly(CountDownLatch latch) {
+		latch.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 	}
 
 	private static final long NOW = 1_800_000_000_000L;

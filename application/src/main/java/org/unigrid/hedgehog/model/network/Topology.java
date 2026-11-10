@@ -34,6 +34,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import lombok.Cleanup;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -69,7 +70,7 @@ public class Topology {
 
 	@PostConstruct
 	private void init() {
-		repopulate();
+		repopulate(resolveSeeds());
 		gridnodes = new HashMap<>();
 	}
 
@@ -79,26 +80,21 @@ public class Topology {
 	}
 
 	@Protected @Lock(LockMode.WRITE)
-	public void repopulate() {
+	public void repopulate(Set<Node> resolved) {
 		nodes = new HashSet<>();
 		channels.clear();
-		addSeeds();
+		addSeeds(resolved);
 	}
 
-	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
-	   nothing but what they chose to tell it. Each is configured as the operator's, also when a peer told of it first.
-	   Gives the seeds that resolve. */
-	@Protected @Lock(LockMode.WRITE)
-	public Set<Node> addSeeds() {
-		final Set<Node> seeds = new HashSet<>();
+	/* A name that resolves slowly, or not at all, takes as long as the lookup does, which every reader of the topology
+	   would wait out if the lock were held for it. The seeds are therefore looked up first and handed to the topology
+	   resolved. */
+	public static Set<Node> resolveSeeds() {
+		final Set<Node> resolved = new HashSet<>();
 
 		for (String address : Network.getSeeds()) {
 			try {
-				final Node node = Node.fromAddress(address);
-
-				if (addConfigured(node) != Configured.REFUSED) {
-					seeds.add(node);
-				}
+				resolved.add(Node.fromAddress(address));
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
 			} catch (UnknownHostException ex) {
@@ -106,7 +102,16 @@ public class Topology {
 			}
 		}
 
-		return seeds;
+		return resolved;
+	}
+
+	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
+	   nothing but what they chose to tell it. Each is configured as the operator's, also when a peer told of it first.
+	   Gives those of the resolved seeds that are nodes to dial. */
+	@Protected @Lock(LockMode.WRITE)
+	public Set<Node> addSeeds(Set<Node> resolved) {
+		return resolved.stream().filter(node -> addConfigured(node) != Configured.REFUSED)
+			.collect(Collectors.toSet());
 	}
 
 	@Protected @Lock(LockMode.READ)
