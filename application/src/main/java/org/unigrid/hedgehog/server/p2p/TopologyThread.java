@@ -87,7 +87,10 @@ public class TopologyThread extends Thread {
 
 		/* The client is handed to the node that it dialed. An operator may have removed that node over REST in the
 		   meantime, and the topology then has none to give it to, so no one else closes the client and its event
-		   loop. */
+		   loop. The same goes for a thread that was told to exit while it dialed: the server closes the connections
+		   that the topology holds, so a client that comes after that would be one no one closes. The flag is read
+		   under the lock that exit() takes, so a client is either registered before the exit, and closed with the
+		   others, or closed here. */
 		private void dial(Node node) throws ExecutionException, InterruptedException, TimeoutException {
 			final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
 			final P2PClient client = new P2PClient(node.getAddress().getHostString(),
@@ -96,11 +99,15 @@ public class TopologyThread extends Thread {
 
 			final AtomicBoolean kept = new AtomicBoolean();
 
-			topology.modifyNode(node, n -> {
-				n.setConnection(Optional.of(client));
-				topology.getChannels().set(client.getChannel(), n);
-				kept.set(true);
-			});
+			synchronized (lock) {
+				if (run) {
+					topology.modifyNode(node, n -> {
+						n.setConnection(Optional.of(client));
+						topology.getChannels().set(client.getChannel(), n);
+						kept.set(true);
+					});
+				}
+			}
 
 			if (!kept.get()) {
 				client.closeDirty();
