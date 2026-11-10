@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.transport.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -50,7 +51,9 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 		return Objects.isNull(oldAddress) ? NetOptions.getPort() : oldAddress.getPort();
 	}
 
-	/* A connection counts against the address it first came from, for as long as it is open */
+	/* A connection counts against the address it first came from, for as long as it is open. It is admitted before its
+	   handshake is done, and one that closes before that never becomes active, so it never goes inactive either: the
+	   close is what gives the slot back, as every connection ends in one. */
 	private boolean admitted(ChannelHandlerContext ctx, InetAddress address) {
 		if (ctx.channel().hasAttr(ADMITTED_KEY)) {
 			return true;
@@ -58,6 +61,7 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 
 		if (limiter.admit(address)) {
 			ctx.channel().attr(ADMITTED_KEY).set(address);
+			ctx.channel().closeFuture().addListener(closed -> release(ctx.channel()));
 			return true;
 		}
 
@@ -66,9 +70,13 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 		return false;
 	}
 
+	private void release(Channel connection) {
+		Optional.ofNullable(connection.attr(ADMITTED_KEY).getAndSet(null)).ifPresent(limiter::release);
+	}
+
 	@Override
 	public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		Optional.ofNullable(ctx.channel().attr(ADMITTED_KEY).getAndSet(null)).ifPresent(limiter::release);
+		release(ctx.channel());
 		super.channelInactive(ctx);
 	}
 
