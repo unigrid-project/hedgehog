@@ -25,6 +25,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
@@ -65,15 +68,7 @@ public class TopologyThread extends Thread {
 
 			try {
 				if (!node.getConnection().isPresent()) {
-					final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
-					final P2PClient client = new P2PClient(node.getAddress().getHostString(),
-						node.getAddress().getPort(), why
-					);
-
-					topology.modifyNode(node, n -> {
-						n.setConnection(Optional.of(client));
-						topology.getChannels().set(client.getChannel(), n);
-					});
+					dial(node);
 				}
 			} catch (Exception ex) {
 				/* Netty rethrows the cause of a failed future as it is, so a dial can also end in a checked
@@ -87,6 +82,28 @@ public class TopologyThread extends Thread {
 				});
 
 				forget(node);
+			}
+		}
+
+		/* The client is handed to the node that it dialed. An operator may have removed that node over REST in the
+		   meantime, and the topology then has none to give it to, so no one else closes the client and its event
+		   loop. */
+		private void dial(Node node) throws ExecutionException, InterruptedException, TimeoutException {
+			final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
+			final P2PClient client = new P2PClient(node.getAddress().getHostString(),
+				node.getAddress().getPort(), why
+			);
+
+			final AtomicBoolean kept = new AtomicBoolean();
+
+			topology.modifyNode(node, n -> {
+				n.setConnection(Optional.of(client));
+				topology.getChannels().set(client.getChannel(), n);
+				kept.set(true);
+			});
+
+			if (!kept.get()) {
+				client.closeDirty();
 			}
 		}
 
