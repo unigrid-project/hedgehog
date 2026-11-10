@@ -133,10 +133,14 @@ public class Topology {
 		});
 	}
 
-	/* The address decides the hash of a node, so it has to leave the set while the address changes */
+	/* The address decides the hash of a node, so it has to leave the set while the address changes. A node does not move
+	   onto the address of one that is known already, as the set would drop it, and with it the node that answers for
+	   its connection and its entry in the channel map: it stays where it is. */
 	@Protected @Lock(LockMode.WRITE)
 	public void changeAddress(Node node, InetSocketAddress address) {
-		nodes.stream().filter(node::equals).findFirst().ifPresent(n -> {
+		final Node moved = Node.builder().address(address).build();
+
+		nodes.stream().filter(node::equals).findFirst().filter(n -> !nodes.contains(moved)).ifPresent(n -> {
 			nodes.remove(n);
 			n.setAddress(address);
 			nodes.add(n);

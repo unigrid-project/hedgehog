@@ -91,6 +91,41 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.removeNode(changed), is(true));
 	}
 
+	/* A peer that moves onto the address of a node that is known already cannot be filed there twice. The node must not
+	   vanish with its connection left behind and its entry in the channel map, with no node to answer for them: it is
+	   either kept where it was or let go of with both. */
+	@Example
+	public void shouldLeaveNoConnectionWithoutAnOwnerWhenANodeMovesOntoAKnownAddress() {
+		final EmbeddedChannel movingStream = new EmbeddedChannel();
+		final EmbeddedChannel knownStream = new EmbeddedChannel();
+		final Node moving = NodeConnections.connected("127.0.100.21:1000", movingStream);
+		final Node known = NodeConnections.connected("127.0.100.22:1000", knownStream);
+		final Node movingAsFiled = NodeConnections.unconnected("127.0.100.21:1000");
+
+		try {
+			assertThat(topology.addNode(moving), is(true));
+			assertThat(topology.addNode(known), is(true));
+			topology.getChannels().set(movingStream, moving);
+			topology.getChannels().set(knownStream, known);
+
+			topology.changeAddress(movingAsFiled, known.getAddress());
+
+			final boolean kept = topology.containsNode(movingAsFiled);
+			final boolean letGo = !movingStream.isOpen() && topology.getChannels().get(movingStream).isEmpty();
+
+			assertThat("the node is gone but its connection is open or its channel entry is left", kept || letGo,
+				is(true));
+			assertThat(topology.containsNode(known), is(true));
+			assertThat(knownStream.isOpen(), is(true));
+			assertThat(topology.getChannels().get(knownStream), is(Optional.of(known)));
+		} finally {
+			topology.removeNode(movingAsFiled);
+			topology.removeNode(known);
+			topology.getChannels().remove(movingStream);
+			topology.getChannels().remove(knownStream);
+		}
+	}
+
 	/* A name that resolves slowly, or not at all, takes as long as the lookup does. Every event loop that reads the
 	   topology would wait that long if the lookup ran under its lock, so a read and an add must go through while it
 	   blocks. The lookup is held at the first seed, and the fake takes it on only for as long as the example runs. */
