@@ -74,14 +74,21 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 
 	@Override
 	public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-		if (evt instanceof QuicConnectionEvent event
-			&& !admitted(ctx, ((InetSocketAddress) event.newAddress()).getAddress())) {
+		if (evt instanceof QuicConnectionEvent event) {
+			addressChanged(ctx, event);
+		} else {
+			ctx.fireUserEventTriggered(evt);
+		}
+	}
+
+	private void addressChanged(ChannelHandlerContext ctx, QuicConnectionEvent event) {
+		if (!admitted(ctx, ((InetSocketAddress) event.newAddress()).getAddress())) {
 			return;
 		}
 
 		final Instance<Topology> topology = CDI.current().select(Topology.class);
 
-		if (topology.isResolvable() && evt instanceof QuicConnectionEvent event) {
+		if (topology.isResolvable()) {
 			log.atDebug().log("New address (or change) detected");
 
 			final InetAddress addr = ((InetSocketAddress) event.newAddress()).getAddress();
