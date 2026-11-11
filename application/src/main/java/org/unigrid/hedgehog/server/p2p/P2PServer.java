@@ -56,6 +56,7 @@ import org.unigrid.hedgehog.transport.initializer.StreamRouter;
 import org.unigrid.hedgehog.transport.handler.ConnectionHandler;
 import org.unigrid.hedgehog.transport.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
+import org.unigrid.hedgehog.transport.handler.StreamlessConnectionHandler;
 import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 import org.unigrid.hedgehog.server.AbstractServer;
@@ -101,6 +102,7 @@ public class P2PServer extends AbstractServer {
 					connections.add(quicChannel);
 					quicChannel.pipeline().addLast(new ProtocolMismatchHandler());
 					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
+					quicChannel.pipeline().addLast(new StreamlessConnectionHandler());
 				}
 			})
 			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> handlers(ledger, preview),
