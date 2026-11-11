@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.client.rest;
 
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.StatusType;
@@ -33,6 +35,10 @@ public class ResponseOddityException extends Exception {
 	/* What the node sent along with the status; a ledger node explains there why it refused a request */
 	@Getter private final String body;
 
+	/* Whether the node sent the body as plain text: a sentence in its own words, which a page of whatever answers in
+	   its place is not, nor JSON that names its fields */
+	@Getter private final boolean plainText;
+
 	@Getter private final int statusCode;
 
 	public ResponseOddityException(StatusType status) {
@@ -40,8 +46,13 @@ public class ResponseOddityException extends Exception {
 	}
 
 	public ResponseOddityException(StatusType status, String body) {
+		this(status, body, false);
+	}
+
+	private ResponseOddityException(StatusType status, String body, boolean plainText) {
 		super(describe(status));
 		this.body = body;
+		this.plainText = plainText;
 		this.statusCode = status.getStatusCode();
 	}
 
@@ -62,7 +73,16 @@ public class ResponseOddityException extends Exception {
 	}
 
 	public static ResponseOddityException of(Response response) {
-		return new ResponseOddityException(response.getStatusInfo(), response.hasEntity() ? bodyOf(response) : "");
+		return new ResponseOddityException(response.getStatusInfo(), response.hasEntity() ? bodyOf(response) : "",
+			isSentAsPlainText(response));
+	}
+
+	/* By the header as it was sent, whatever follows the type in it: a header that names no type is no plain text,
+	   and does not fail the request as one that is parsed would */
+	private static boolean isSentAsPlainText(Response response) {
+		final String type = StringUtils.substringBefore(response.getHeaderString(HttpHeaders.CONTENT_TYPE), ";");
+
+		return MediaType.TEXT_PLAIN.equalsIgnoreCase(StringUtils.strip(type));
 	}
 
 	/* A refusal is a line or two of text, so no more than that is read of whatever else a node or a proxy sends. A

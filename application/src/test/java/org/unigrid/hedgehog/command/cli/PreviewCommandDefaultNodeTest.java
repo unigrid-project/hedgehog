@@ -40,6 +40,7 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -302,6 +303,27 @@ public class PreviewCommandDefaultNodeTest extends BaseDefaultNodeTest {
 
 		assertThat(problems, is(empty()));
 		assertThat(writtenByTheCommands(), is(empty()));
+		assertThat(createdOfThePreview(), is(empty()));
+		assertThat(threadsOfThePreview(), is(empty()));
+	}
+
+	/* The commands of a group that say no more than that they failed */
+	private static List<Hidden> sayingNoReason(String group) {
+		return hidden().stream().filter(hidden -> hidden.command().startsWith(group + " "))
+			.filter(hidden -> hidden.reason().isEmpty()).toList();
+	}
+
+	/* The node answers a command of the ledger with the reason, as it answers one of the storage, and the command
+	   shows it as that one does, rather than the status alone */
+	@Example
+	public void shouldSayThatThisReleaseLeavesTheLedgerOff() {
+		for (Hidden hidden : sayingNoReason("ledger")) {
+			final HedgehogCli.Result result = run(hidden);
+
+			assertThat(hidden + " exited with " + result.exitCode() + " and said: " + result.err(), result.err(),
+				containsString("This release does not include the ledger part"));
+		}
+
 		assertThat(createdOfThePreview(), is(empty()));
 		assertThat(threadsOfThePreview(), is(empty()));
 	}
