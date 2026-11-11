@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -33,14 +34,24 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.core.Application;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
@@ -51,6 +62,8 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
+import static org.awaitility.Awaitility.await;
+import org.glassfish.jersey.server.ResourceConfig;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -60,6 +73,7 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
+import org.unigrid.hedgehog.model.util.Reflection;
 
 /* The limit is exercised on its own, with the time of the channel held still, so that a body that stalls and the
    wait before a connection closes are exact and the server does not have to be waited for */
@@ -68,6 +82,7 @@ public class RequestBodyLimitTest {
 	private static final long UPLOAD_LIMIT = 10_000;
 	private static final Duration BODY_TIME = Duration.ofSeconds(30);
 	private static final Duration LINGER = Duration.ofSeconds(2);
+	private static final Duration PATIENCE = Duration.ofSeconds(10);
 	private static final String SUBMIT = "/ledger/transaction";
 	private static final String SPORK = "/gridspork/wire";
 	private static final String TOKEN = RestToken.generate();
@@ -464,5 +479,99 @@ public class RequestBodyLimitTest {
 		assertThat(written().stream().map(FullHttpResponse::status).toList(),
 			contains(HttpResponseStatus.ACCEPTED, HttpResponseStatus.UNAUTHORIZED));
 		assertThat(container.read, hasSize(2));
+	}
+
+	/* A resource of the server that is shown a body, and keeps what it is given */
+	@Path("/body")
+	public static final class Body {
+		private final List<String> taken;
+
+		private Body(final List<String> taken) {
+			this.taken = taken;
+		}
+
+		@POST
+		@Consumes(MediaType.TEXT_PLAIN)
+		public Response take(final String body) {
+			taken.add(body);
+			return Response.ok().build();
+		}
+	}
+
+	/* The container of the server, built the way the server builds it and standing behind the limit, so that what a
+	   body cut short does to a resource is what the library does with it. The decoder of the codec stands in front. */
+	private static final class Served implements AutoCloseable {
+		private static final String CONTAINER = "org.glassfish.jersey.netty.httpserver.NettyHttpContainer";
+		private static final String HANDLER = "org.glassfish.jersey.netty.httpserver.JerseyServerHandler";
+
+		private final List<String> taken = new CopyOnWriteArrayList<>();
+		private final BlockedReaders readers = new BlockedReaders();
+		private final org.glassfish.jersey.server.spi.Container jersey;
+		private final EmbeddedChannel channel;
+
+		@SneakyThrows
+		private Served() {
+			final ResourceConfig config = new ResourceConfig().registerInstances(new Body(taken),
+				new CutBodyFilter());
+
+			jersey = (org.glassfish.jersey.server.spi.Container) Reflection.getConstructor(CONTAINER,
+				Application.class).newInstance(config);
+
+			channel = new EmbeddedChannel(new HttpServerCodec(),
+				new RequestBodyLimit(new BearerTokenFilter(TOKEN), LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER),
+				(ChannelHandler) Reflection.getConstructor(HANDLER, URI.class, jersey.getClass(),
+					ResourceConfig.class).newInstance(URI.create("https://localhost/"), jersey, config));
+
+			channel.freezeTime();
+		}
+
+		private void awaitReader() {
+			await().atMost(PATIENCE).until(() -> !readers.started().isEmpty());
+		}
+
+		private static String head(final String framing) {
+			return "POST /body HTTP/1.1\r\nHost: localhost\r\nAuthorization: " + BEARER
+				+ "\r\nContent-Type: text/plain\r\n" + framing + "\r\n\r\n";
+		}
+
+		private void send(final String text) {
+			channel.writeInbound(Unpooled.copiedBuffer(text, StandardCharsets.US_ASCII));
+		}
+
+		private void passTime(final Duration time) {
+			channel.advanceTimeBy(time.toMillis(), TimeUnit.MILLISECONDS);
+			channel.runScheduledPendingTasks();
+		}
+
+		private String refusal() {
+			final ByteBuf out = channel.readOutbound();
+
+			try {
+				return out.toString(StandardCharsets.US_ASCII);
+			} finally {
+				out.release();
+			}
+		}
+
+		@Override
+		public void close() {
+			channel.finishAndReleaseAll();
+			jersey.getApplicationHandler().onShutdown(jersey);
+		}
+	}
+
+	/* A body that a connection cut short has no end for the decoder, which reports none for a request, so the
+	   resource that reads it waits for ever and holds a thread of the container while it does */
+	@Example
+	public void shouldEndTheBodyThatAResourceIsReadingOnceItsConnectionIsGone() {
+		try (Served served = new Served()) {
+			served.send(Served.head("Content-Length: 14") + "10.0.0.1:5");
+			served.awaitReader();
+			served.channel.close();
+
+			await().atMost(PATIENCE).untilAsserted(() -> assertThat(served.readers.started(), empty()));
+			await().during(Duration.ofMillis(500)).atMost(PATIENCE)
+				.untilAsserted(() -> assertThat(served.taken, empty()));
+		}
 	}
 }

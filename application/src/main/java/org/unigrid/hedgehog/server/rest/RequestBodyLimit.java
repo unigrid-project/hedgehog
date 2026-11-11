@@ -34,6 +34,7 @@ import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http.QueryStringDecoder;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.nio.charset.StandardCharsets;
@@ -58,6 +59,9 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	/* A sender that trickles holds a thread of the container in its read for as long as the body is open */
 	public static final Duration BODY_TIME = Duration.ofSeconds(30);
 	public static final Duration LINGER = Duration.ofSeconds(2);
+
+	/* Set on a connection while its request has a body that was cut short, which is read as an end like any other */
+	public static final AttributeKey<Boolean> CUT = AttributeKey.valueOf("hedgehog.rest.body.cut");
 
 	private static final String STORAGE = "/storage";
 	private static final String STORAGE_OBJECTS = "/storage-object/";
@@ -114,6 +118,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private boolean begin(final ChannelHandlerContext ctx, final HttpRequest request) {
 		answered = false;
+		ctx.channel().attr(CUT).set(Boolean.FALSE);
 
 		if (!authentication.isAuthorized(request.headers().get(HttpHeaderNames.AUTHORIZATION))) {
 			refuse(ctx, unauthorized());
@@ -178,10 +183,19 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		if (unfinished) {
+			unfinished = false;
 			ctx.fireChannelRead(LastHttpContent.EMPTY_LAST_CONTENT);
 		}
 
 		ctx.executor().schedule((Runnable) ctx::close, linger.toMillis(), TimeUnit.MILLISECONDS);
+	}
+
+	/* The container takes any end of a body for a whole body, so the connection says that this one was cut short, for
+	   the stream that a resource reads it from to report */
+	private void endBody(final ChannelHandlerContext ctx) {
+		unfinished = false;
+		ctx.channel().attr(CUT).set(Boolean.TRUE);
+		ctx.fireChannelRead(LastHttpContent.EMPTY_LAST_CONTENT);
 	}
 
 	private static HttpResponse response(final HttpResponseStatus status, final String reason) {
@@ -223,9 +237,16 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		ctx.write(message, promise);
 	}
 
+	/* A request that its connection cut short has no end for the decoder, which reports none for a request, so a
+	   resource that is reading its body would wait for ever. It is given an end, as a refused request is. */
 	@Override
 	public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
 		cancelDeadline();
+
+		if (unfinished) {
+			endBody(ctx);
+		}
+
 		super.channelInactive(ctx);
 	}
 
