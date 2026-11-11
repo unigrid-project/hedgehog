@@ -30,7 +30,13 @@ import java.util.Map;
 public final class ConnectionLimiter {
 	public static final int MAX_PER_ADDRESS = 8;
 
+	/* How many connections all addresses may hold at a time. Each address has a share of its own, so many addresses
+	   have many shares, and what they hold together is what the memory of the node has to bear. A node knows no more
+	   than Topology.MAX_NODES nodes, connects once to each and each once back. */
+	public static final int MAX_IN_ALL = 2 * Topology.MAX_NODES;
+
 	private final Map<InetAddress, Integer> held = new HashMap<>();
+	private int heldInAll;
 
 	public synchronized boolean admit(InetAddress address) {
 		if (address.isLoopbackAddress()) {
@@ -39,17 +45,21 @@ public final class ConnectionLimiter {
 
 		final int count = held.getOrDefault(address, 0);
 
-		if (count >= MAX_PER_ADDRESS) {
+		if (heldInAll >= MAX_IN_ALL || count >= MAX_PER_ADDRESS) {
 			return false;
 		}
 
 		held.put(address, count + 1);
+		heldInAll++;
 		return true;
 	}
 
 	/* For a connection that was admitted and has closed */
 	public synchronized void release(InetAddress address) {
-		held.computeIfPresent(address, (key, count) -> count > 1 ? count - 1 : null);
+		if (held.containsKey(address)) {
+			held.computeIfPresent(address, (key, count) -> count > 1 ? count - 1 : null);
+			heldInAll--;
+		}
 	}
 
 	synchronized int held(InetAddress address) {
