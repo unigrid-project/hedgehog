@@ -128,10 +128,10 @@ public class NetworkKey {
 		}
 	}
 
-	/* A signature that a peer sent can fail every key, and the stack of each failure is for a node that logs at trace
-	   level, so it is built only for one */
+	/* A signature that a peer sent can fail every key, and the text and the stack of each failure are for a node that
+	   logs at trace level, so they are built only for one */
 	private static void traced(VerifySignatureException ex) {
-		log.atTrace().setMessage("{}:{}").addArgument(ex.getMessage())
+		log.atTrace().setMessage("{}:{}").addArgument(ex::getMessage)
 			.addArgument(() -> ExceptionUtils.getStackTrace(ex)).log();
 	}
 
