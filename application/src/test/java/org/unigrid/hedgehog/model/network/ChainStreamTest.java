@@ -377,7 +377,8 @@ public class ChainStreamTest extends BaseServerTest {
 	/* The main stream has no chain stages, at either end: a chain frame on it is refused, and the node closes the
 	   stream. A further stream that a client opens is no chain stream either, and as a connection has one main
 	   stream the node closes it unread, which the ping behind the frame shows: it never arrives. The same bytes on
-	   the chain stream are acted on. */
+	   the chain stream are acted on. A client closes the connection whose main stream the node ended, so the other
+	   streams are those of a connection of their own. */
 	@SneakyThrows
 	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
 	public void refusesChainPacketsOnEveryOtherStream(@ForAll("twoTestServers") List<TestServer> servers,
@@ -386,14 +387,22 @@ public class ChainStreamTest extends BaseServerTest {
 		final ByteBuf entry = encoded(new ChainEntryEncoder(), PACKET);
 
 		for (TestServer server : servers) {
+			final P2PClient refused = connectTo(server);
+
+			try {
+				final Channel main = serverEndOfTheMainStream(refused);
+
+				refused.getChannel().writeAndFlush(entry.retainedDuplicate());
+				await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> !main.isActive());
+				assertThat(arrivalsOn(main.parent()), empty());
+			} finally {
+				refused.closeDirty();
+			}
+
 			final P2PClient client = connectTo(server);
 
 			try {
 				final Channel main = serverEndOfTheMainStream(client);
-
-				client.getChannel().writeAndFlush(entry.retainedDuplicate());
-				await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> !main.isActive());
-
 				final QuicStreamChannel third = connectionOf(client).createStream(QuicStreamType.BIDIRECTIONAL,
 					new ChannelInboundHandlerAdapter()).sync().getNow();
 				final Ping behind = Ping.builder().build();

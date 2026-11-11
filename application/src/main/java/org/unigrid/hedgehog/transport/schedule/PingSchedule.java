@@ -26,12 +26,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.transport.handler.ConnectionClose;
 import org.unigrid.hedgehog.transport.handler.PeerActivityHandler;
-import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 
-@Slf4j
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class PingSchedule extends AbstractSchedule implements Schedulable {
@@ -57,11 +55,11 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 			if (Objects.nonNull(channel.attr(Ping.PING_TIME_KEY).get())
 				&& missedOneMore(channel) >= Ping.MISSED_PINGS_BEFORE_CLOSE) {
 
-				closeTheConnectionOf(channel, UNANSWERED);
+				ConnectionClose.of(channel, UNANSWERED);
 			} else if (channel.isWritable()) {
 				send(channel);
 			} else if (readsTooLittle(channel, taken)) {
-				closeTheConnectionOf(channel, UNREAD);
+				ConnectionClose.of(channel, UNREAD);
 			}
 		};
 	}
@@ -98,20 +96,5 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 
 		owed.set(debt);
 		return debt >= Ping.DEBT_BEFORE_CLOSE;
-	}
-
-	/* The QUIC connection that the stream runs on, as every stream of a peer that is gone is dead with it, and the
-	   stream too: a connection that the peer closed before it went keeps its streams open after a close of its own,
-	   until it idles out, and the topology judges a node by its stream */
-	private static void closeTheConnectionOf(Channel stream, String fault) {
-		final Channel connection = Objects.requireNonNullElse(stream.parent(), stream);
-
-		if (stream.isOpen()) {
-			log.atInfo().addArgument(() -> Optional.<Object>ofNullable(connection
-				.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get()).orElse(stream.remoteAddress()))
-				.addArgument(fault).log("Closed the connection to {}, which {}");
-			connection.close();
-			stream.close();
-		}
 	}
 }

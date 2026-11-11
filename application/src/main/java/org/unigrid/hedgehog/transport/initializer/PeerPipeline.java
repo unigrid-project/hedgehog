@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.transport.handler.EndedStreamHandler;
 import org.unigrid.hedgehog.transport.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PeerActivityHandler;
 import org.unigrid.hedgehog.transport.handler.PingChannelHandler;
@@ -69,6 +70,11 @@ public final class PeerPipeline {
 			FrameDecoder.forMainStream(ledger, preview),
 			hello(side)
 		));
+
+		/* A node closes a connection that it dialed as the peer ends this stream */
+		if (side == Type.CLIENT) {
+			handlers.add(new EndedStreamHandler());
+		}
 
 		if (preview) {
 			handlers.addAll(List.of(new GridnodeEncoder(), new GridnodeDecoder()));
