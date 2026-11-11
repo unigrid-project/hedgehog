@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.transport.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
@@ -68,6 +69,16 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 				topology.modifyNode(said, known -> known.setInbound(known.getInbound()
 					.filter(inbound -> inbound.getChannel().isActive()).or(said::getInbound)));
 			}
+
+			letGoWhenClosed(ctx.channel(), topology);
 		});
+	}
+
+	/* The listeners of a close are called on the event loop of the stream wherever it closes, which may be inside a
+	   call that holds the lock of the topology for reading, where taking it for writing would wait for ever. The node
+	   is therefore let go of in a task of its own, which the event loop runs once it holds no lock of the topology. */
+	private static void letGoWhenClosed(Channel stream, Topology topology) {
+		stream.closeFuture().addListener(closed -> stream.eventLoop()
+			.execute(() -> topology.letGoOfClosedStream(stream)));
 	}
 }

@@ -273,9 +273,22 @@ public class Topology {
 	   one that no operator configured, that is no seed, and that this node holds no connection to */
 	@Protected @Lock(LockMode.WRITE)
 	public void letGoOfClosedStreams() {
-		nodes.removeIf(node -> node.getConnection().isEmpty() && !configured.contains(node) && !seeds.contains(node)
+		nodes.removeIf(node -> isKnownByAStreamAlone(node)
 			&& node.getInbound().filter(inbound -> !inbound.getChannel().isActive()).isPresent());
 		nodes.forEach(node -> node.setInbound(node.getInbound().filter(inbound -> inbound.getChannel().isActive())));
+	}
+
+	/* The node that is known by the given stream alone leaves as that stream closes, without waiting for the next
+	   round: anyone can connect, say hello and close, as often as they like, and each node that stayed until the round
+	   would hold one of the MAX_NODES places meanwhile. A node that took a newer stream since is known by that one. */
+	@Protected @Lock(LockMode.WRITE)
+	public void letGoOfClosedStream(Channel stream) {
+		nodes.removeIf(node -> node.getInbound().filter(inbound -> inbound.getChannel() == stream).isPresent()
+			&& isKnownByAStreamAlone(node));
+	}
+
+	private boolean isKnownByAStreamAlone(Node node) {
+		return node.getConnection().isEmpty() && !configured.contains(node) && !seeds.contains(node);
 	}
 
 	/* A node that the operator removes, which is no longer configured either, and no seed until a round finds a seed

@@ -438,6 +438,38 @@ public class TopologyTest extends BaseMockedWeldTest {
 		}
 	}
 
+	/* A node that is known by the stream it said hello on alone leaves as that stream closes. One that said hello again
+	   on a newer stream since, that this node dialed, that the operator added or that is a seed is known by more than
+	   the stream that closed, and stays. */
+	@Example
+	public void shouldLetGoOfANodeKnownByAClosedStreamAloneAndKeepOneThatIsKnownByMore() {
+		final EmbeddedChannel closed = new EmbeddedChannel();
+		final Node said = NodeConnections.unconnected("127.0.100.61:52883");
+		final Node saidAgain = NodeConnections.unconnected("127.0.100.62:52883");
+		final Node dialed = NodeConnections.connected("127.0.100.63:52883", new EmbeddedChannel());
+		final Node added = NodeConnections.unconnected("127.0.100.64:52883");
+		final Node seed = NodeConnections.unconnected("127.0.100.65:52883");
+		final List<Node> known = List.of(said, saidAgain, dialed, added, seed);
+
+		List.of(said, dialed, added, seed).forEach(node -> node.setInbound(Optional.of(
+			LedgerStreams.connection(closed))));
+		saidAgain.setInbound(Optional.of(LedgerStreams.connection(new EmbeddedChannel())));
+
+		try {
+			List.of(said, saidAgain, dialed).forEach(topology::addNode);
+			topology.addConfigured(added);
+			topology.addSeeds(Set.of(seed));
+			closed.close();
+			topology.letGoOfClosedStream(closed);
+
+			assertThat(topology.cloneNodes().stream().filter(known::contains).toList(),
+				containsInAnyOrder(saidAgain, dialed, added, seed));
+		} finally {
+			known.forEach(topology::removeConfigured);
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
 	/* A name that resolves slowly, or not at all, takes as long as the lookup does. Every event loop that reads the
 	   topology would wait that long if the lookup ran under its lock, so a read and an add must go through while it
 	   blocks. The lookup is held at the first seed, and the fake takes it on only for as long as the example runs. */
