@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.URI;
@@ -35,6 +36,8 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -85,6 +88,34 @@ public class NodeAddTest {
 
 		assertThat(result.out().lines().toList(), equalTo(List.of(locationOf(address).toString())));
 		assertThat(result.err(), equalTo(""));
+	}
+
+	/* A node that a peer told of first is promoted, and its answer says so in a text next to the location */
+	@Property(tries = 30)
+	public void printsWhatTheNodeSaysWhenItPromotesAKnownNode(@ForAll("addresses") String address,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 40) String said) {
+
+		final Result result = RestCommandFixture.run(nodeAdd(address), Response.ok(said, MediaType.TEXT_PLAIN_TYPE)
+			.location(locationOf(address)).build());
+
+		assertThat(result.out().lines().toList(), equalTo(List.of(locationOf(address).toString(), said)));
+		assertThat(result.err(), equalTo(""));
+	}
+
+	/* An answer with neither a location nor a text is shown by its status, and not as the word null */
+	@Property(tries = 10)
+	public void printsTheStatusWhenTheNodeSaysNothingMore(@ForAll("addresses") String address,
+		@ForAll("answersWithoutContent") Status status) {
+
+		final Result result = RestCommandFixture.run(nodeAdd(address), Response.status(status).build());
+
+		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
+		assertThat(result.err(), equalTo(""));
+	}
+
+	@Provide
+	public Arbitrary<Status> answersWithoutContent() {
+		return Arbitraries.of(Status.OK, Status.ACCEPTED, Status.NO_CONTENT);
 	}
 
 	@Property(tries = 10)

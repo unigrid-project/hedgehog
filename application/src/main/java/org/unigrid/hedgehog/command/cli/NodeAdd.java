@@ -24,6 +24,8 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.net.URI;
+import org.unigrid.hedgehog.model.util.TerminalText;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Parameters;
 
@@ -41,12 +43,29 @@ public class NodeAdd extends RestClientCommand {
 		return (Entity<T>) Entity.text(address);
 	}
 
+	/* A node that was added answers with where it went. One that a peer told of first and is now configured says so in
+	   a text next to that, which an operator is shown as the node said it. An answer with neither is shown by its
+	   status. */
 	@Override
 	protected void execute(Response response) {
 		if (Status.fromStatusCode(response.getStatus()) == Status.CONFLICT) {
 			System.err.println(response.getStatusInfo());
-		} else {
-			System.out.println(response.getLocation());
+			return;
+		}
+
+		final URI location = response.getLocation();
+		final boolean said = response.hasEntity();
+
+		if (location != null) {
+			System.out.println(location);
+		}
+
+		if (said) {
+			System.out.println(TerminalText.printable(response.readEntity(String.class)));
+		}
+
+		if (location == null && !said) {
+			System.out.println(response.getStatusInfo());
 		}
 	}
 
