@@ -135,6 +135,64 @@ public class TopologyTest extends BaseMockedWeldTest {
 		}
 	}
 
+	/* A seed, and a node that the operator adds, is filed as the very node that the topology holds, so a node that moves
+	   to another address has to move in the configured set as well: a hash set that holds an element under the hash of
+	   its old address no longer finds it, and takes the same node a second time. */
+	@Example
+	public void shouldKnowAConfiguredNodeAtItsNewAddressWhenItMoved() {
+		final Node moved = NodeConnections.unconnected("127.0.100.41:52883");
+
+		try {
+			assertThat(topology.addConfigured(NodeConnections.unconnected("127.0.100.40:52883")),
+				is(Topology.Configured.ADDED));
+			topology.changeAddress(NodeConnections.unconnected("127.0.100.40:52883"), moved.getAddress());
+
+			assertThat(topology.addConfigured(NodeConnections.unconnected("127.0.100.41:52883")),
+				is(Topology.Configured.BEFORE));
+		} finally {
+			topology.removeConfigured(moved);
+		}
+	}
+
+	@Example
+	public void shouldNotConfigureAMovedNodeAnymoreOnceTheOperatorRemovedItAtTheNewAddress() {
+		final Node moved = NodeConnections.unconnected("127.0.100.43:52883");
+
+		try {
+			assertThat(topology.addConfigured(NodeConnections.unconnected("127.0.100.42:52883")),
+				is(Topology.Configured.ADDED));
+			topology.changeAddress(NodeConnections.unconnected("127.0.100.42:52883"), moved.getAddress());
+
+			assertThat(topology.removeConfigured(moved), is(true));
+			assertThat("the node is still configured at the address it moved to", topology.cloneConfigured(),
+				not(hasItem(moved)));
+		} finally {
+			topology.removeConfigured(moved);
+		}
+	}
+
+	/* A node that no operator configured is let go of once its stream closed and it holds no connection, a configured
+	   one is kept, also after it moved */
+	@Example
+	public void shouldKeepAMovedConfiguredNodeWhoseStreamClosed() {
+		final EmbeddedChannel closedStream = new EmbeddedChannel();
+		final Node configured = NodeConnections.unconnected("127.0.100.44:52883");
+		final Node moved = NodeConnections.unconnected("127.0.100.45:52883");
+
+		closedStream.close();
+		configured.setInbound(Optional.of(LedgerStreams.connection(closedStream)));
+
+		try {
+			assertThat(topology.addConfigured(configured), is(Topology.Configured.ADDED));
+			topology.changeAddress(NodeConnections.unconnected("127.0.100.44:52883"), moved.getAddress());
+			topology.letGoOfClosedStreams();
+
+			assertThat("a configured node was let go of with its closed stream", topology.containsNode(moved), is(true));
+		} finally {
+			topology.removeConfigured(moved);
+		}
+	}
+
 	/* A name that resolves slowly, or not at all, takes as long as the lookup does. Every event loop that reads the
 	   topology would wait that long if the lookup ran under its lock, so a read and an add must go through while it
 	   blocks. The lookup is held at the first seed, and the fake takes it on only for as long as the example runs. */

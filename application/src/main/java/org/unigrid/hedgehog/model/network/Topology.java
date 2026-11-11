@@ -133,17 +133,25 @@ public class Topology {
 		});
 	}
 
-	/* The address decides the hash of a node, so it has to leave the set while the address changes. A node does not move
-	   onto the address of one that is known already, as the set would drop it, and with it the node that answers for
-	   its connection and its entry in the channel map: it stays where it is. */
+	/* The address decides the hash of a node, so it has to leave the sets that hold it while the address changes: a
+	   seed, or a node that the operator added, is the same node in the configured set, which would not find it again
+	   under the hash of its new address. A node does not move onto the address of one that is known already, as the
+	   set would drop it, and with it the node that answers for its connection and its entry in the channel map: it
+	   stays where it is. */
 	@Protected @Lock(LockMode.WRITE)
 	public void changeAddress(Node node, InetSocketAddress address) {
 		final Node moved = Node.builder().address(address).build();
 
 		nodes.stream().filter(node::equals).findFirst().filter(n -> !nodes.contains(moved)).ifPresent(n -> {
+			final boolean isConfigured = configured.remove(n);
+
 			nodes.remove(n);
 			n.setAddress(address);
 			nodes.add(n);
+
+			if (isConfigured) {
+				configured.add(n);
+			}
 		});
 	}
 

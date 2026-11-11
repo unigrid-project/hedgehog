@@ -47,6 +47,11 @@ public final class RemoteAddress {
 		}
 	}
 
+	/* The port that the peer of a connection said it listens on, which names its node in the topology */
+	public static Optional<Integer> listenPortOf(final Channel connection) {
+		return Optional.ofNullable(connection.attr(LISTEN_PORT_KEY).get());
+	}
+
 	/* The address is kept on the QUIC connection that the stream belongs to. A server learns it from the connection
 	   event, which follows the peer when it moves; a client knows it from where it connected. The port a server
 	   learns is its own, assumed for every peer, so a peer on this host cannot be told from another by it: such a

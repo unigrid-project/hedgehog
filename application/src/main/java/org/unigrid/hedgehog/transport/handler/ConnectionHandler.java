@@ -51,6 +51,18 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 		return Objects.isNull(oldAddress) ? NetOptions.getPort() : oldAddress.getPort();
 	}
 
+	/* The node of the peer is named by the port it said it listens on, the one it said hello with, and by the port
+	   assumed for it only while it has said none: the assumed port is this node's own, which another peer at the same
+	   address may be named by */
+	private void moveNode(ChannelHandlerContext ctx, Topology topology, InetSocketAddress from, InetAddress to) {
+		final int port = RemoteAddress.listenPortOf(ctx.channel()).orElse(from.getPort());
+		final Node node = Node.builder().address(new InetSocketAddress(from.getAddress(), port)).build();
+		final InetSocketAddress moved = new InetSocketAddress(to.getHostAddress(), port);
+
+		log.atTrace().log("Modifying node {} with new address {}", node, moved);
+		topology.changeAddress(node, moved);
+	}
+
 	/* A connection counts against the address it first came from, for as long as it is open. It is admitted before its
 	   handshake is done, and one that closes before that never becomes active, so it never goes inactive either: the
 	   close is what gives the slot back, as every connection ends in one. */
@@ -104,10 +116,7 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 			final InetSocketAddress newWPort = new InetSocketAddress(addr.getHostAddress(), getPort(ctx));
 
 			if (Objects.nonNull(oldWPort)) {
-				final Node node = Node.builder().address(oldWPort).build();
-
-				log.atTrace().log("Modifying node {} with new address {}", node, newWPort);
-				topology.get().changeAddress(node, newWPort);
+				moveNode(ctx, topology.get(), oldWPort, addr);
 			}
 
 			log.atTrace().log("Stored new address {} on channel {}", newWPort, ctx.channel());
