@@ -62,8 +62,14 @@ public class Topology {
 	   the gridnodes have a lock of their own instead of the one of the interceptor */
 	private final ReentrantReadWriteLock gridnodeLock = new ReentrantReadWriteLock();
 
-	/* The seeds and the nodes that the operator added over REST, which are dialed whatever peers tell */
+	/* The nodes that the operator added over REST, which are dialed whatever peers tell until the operator removes
+	   them */
 	private final Set<Node> configured = new HashSet<>();
+
+	/* What the seed names resolved to in the last round, which are dialed as the configured nodes are. A name may
+	   resolve to another address in each round, so every round replaces them: kept for good, they would grow with the
+	   rounds, each of them let in past MAX_NODES and dialed in every round. */
+	private Set<Node> seeds = new HashSet<>();
 
 	@Inject
 	@Getter private ChannelMap channels;
@@ -106,12 +112,27 @@ public class Topology {
 	}
 
 	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
-	   nothing but what they chose to tell it. Each is configured as the operator's, also when a peer told of it first.
-	   Gives those of the resolved seeds that are nodes to dial. */
+	   nothing but what they chose to tell it. Each is the operator's, also when a peer told of it first, for as long as
+	   a seed name resolves to it: the resolved ones are the seeds from now on, and those of the round before that are
+	   not among them are let go of. Gives those of the resolved seeds that are nodes to dial. */
 	@Protected @Lock(LockMode.WRITE)
 	public Set<Node> addSeeds(Set<Node> resolved) {
-		return resolved.stream().filter(node -> addConfigured(node) != Configured.REFUSED)
-			.collect(Collectors.toSet());
+		final Set<Node> earlier = seeds;
+
+		seeds = resolved.stream().filter(Topology::isOneToDial).collect(Collectors.toCollection(HashSet::new));
+		seeds.forEach(this::letIn);
+		earlier.stream().filter(seed -> !seeds.contains(seed) && !configured.contains(seed))
+			.forEach(this::letGoOfSeed);
+
+		return new HashSet<>(seeds);
+	}
+
+	/* A seed that no name resolves to any more leaves the topology, unless the operator added it over REST as well. One
+	   that a connection or an open stream still ties to this node stays as a node that a peer told of does, which the
+	   rounds look after: a connection that this node dialed is the round's to close. */
+	private void letGoOfSeed(Node seed) {
+		nodes.removeIf(node -> node.equals(seed) && node.getConnection().isEmpty()
+			&& node.getInbound().filter(inbound -> inbound.getChannel().isActive()).isEmpty());
 	}
 
 	@Protected @Lock(LockMode.READ)
@@ -134,10 +155,11 @@ public class Topology {
 	}
 
 	/* The address decides the hash of a node, so it has to leave the sets that hold it while the address changes: a
-	   seed, or a node that the operator added, is the same node in the configured set, which would not find it again
-	   under the hash of its new address. A node does not move onto the address of one that is known already, as the
-	   set would drop it, and with it the node that answers for its connection and its entry in the channel map: it
-	   stays where it is. */
+	   seed, or a node that the operator added, is the same node among the seeds or in the configured set, which would
+	   not find it again under the hash of its new address. A node that the operator added is configured where it moved
+	   to, while a seed is what a name resolved to, which the node no longer is at another address. A node does not move
+	   onto the address of one that is known already, as the set would drop it, and with it the node that answers for
+	   its connection and its entry in the channel map: it stays where it is. */
 	@Protected @Lock(LockMode.WRITE)
 	public void changeAddress(Node node, InetSocketAddress address) {
 		final Node moved = Node.builder().address(address).build();
@@ -145,6 +167,7 @@ public class Topology {
 		nodes.stream().filter(node::equals).findFirst().filter(n -> !nodes.contains(moved)).ifPresent(n -> {
 			final boolean isConfigured = configured.remove(n);
 
+			seeds.remove(n);
 			nodes.remove(n);
 			n.setAddress(address);
 			nodes.add(n);
@@ -181,32 +204,47 @@ public class Topology {
 	}
 
 	/**
-	* Configures a node that the operator gives, as a seed or over REST, which is let in past MAX_NODES and dialed
-	* whatever peers tell. A node that a peer told of first, as an attacker may to keep it from being the operator's, is
-	* configured all the same, and a connection that was dialed to it is one to a configured node from then on: nothing
-	* that a peer sends makes a node configured, or less so.
+	* Configures a node that the operator adds over REST, which is let in past MAX_NODES and dialed whatever peers
+	* tell, until the operator removes it. A node that a peer told of first, as an attacker may to keep it from being
+	* the operator's, is configured all the same: nothing that a peer sends makes a node configured, or less so. A seed
+	* was configured before, as the operator's, and stays so from now on when no seed name resolves to it any more.
 	*/
 	@Protected @Lock(LockMode.WRITE)
 	public Configured addConfigured(Node node) {
-		if (node.getAddress().isUnresolved() || node.isMe()) {
+		if (!isOneToDial(node)) {
 			return Configured.REFUSED;
 		}
 
-		final boolean isNew = configured.add(node);
-		final Optional<Node> known = nodes.stream().filter(node::equals).findFirst();
+		final boolean isNew = configured.add(node) && !seeds.contains(node);
 
-		if (known.isEmpty()) {
-			nodes.add(node);
+		if (letIn(node)) {
 			return Configured.ADDED;
 		}
 
-		known.get().getConnection().map(Connection::getChannel).ifPresent(Dialed::configure);
 		return isNew ? Configured.PROMOTED : Configured.BEFORE;
 	}
 
+	private static boolean isOneToDial(Node node) {
+		return !node.getAddress().isUnresolved() && !node.isMe();
+	}
+
+	/* Lets a node of the operator's, a seed or one added over REST, in past MAX_NODES, and gives whether it was new to
+	   the topology. A connection that was dialed to one that was known is one to a configured node from then on. */
+	private boolean letIn(Node node) {
+		final Optional<Node> known = nodes.stream().filter(node::equals).findFirst();
+
+		known.flatMap(Node::getConnection).map(Connection::getChannel).ifPresent(Dialed::configure);
+		return known.isEmpty() && nodes.add(node);
+	}
+
+	/* The nodes that are dialed whatever peers tell: those that the operator added over REST, and the seeds of this
+	   round */
 	@Protected @Lock(LockMode.READ)
 	public Set<Node> cloneConfigured() {
-		return new HashSet<>(configured);
+		final Set<Node> dialed = new HashSet<>(configured);
+
+		dialed.addAll(seeds);
+		return dialed;
 	}
 
 	@Protected @Lock(LockMode.WRITE)
@@ -215,22 +253,24 @@ public class Topology {
 	}
 
 	/* A stream that a node opened to this one is let go once it closed, and with it a node known by that stream alone:
-	   one that no operator configured and that this node holds no connection to */
+	   one that no operator configured, that is no seed, and that this node holds no connection to */
 	@Protected @Lock(LockMode.WRITE)
 	public void letGoOfClosedStreams() {
-		nodes.removeIf(node -> node.getConnection().isEmpty() && !configured.contains(node)
+		nodes.removeIf(node -> node.getConnection().isEmpty() && !configured.contains(node) && !seeds.contains(node)
 			&& node.getInbound().filter(inbound -> !inbound.getChannel().isActive()).isPresent());
 		nodes.forEach(node -> node.setInbound(node.getInbound().filter(inbound -> inbound.getChannel().isActive())));
 	}
 
-	/* A node that the operator removes, which is no longer configured either. It is given as the topology held it, so
-	   with the connection that a dial handed it up to the removal: no round sees the node again, and a dial that ends
-	   later finds none to hand its client to, so that connection is the caller's to close. */
+	/* A node that the operator removes, which is no longer configured either, and no seed until a round finds a seed
+	   name that resolves to it and adds it anew. It is given as the topology held it, so with the connection that a
+	   dial handed it up to the removal: no round sees the node again, and a dial that ends later finds none to hand its
+	   client to, so that connection is the caller's to close. */
 	@Protected @Lock(LockMode.WRITE)
 	public Optional<Node> removeConfigured(Node node) {
 		final Optional<Node> held = nodes.stream().filter(node::equals).findFirst();
 
 		configured.remove(node);
+		seeds.remove(node);
 		nodes.remove(node);
 		return held;
 	}

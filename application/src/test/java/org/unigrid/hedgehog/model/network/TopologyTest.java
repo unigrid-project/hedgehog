@@ -105,6 +105,142 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.removeNode(changed), is(true));
 	}
 
+	private static final int ROUNDS = 50;
+	private static final String ROTATING_NETWORK = "10.77.";
+
+	/* A seed name whose address is a new one in each round, as a name of a round robin or of a host that moves is, is
+	   one seed. An address it gave earlier is dialed as a seed no longer, and leaves the topology, so neither the nodes
+	   that are dialed in every round and pass the limit of the topology, nor the nodes, grow with the rounds. The fake
+	   gives a new address for the first seed only while the example runs. */
+	@Example
+	public void shouldNotConfigureANodeForEveryAddressThatASeedNameResolvedToInTurn() {
+		final String name = Network.getSeeds()[0];
+		final AtomicBoolean rotating = new AtomicBoolean(true);
+		final AtomicInteger lookups = new AtomicInteger();
+
+		new MockUp<Node>() {
+			@Mock
+			@SneakyThrows
+			public /* static */ Node fromAddress(String address) {
+				final String resolved = rotating.get() && name.equals(address) ? ROTATING_NETWORK
+					+ lookups.get() / 256 + "." + lookups.getAndIncrement() % 256 + ":1234" : address;
+
+				return Node.fromURI(new URI(null, resolved, null, null, null).parseServerAuthority());
+			}
+		};
+
+		try {
+			for (int round = 0; round < ROUNDS; round++) {
+				topology.addSeeds(Topology.resolveSeeds());
+			}
+
+			assertThat("the configured nodes after " + ROUNDS + " rounds of one seed that resolves anew each time",
+				topology.cloneConfigured().size(), lessThanOrEqualTo(Network.getSeeds().length));
+			assertThat("the nodes at an address that the seed resolved to in one of " + ROUNDS + " rounds",
+				topology.cloneNodes().stream().map(node -> node.getAddress().getHostString())
+					.filter(host -> host.startsWith(ROTATING_NETWORK)).count(), is(1L));
+		} finally {
+			rotating.set(false);
+			topology.cloneConfigured().forEach(topology::removeConfigured);
+			topology.repopulate(Topology.resolveSeeds());
+		}
+	}
+
+	/* A seed that no name resolves to any more is dialed as a seed no longer, but a node that a connection or an open
+	   stream still ties to this node is not dropped with it: it stays as a node that a peer told of does, and goes as
+	   one once its stream closed */
+	@Example
+	public void shouldKeepAnEarlierSeedAsAnOrdinaryNodeWhileAConnectionOrAStreamTiesItToThisNode() {
+		final EmbeddedChannel stream = new EmbeddedChannel();
+		final Node dialed = NodeConnections.connected("127.0.100.51:52883", new EmbeddedChannel());
+		final Node heard = NodeConnections.unconnected("127.0.100.52:52883");
+		final Node idle = NodeConnections.unconnected("127.0.100.53:52883");
+		final List<Node> earlier = List.of(dialed, heard, idle);
+
+		heard.setInbound(Optional.of(LedgerStreams.connection(stream)));
+
+		try {
+			assertThat(topology.addSeeds(Set.copyOf(earlier)), hasSize(earlier.size()));
+			assertThat(topology.cloneConfigured(), hasItems(dialed, heard, idle));
+			topology.addSeeds(Topology.resolveSeeds());
+
+			assertThat(topology.cloneNodes().stream().filter(earlier::contains).toList(),
+				containsInAnyOrder(dialed, heard));
+			assertThat(topology.cloneConfigured().stream().filter(earlier::contains).toList(), empty());
+
+			stream.close();
+			topology.letGoOfClosedStreams();
+			assertThat(topology.cloneNodes().stream().filter(earlier::contains).toList(), contains(dialed));
+		} finally {
+			earlier.forEach(topology::removeNode);
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	/* A seed that the operator adds over REST as well was configured before, and is the operator's from then on: it
+	   stays when no seed name resolves to it any more, until the operator removes it */
+	@Example
+	public void shouldKeepAnEarlierSeedThatTheOperatorAddedUntilTheOperatorRemovesIt() {
+		final Node seed = NodeConnections.unconnected("127.0.100.54:52883");
+
+		try {
+			topology.addSeeds(Set.of(seed));
+			assertThat(topology.addConfigured(NodeConnections.unconnected("127.0.100.54:52883")),
+				is(Topology.Configured.BEFORE));
+			topology.addSeeds(Topology.resolveSeeds());
+
+			assertThat(topology.cloneNodes(), hasItem(seed));
+			assertThat(topology.cloneConfigured(), hasItem(seed));
+			assertThat(topology.removeConfigured(seed), is(Optional.of(seed)));
+			assertThat(topology.cloneNodes(), not(hasItem(seed)));
+			assertThat(topology.cloneConfigured(), not(hasItem(seed)));
+		} finally {
+			topology.removeConfigured(seed);
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	/* A seed that the operator removes is gone, as a node and as a seed, until the next round: a seed name that still
+	   resolves to it brings it back */
+	@Example
+	public void shouldBringBackASeedThatTheOperatorRemovedOnceASeedNameResolvesToItAgain() {
+		final Node seed = Topology.resolveSeeds().iterator().next();
+
+		try {
+			topology.addSeeds(Topology.resolveSeeds());
+			assertThat(topology.removeConfigured(seed), is(Optional.of(seed)));
+			assertThat(topology.cloneNodes(), not(hasItem(seed)));
+			assertThat(topology.cloneConfigured(), not(hasItem(seed)));
+
+			topology.addSeeds(Topology.resolveSeeds());
+			assertThat(topology.cloneNodes(), hasItem(seed));
+			assertThat(topology.cloneConfigured(), hasItem(seed));
+		} finally {
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	/* A seed is what a name resolved to, which a node that moved to another address no longer is. It is the same node
+	   among the seeds, so it has to leave them before its address changes: a hash set that holds it under the hash of
+	   its old address would give it out at the new one. */
+	@Example
+	public void shouldTakeASeedThatMovedForNoSeedAtItsNewAddress() {
+		final Node seed = NodeConnections.unconnected("127.0.100.55:52883");
+		final Node moved = NodeConnections.unconnected("127.0.100.56:52883");
+
+		try {
+			topology.addSeeds(Set.of(NodeConnections.unconnected("127.0.100.55:52883")));
+			topology.changeAddress(seed, moved.getAddress());
+
+			assertThat(topology.cloneNodes(), hasItem(moved));
+			assertThat(topology.cloneConfigured(), not(hasItem(moved)));
+			assertThat(topology.cloneConfigured(), not(hasItem(seed)));
+		} finally {
+			topology.removeNode(moved);
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
 	/* A peer that moves onto the address of a node that is known already cannot be filed there twice. The node must not
 	   vanish with its connection left behind and its entry in the channel map, with no node to answer for them: it is
 	   either kept where it was or let go of with both. */
