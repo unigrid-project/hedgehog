@@ -28,12 +28,15 @@ import java.net.InetSocketAddress;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -238,6 +241,107 @@ public class TopologyTest extends BaseMockedWeldTest {
 		} finally {
 			topology.removeNode(moved);
 			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	private static final String MOVED_SEED = "127.0.100.57:52883";
+	private static final String NEVER_RESOLVED_SEED = "127.0.200.9";
+
+	/* The lookups of the seed names, which an answer replaces while one is held for a name: another address that the
+	   name resolves to, or none for a lookup that fails, as that of a host whose resolver is down does. The fake stays
+	   on for the rest of the class, so an example empties the answers when it is done. */
+	private static void answerSeedLookups(Map<String, Optional<String>> answers) {
+		new MockUp<Node>() {
+			@Mock
+			@SneakyThrows
+			public /* static */ Node fromAddress(String address) {
+				final String resolved = answers.getOrDefault(address, Optional.of(address))
+					.orElseThrow(() -> new UnknownHostException(address));
+
+				return Node.fromURI(new URI(null, resolved, null, null, null).parseServerAuthority());
+			}
+		};
+	}
+
+	/* A lookup that fails tells nothing of where a seed is: the resolver of the host is down for a while, or answers too
+	   late. A round in which no seed name resolves must not let go of the seeds, which lead a node back to the network
+	   when peers filled its topology: each name keeps the address that it last resolved to, which is dialed as a seed
+	   and passes the limit of the topology as before. */
+	@Example
+	public void shouldKeepTheSeedsThroughARoundInWhichNoSeedNameResolves() {
+		final Map<String, Optional<String>> answers = new ConcurrentHashMap<>();
+
+		answerSeedLookups(answers);
+
+		try {
+			final Set<Node> seeds = topology.addSeeds(Topology.resolveSeeds());
+
+			assertThat(seeds, hasSize(Network.getSeeds().length));
+			Arrays.stream(Network.getSeeds()).forEach(name -> answers.put(name, Optional.empty()));
+
+			assertThat("the seeds to dial after a round in which no seed name resolved",
+				topology.addSeeds(Topology.resolveSeeds()), is(seeds));
+			assertThat("the configured nodes after a round in which no seed name resolved",
+				topology.cloneConfigured(), hasItems(seeds.toArray(Node[]::new)));
+			assertThat("the nodes after a round in which no seed name resolved", topology.cloneNodes(),
+				hasItems(seeds.toArray(Node[]::new)));
+		} finally {
+			answers.clear();
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	/* Only a name whose lookup failed keeps its address. A name that resolves to another address in the same round has
+	   moved, so the address that it resolved to before is a seed no longer and leaves the topology, and it is the
+	   address that the name moved to that it keeps when a later lookup of it fails. */
+	@Example
+	public void shouldKeepTheSeedOfANameThatDoesNotResolveAndLetGoOfTheOneOfANameThatMoved() throws Exception {
+		final String[] names = Network.getSeeds();
+		final Map<String, Optional<String>> answers = new ConcurrentHashMap<>();
+		final Node moved = NodeConnections.unconnected(MOVED_SEED);
+
+		answerSeedLookups(answers);
+
+		try {
+			final Node kept = Node.fromAddress(names[0]);
+			final Node left = Node.fromAddress(names[1]);
+
+			topology.addSeeds(Topology.resolveSeeds());
+			answers.put(names[0], Optional.empty());
+			answers.put(names[1], Optional.of(MOVED_SEED));
+			topology.addSeeds(Topology.resolveSeeds());
+
+			assertThat(topology.cloneConfigured(), allOf(hasItems(kept, moved), not(hasItem(left))));
+			assertThat(topology.cloneNodes(), allOf(hasItems(kept, moved), not(hasItem(left))));
+
+			answers.put(names[1], Optional.empty());
+			topology.addSeeds(Topology.resolveSeeds());
+
+			assertThat(topology.cloneConfigured(), allOf(hasItems(kept, moved), not(hasItem(left))));
+			assertThat(topology.cloneNodes(), allOf(hasItems(kept, moved), not(hasItem(left))));
+		} finally {
+			answers.clear();
+			topology.addSeeds(Topology.resolveSeeds());
+		}
+	}
+
+	/* A name that has not resolved since the node started has no address to keep, so it gives no seed while its lookup
+	   fails */
+	@Example
+	public void shouldGiveNoSeedForANameThatNeverResolved() {
+		final Map<String, Optional<String>> answers = new ConcurrentHashMap<>();
+
+		answers.put(NEVER_RESOLVED_SEED, Optional.empty());
+		answerSeedLookups(answers);
+
+		new Expectations() {{
+			Network.getSeeds(); result = new String[] { NEVER_RESOLVED_SEED };
+		}};
+
+		try {
+			assertThat(Topology.resolveSeeds(), empty());
+		} finally {
+			answers.clear();
 		}
 	}
 

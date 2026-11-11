@@ -28,8 +28,10 @@ import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -66,6 +68,12 @@ public class Topology {
 	   them */
 	private final Set<Node> configured = new HashSet<>();
 
+	/* The address that each seed name resolved to when a lookup of it last gave one. A lookup that fails tells nothing
+	   of where the seed is, as when the resolver of the host is down or answers too late, so the name keeps this address
+	   until it resolves again: a round of failed lookups would let go of every seed otherwise. What a name resolves to
+	   is the same for every topology of the process, and there is one address for each name. */
+	private static final Map<String, InetSocketAddress> LAST_RESOLVED = new ConcurrentHashMap<>();
+
 	/* What the seed names resolved to in the last round, which are dialed as the configured nodes are. A name may
 	   resolve to another address in each round, so every round replaces them: kept for good, they would grow with the
 	   rounds, each of them let in past MAX_NODES and dialed in every round. */
@@ -94,21 +102,30 @@ public class Topology {
 
 	/* A name that resolves slowly, or not at all, takes as long as the lookup does, which every reader of the topology
 	   would wait out if the lock were held for it. The seeds are therefore looked up first and handed to the topology
-	   resolved. */
+	   resolved. A name whose lookup fails is resolved to the address that it had before, and one that never had an
+	   address gives no seed. */
 	public static Set<Node> resolveSeeds() {
 		final Set<Node> resolved = new HashSet<>();
 
 		for (String address : Network.getSeeds()) {
 			try {
-				resolved.add(Node.fromAddress(address));
+				final Node seed = Node.fromAddress(address);
+
+				LAST_RESOLVED.put(address, seed.getAddress());
+				resolved.add(seed);
 			} catch (URISyntaxException ex) {
 				log.atError().log("Invalid address format for seed node {}: {}", address, ex);
 			} catch (UnknownHostException ex) {
 				log.atWarn().log("Seed node {} does not resolve: {}", address, ex.getMessage());
+				lastResolved(address).ifPresent(resolved::add);
 			}
 		}
 
 		return resolved;
+	}
+
+	private static Optional<Node> lastResolved(String name) {
+		return Optional.ofNullable(LAST_RESOLVED.get(name)).map(address -> Node.builder().address(address).build());
 	}
 
 	/* The seeds stay in the topology whatever else it holds: one that only peers had filled would leave a node with
