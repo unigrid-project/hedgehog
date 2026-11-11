@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 public class ResponseOddityException extends Exception {
 	private static final int MAX_BODY = 8 * 1024;
@@ -39,13 +40,22 @@ public class ResponseOddityException extends Exception {
 	}
 
 	public ResponseOddityException(StatusType status, String body) {
-		super(String.format("%d %s (%s)",
-			status.getStatusCode(), Status.fromStatusCode(status.getStatusCode()),
-			status.getReasonPhrase())
-		);
-
+		super(describe(status));
 		this.body = body;
 		this.statusCode = status.getStatusCode();
+	}
+
+	/* A status that jakarta has no name for, such as one of a proxy in between, is shown by its number */
+	private static String describe(StatusType status) {
+		final int code = status.getStatusCode();
+		final Status known = Status.fromStatusCode(code);
+
+		if (known != null) {
+			return String.format("%d %s (%s)", code, known, status.getReasonPhrase());
+		}
+
+		return StringUtils.isBlank(status.getReasonPhrase()) ? String.valueOf(code)
+			: String.format("%d (%s)", code, status.getReasonPhrase());
 	}
 
 	public static ResponseOddityException of(Response response) {

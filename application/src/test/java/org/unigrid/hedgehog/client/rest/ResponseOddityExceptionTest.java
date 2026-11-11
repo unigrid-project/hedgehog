@@ -68,6 +68,22 @@ public class ResponseOddityExceptionTest {
 			equalTo("ö".repeat(KEPT / 2)));
 	}
 
+	/* A node, or a proxy in front of it, may answer with a status that jakarta has no name for */
+	@Example
+	public void shouldNameAStatusThatHasNoNameByItsNumber() {
+		final ResponseOddityException oddity = new ResponseOddityException(Response.status(599, "Odd").build()
+			.getStatusInfo());
+
+		assertThat(oddity.getMessage(), equalTo("599 (Odd)"));
+		assertThat(oddity.getStatusCode(), equalTo(599));
+	}
+
+	@Example
+	public void shouldNotShowAnEmptyReasonOfAStatusThatHasNoName() {
+		assertThat(new ResponseOddityException(Response.status(599, "").build().getStatusInfo()).getMessage(),
+			equalTo("599"));
+	}
+
 	@Example
 	public void shouldKeepNothingWhereThereIsNoBody() {
 		assertThat(oddityOf(Response.status(Status.SERVICE_UNAVAILABLE).build()).getBody(), emptyString());

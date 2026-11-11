@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.util;
 
+import com.fasterxml.jackson.core.JacksonException;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
@@ -178,12 +179,8 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 				.formatted(missing.getFile());
 		}
 
-		/* The client reports a node that does not answer as an exception of its own, around the socket error */
-		if (ex instanceof ProcessingException unreachable) {
-			final String cause = ExceptionUtils.getRootCauseMessage(unreachable);
-
-			return TerminalText.printable("Could not reach the node at %s:%d: %s"
-				.formatted(RestOptions.getHost(), RestOptions.getPort(), cause));
+		if (ex instanceof ProcessingException processing) {
+			return describeProcessing(processing);
 		}
 
 		/* A node says in the body of its answer why it turned a request down, which the status line does not say */
@@ -192,6 +189,22 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		}
 
 		return TerminalText.printable(String.valueOf(ex.getMessage()));
+	}
+
+	/* The client reports a node that does not answer as an exception of its own, around the socket error. It reports a
+	   node that did answer with something it cannot read the same way, around the error of the reading, which for a
+	   body of JSON is an IOException of Jackson as well. Only a failure of the connection itself is a node that cannot
+	   be reached. */
+	private static String describeProcessing(ProcessingException ex) {
+		final Throwable root = ExceptionUtils.getThrowableList(ex).getLast();
+		final String cause = ExceptionUtils.getRootCauseMessage(ex);
+
+		if (root instanceof IOException && !(root instanceof JacksonException)) {
+			return TerminalText.printable("Could not reach the node at %s:%d: %s"
+				.formatted(RestOptions.getHost(), RestOptions.getPort(), cause));
+		}
+
+		return TerminalText.printable("The node answered something this command cannot read: " + cause);
 	}
 
 	/* What failed with a file on this machine, named as the user gave it, as the exception names a file of its own */

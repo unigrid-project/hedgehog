@@ -26,9 +26,15 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.Status.Family;
 import jakarta.ws.rs.core.Response.StatusType;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +42,10 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import lombok.SneakyThrows;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.integration.TestRunnerDecorator;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
@@ -51,7 +61,9 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
+import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
@@ -65,6 +77,9 @@ import org.unigrid.hedgehog.jqwik.MockitHook;
 public class RestClientCommandTest {
 	private static final List<String> METHODS = List.of(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT,
 		HttpMethod.DELETE);
+
+	/* How long the node waits for the command to ask, which it does within a moment */
+	private static final int PATIENCE_MILLIS = 20_000;
 
 	private static final Entity<String> BODY = Entity.text("body");
 	private static final String HEADER = "X-Header";
@@ -221,6 +236,77 @@ public class RestClientCommandTest {
 			+ reason)));
 
 		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	private static String answerWith(String contentType, String body) {
+		return "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
+			.formatted(contentType, body.getBytes(StandardCharsets.UTF_8).length, body);
+	}
+
+	private static void answerOnce(ServerSocket node, String answer) {
+		try (Socket client = node.accept()) {
+			final BufferedReader request = new BufferedReader(
+				new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII));
+
+			while (!request.readLine().isEmpty()) {
+				continue;
+			}
+
+			client.getOutputStream().write(answer.getBytes(StandardCharsets.UTF_8));
+		} catch (IOException ex) {
+			return;
+		}
+	}
+
+	/* The node that the command talks to, on this machine and without TLS, which the real one has. It sends what it
+	   is given to the first request. The fakes of the other examples stand in for the client and the answers until
+	   they are cleared, and are cleared again for the examples after this one. */
+	@SneakyThrows
+	private static HedgehogCli.Result askANodeThatSends(String answer, String... command) {
+		TestRunnerDecorator.cleanUpAllMocks();
+
+		try (ServerSocket node = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+			final Thread answering = new Thread(() -> answerOnce(node, answer));
+
+			node.setSoTimeout(PATIENCE_MILLIS);
+
+			new MockUp<RestClientCommand>() {
+				@Mock public /* static */ RestClient connect() {
+					return new RestClient("localhost", node.getLocalPort(), false, "token");
+				}
+			};
+
+			/* The first client in a run starts the logging of Netty, which says so on standard output */
+			new RestClient("localhost", node.getLocalPort(), false, "token").close();
+			answering.start();
+
+			final HedgehogCli.Result result = HedgehogCli.run(command);
+
+			answering.join();
+			return result;
+		} finally {
+			TestRunnerDecorator.cleanUpAllMocks();
+		}
+	}
+
+	/* The node answered, so it was reached: what it sent is what the command cannot make anything of, whether the
+	   body is no list of nodes or no one here knows how to read its type */
+	@Example
+	public void saysThatTheAnswerCannotBeReadAndNotThatTheNodeCannotBeReached() {
+		final List<List<String>> unreadable = List.of(List.of("application/json", "\"text\""),
+			List.of("application/json", "{broken"), List.of("text/plain", "hello"));
+
+		for (List<String> sent : unreadable) {
+			final HedgehogCli.Result result = askANodeThatSends(answerWith(sent.get(0), sent.get(1)), "cli",
+				"node-list");
+
+			final String shown = sent + " was shown as " + result.err();
+
+			result.assertNoStackTrace();
+			assertThat(shown, result.out(), equalTo(""));
+			assertThat(shown, result.err(), startsWith("The node answered something this command cannot read: "));
+			assertThat(shown, result.exitCode(), equalTo(ExitCode.FAILED));
+		}
 	}
 
 	@Property(tries = 20)
