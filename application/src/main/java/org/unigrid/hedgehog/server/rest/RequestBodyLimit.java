@@ -20,7 +20,9 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
@@ -83,6 +85,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	private boolean answering;
 	private boolean answered;
 	private boolean refused;
+	private boolean idle;
 	private Future<?> deadline;
 
 	/* A store takes a body that is far larger than anything else, and a store is not bound by time either, since
@@ -118,9 +121,32 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	}
 
 	private Future<?> timeout(final ChannelHandlerContext ctx) {
-		return ctx.executor().schedule(() -> refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT,
-			"A request has to arrive within " + bodyTime.toSeconds() + " seconds")), bodyTime.toMillis(),
-			TimeUnit.MILLISECONDS);
+		return ctx.executor().schedule(() -> expire(ctx), bodyTime.toMillis(), TimeUnit.MILLISECONDS);
+	}
+
+	/* A sender keeps a connection that was answered for the request that it sends next, and what is written to it in
+	   the meantime lies there until then and is read as the answer to that request. A connection that has sent
+	   nothing since its last request arrived whole is therefore closed without a word, as one is everywhere. The
+	   answer is for a sender whose request has not arrived whole, which is still waiting for one. */
+	private void expire(final ChannelHandlerContext ctx) {
+		if (idle) {
+			ctx.close();
+		} else {
+			refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT, "A request has to arrive within "
+				+ bodyTime.toSeconds() + " seconds"));
+		}
+	}
+
+	/* The decoder keeps the head of a request to itself until it is whole, so that a sender has begun one shows only
+	   ahead of the decoder, where what it sends is still bytes. This stands there and tells the limit of them. */
+	ChannelHandler arrivals() {
+		return new ChannelInboundHandlerAdapter() {
+			@Override
+			public void channelRead(final ChannelHandlerContext ctx, final Object message) {
+				idle = false;
+				ctx.fireChannelRead(message);
+			}
+		};
 	}
 
 	@Override
@@ -145,6 +171,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private boolean begin(final ChannelHandlerContext ctx, final HttpRequest request) {
 		answered = false;
+		idle = false;
 		cancelDeadline();
 		ctx.channel().attr(CUT).set(Boolean.FALSE);
 
@@ -189,6 +216,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 		if (content instanceof LastHttpContent) {
 			unfinished = false;
+			idle = true;
 			cancelDeadline();
 			awaitRequest(ctx);
 		}
