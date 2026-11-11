@@ -138,13 +138,13 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 	/* The stream holds what has arrived of a frame until the frame is whole, and every byte of it counts as a sign of
 	   its peer, so the pings never close the stream of a peer that lets a frame crawl in. What has arrived of a frame
-	   that is not whole is therefore looked at once in every ping period, and the stream is closed once too little
-	   of the frame arrived in each of as many periods in a row as close a stream that takes no more (Ping). However
-	   long a frame takes, a peer on a slow link is kept. */
+	   that is not whole is therefore looked at once in every ping period, and the stream is closed once the frame
+	   owes as much of what is to arrive in a period as closes a stream that takes no more (Ping). However long a
+	   frame takes, a peer on a slow link is kept. */
 	private Future<?> look;
 	private int arrived;
 	private int arrivedBefore;
-	private int slowPeriods;
+	private long debt;
 
 	/*
 	    Packet format:
@@ -250,23 +250,23 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	private void lookEveryPeriod(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
 		if (look == null) {
 			arrivedBefore = arrived;
-			slowPeriods = 0;
+			debt = 0;
 			look = ctx.executor().scheduleWithFixedDelay(() -> lookAt(ctx, type, size), Ping.HEARTBEAT_SECONDS,
 				Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS);
 		}
 	}
 
-	/* A period in which enough of the frame arrived starts the count again, so only a peer that delivered too little
-	   in every one of them is closed. The stream frees what it holds of the frame as it closes. A frame that does not
-	   come is the doing of the peer, which can leave any number of them unfinished, so it is told in one line at
-	   debug level. */
+	/* A frame owes what the periods were short of, less what later ones brought above their due, so the stream holds
+	   it for three periods at most beyond the time that it takes at the least that is to arrive in each. The stream
+	   frees what it holds of the frame as it closes. A frame that does not come is the doing of the peer, which can
+	   leave any number of them unfinished, so it is told in one line at debug level. */
 	private void lookAt(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
-		slowPeriods = arrived - arrivedBefore < Ping.LEAST_BYTES_A_PERIOD ? slowPeriods + 1 : 0;
+		debt = Ping.debtAfter(debt, arrived - arrivedBefore);
 		arrivedBefore = arrived;
 
-		if (slowPeriods >= Ping.SLOW_PERIODS_BEFORE_CLOSE) {
-			log.atDebug().log("Closed a stream: less than {} bytes of a {} frame of {} bytes arrived in each "
-				+ "of {} periods of {} seconds", Ping.LEAST_BYTES_A_PERIOD, type, size, slowPeriods,
+		if (debt >= Ping.DEBT_BEFORE_CLOSE) {
+			log.atDebug().log("Closed a stream: a {} frame of {} bytes fell {} bytes behind the {} bytes that "
+				+ "are to arrive of it every {} seconds", type, size, debt, Ping.LEAST_BYTES_A_PERIOD,
 				Ping.HEARTBEAT_SECONDS);
 			ctx.close();
 		}

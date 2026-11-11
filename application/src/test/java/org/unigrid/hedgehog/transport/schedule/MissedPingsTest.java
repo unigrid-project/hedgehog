@@ -53,8 +53,9 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
    whose pipeline starts as a node's does. The network examples of PingScheduleTest and PingChannelHandlerTest fail
    once another example of their class has run before them, so these are kept apart. A frame that is not whole is
    held by the stream while the bytes of it arrive, and the bytes count as a sign of life, so the pings never end a
-   frame that crawls in: what arrives of it is looked at once in every period, and its stream is closed once too
-   little arrived in each of three periods in a row, however much its header says it holds. */
+   frame that crawls in: what arrives of it is looked at once in every period, and its stream is closed once the
+   frame is 48 KiB behind the 16 KiB that are to arrive of it in every period, however much its header says it
+   holds. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class MissedPingsTest {
 	private static final int DATA_BYTES = 1024;
@@ -67,9 +68,10 @@ public class MissedPingsTest {
 	private static final int HOUR_IN_PERIODS = 3600 / Ping.HEARTBEAT_SECONDS;
 	private static final int ONE_MEBIBYTE_A_PERIOD = 9;
 
-	/* The periods in a row in which less than 16 KiB of a frame arrived after which its stream is closed, written
-	   out here and not taken from the decoder */
-	private static final int SLOW_PERIODS = 3;
+	/* The periods of a byte each after which the stream of a frame is closed, written out here and not taken from
+	   the decoder: a frame that is 48 KiB behind the 16 KiB that are to arrive of it in every period closes its
+	   stream, and a byte in each of three periods leaves it three bytes short of that */
+	private static final int PERIODS_OF_A_BYTE = 4;
 	private static final int SLOWLY_A_PERIOD = 17 * 1024;
 	private static final int PERIODS = 100;
 
@@ -237,7 +239,7 @@ public class MissedPingsTest {
 
 	/* A frame that a peer leaves unfinished, with nothing more from it, is held until the pings go unanswered: the
 	   body here arrives in the first period, so the fourth ping finds three unanswered a period before the third
-	   in a row ends in which too little of the frame arrived */
+	   ends in which nothing of the frame arrived */
 	@Example
 	public void closesTheStreamOfAPeerThatLeavesASporkFrameUnfinishedAndSendsNothingMore() {
 		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
@@ -265,7 +267,7 @@ public class MissedPingsTest {
 	   few as can be, and the stream holds the most that a frame of the type may, in memory that the peer has paid for
 	   with the bytes alone. A connection is served one main stream, and eight connections come from one address.
 	   The bytes keep the pings from closing anything, so it is what arrives of the frame that ends this: the body
-	   arrives in the first period, and the stream is closed at the end of the third after it, in each of which a
+	   arrives in the first period, and the stream is closed at the end of the fourth after it, in each of which a
 	   byte arrived. Its connection is not, and what the stream held of the frame is freed with it. */
 	@Example
 	public void closesTheStreamOfAPeerThatLetsASporkFrameCrawlInAByteAPeriod() {
@@ -295,7 +297,7 @@ public class MissedPingsTest {
 				+ held * ConnectionLimiter.MAX_PER_ADDRESS + " bytes for one address";
 
 			assertThat(message, stream.isOpen(), is(false));
-			assertThat(message, periods, is(1 + SLOW_PERIODS));
+			assertThat(message, periods, is(1 + PERIODS_OF_A_BYTE));
 			assertThat(message, held, is(0L));
 			assertThat(message, connection.isOpen(), is(true));
 		} finally {

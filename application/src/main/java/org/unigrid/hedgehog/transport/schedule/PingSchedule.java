@@ -36,8 +36,8 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 @EqualsAndHashCode(callSuper = false)
 public class PingSchedule extends AbstractSchedule implements Schedulable {
 	private static final String UNANSWERED = "answered none of the last " + Ping.MISSED_PINGS_BEFORE_CLOSE + " pings";
-	private static final String UNREAD = "read less than " + Ping.LEAST_BYTES_A_PERIOD + " bytes between pings "
-		+ Ping.SLOW_PERIODS_BEFORE_CLOSE + " times in a row while its stream took no more";
+	private static final String UNREAD = "fell " + Ping.DEBT_BEFORE_CLOSE + " bytes behind the "
+		+ Ping.LEAST_BYTES_A_PERIOD + " bytes that it is to read between pings while its stream took no more";
 
 	public PingSchedule() {
 		super(Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS, true);
@@ -69,7 +69,7 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 	private static void send(Channel channel) {
 		final Ping ping = Ping.builder().build();
 
-		channel.attr(Ping.SLOW_PERIODS_KEY).set(null);
+		channel.attr(Ping.DEBT_KEY).set(null);
 		channel.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
 		channel.writeAndFlush(ping);
 	}
@@ -89,17 +89,15 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 		return taken - Objects.requireNonNullElse(channel.attr(Ping.TAKEN_BEFORE_KEY).getAndSet(taken), 0L);
 	}
 
-	/* The periods in a row in which too little left the stream are counted from the run that first finds that it takes
-	   no more: the stream still took more in some of the period that this run ends, so the peer is judged by the
-	   ones after it. A period in which enough left the stream starts the count again, as a stream that takes more
-	   again does (PeerActivityHandler), so only a peer that read too little in every one of them is closed. */
+	/* What the peer owes is counted from the run that first finds that the stream takes no more: the stream still took
+	   more in some of the period that this run ends, so the peer is judged by the ones after it. A stream that takes
+	   more again owes nothing (PeerActivityHandler). */
 	private static boolean readsTooLittle(Channel channel, long taken) {
-		final Attribute<Integer> counted = channel.attr(Ping.SLOW_PERIODS_KEY);
-		final int periods = Optional.ofNullable(counted.get()).filter(before -> taken < Ping.LEAST_BYTES_A_PERIOD)
-			.map(before -> before + 1).orElse(0);
+		final Attribute<Long> owed = channel.attr(Ping.DEBT_KEY);
+		final long debt = Optional.ofNullable(owed.get()).map(before -> Ping.debtAfter(before, taken)).orElse(0L);
 
-		counted.set(periods);
-		return periods >= Ping.SLOW_PERIODS_BEFORE_CLOSE;
+		owed.set(debt);
+		return debt >= Ping.DEBT_BEFORE_CLOSE;
 	}
 
 	/* The QUIC connection that the stream runs on, as every stream of a peer that is gone is dead with it, and the

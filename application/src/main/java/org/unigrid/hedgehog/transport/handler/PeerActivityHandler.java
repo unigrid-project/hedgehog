@@ -44,7 +44,7 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
    the last of it is gone. The piece that is leaving counts by as much of it as is out, which the stream tells by the
    reader index of the piece, moved on as it sends: by whole pieces alone, a peer that reads less than a piece in a
    period would show as one that reads nothing in one period and a whole piece in the next. A stream that takes more
-   again has been read, which starts the count of the periods in which too little left it again. */
+   again has been read, so its peer no longer owes what the periods before were short of. */
 @Sharable
 public class PeerActivityHandler extends ChannelDuplexHandler {
 	public static final int PIECE_BYTES = 16 * 1024;
@@ -137,7 +137,7 @@ public class PeerActivityHandler extends ChannelDuplexHandler {
 	@Override
 	public void channelWritabilityChanged(ChannelHandlerContext ctx) {
 		if (ctx.channel().isWritable()) {
-			ctx.channel().attr(Ping.SLOW_PERIODS_KEY).set(null);
+			ctx.channel().attr(Ping.DEBT_KEY).set(null);
 		}
 
 		ctx.fireChannelWritabilityChanged();
