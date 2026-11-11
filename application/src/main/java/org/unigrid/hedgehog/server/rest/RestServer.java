@@ -145,7 +145,9 @@ public class RestServer extends AbstractServer {
 
 	/* The initializer of the container builds the pipeline of a connection, so the limit is set in after its codec,
 	   where a request has been read from the wire and nothing has yet queued it. The codec hands nothing on until it
-	   has the head of a request whole, so what tells the limit that something has arrived is set in before it. */
+	   has the head of a request whole, so what tells the limit that something has arrived is set in before it. What
+	   holds the stop of the node back until its answer is written stands between the codec and the limit, where an
+	   answer is on its way to the socket and the limit has no more say over it. */
 	private static ChannelHandler limited(final ChannelHandler jersey, final BearerTokenFilter authentication) {
 		return new ChannelInitializer<SocketChannel>() {
 			@Override
@@ -161,6 +163,7 @@ public class RestServer extends AbstractServer {
 
 				pipeline.addBefore(codec, null, limit.arrivals());
 				pipeline.addAfter(codec, null, limit);
+				pipeline.addAfter(codec, null, new StopAfterAnswer());
 			}
 		};
 	}
