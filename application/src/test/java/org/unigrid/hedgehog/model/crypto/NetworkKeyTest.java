@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.model.crypto;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +35,9 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.slf4j.LoggerFactory;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 
@@ -130,5 +135,37 @@ public class NetworkKeyTest extends BaseMockedWeldTest {
 	@Example
 	public void shouldTakeLogEntriesOfTheCurrentKeysOnly() {
 		assertThat(NetworkKey.getLogKeys(), is(Set.of(publicKeys(SIGNATURES))));
+	}
+
+	/* A signature that is no signature at all fails with an exception for each key it is tried against, and the trace
+	   of that exception is for a node that logs at trace level, which the others must not pay for each time. The count
+	   with the trace on shows that the signature does fail each key. */
+	@Example
+	public void shouldBuildNoTraceOfASignatureThatCannotBeReadUnlessTraceIsLogged() {
+		final Logger logger = (Logger) LoggerFactory.getLogger(NetworkKey.class);
+		final Level level = logger.getLevel();
+		final MutableInt traces = new MutableInt();
+		final byte[] digest = DigestUtils.sha512(new byte[] { 1 });
+		final byte[] signature = new byte[] { 1, 2, 3 };
+
+		new MockUp<ExceptionUtils>() {
+			@Mock public String getStackTrace(Throwable throwable) {
+				traces.increment();
+				return "";
+			}
+		};
+
+		try {
+			logger.setLevel(Level.TRACE);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat(traces.intValue(), is(SIGNATURES.size()));
+
+			traces.setValue(0);
+			logger.setLevel(Level.INFO);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat(traces.intValue(), is(0));
+		} finally {
+			logger.setLevel(level);
+		}
 	}
 }
