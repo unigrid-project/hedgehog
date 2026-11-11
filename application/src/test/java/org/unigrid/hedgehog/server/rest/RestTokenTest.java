@@ -22,6 +22,9 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -72,6 +75,18 @@ public class RestTokenTest extends BaseMockedWeldTest {
 
 		RestToken.write(RestToken.getFile(), token);
 		assertThat(RestToken.read(RestToken.getFile()), equalTo(token));
+	}
+
+	/* A file given as a bare name has no parent until it is made absolute, and it belongs in the working directory */
+	@Example
+	@SneakyThrows
+	public void shouldWriteAFileGivenAsABareNameInTheWorkingDirectory() {
+		try (FileSystem files = Jimfs.newFileSystem(Configuration.unix())) {
+			final String token = RestToken.generate();
+
+			RestToken.write(files.getPath(RestToken.FILE), token);
+			assertThat(RestToken.read(files.getPath("/work", RestToken.FILE)), equalTo(token));
+		}
 	}
 
 	@Example
