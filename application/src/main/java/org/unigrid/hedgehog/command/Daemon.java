@@ -18,12 +18,14 @@
 
 package org.unigrid.hedgehog.command;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Path;
+import java.util.Optional;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
@@ -71,6 +73,8 @@ public class Daemon extends CDIContext implements Runnable {
 
 	@Spec private CommandSpec spec;
 
+	private volatile Thread snapshotInstall;
+
 	@Override
 	public void run() {
 		try {
@@ -102,6 +106,13 @@ public class Daemon extends CDIContext implements Runnable {
 	protected void start(@Observes ContainerInitialized event) {
 		final URL source = BootstrapFetch.defaultUrl(Version.getVersionNumber());
 
-		Thread.ofVirtual().name("snapshot-install").start(() -> snapshotInstaller.installIfMissing(source));
+		snapshotInstall = Thread.ofVirtual().name("snapshot-install")
+			.start(() -> snapshotInstaller.installUntilInstalled(source));
+	}
+
+	/* A download, or the pause before the next one, does not outlast the node */
+	@PreDestroy
+	void destroy() {
+		Optional.ofNullable(snapshotInstall).ifPresent(Thread::interrupt);
 	}
 }

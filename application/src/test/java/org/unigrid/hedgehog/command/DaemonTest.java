@@ -33,6 +33,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -517,5 +519,39 @@ public class DaemonTest {
 		assertThat(source.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS), equalTo(BootstrapFetch.defaultUrl(version)));
 		assertThat(worker.get().isVirtual(), equalTo(true));
 		assertThat(worker.get().getName(), equalTo("snapshot-install"));
+	}
+
+	/* A download, or the pause before the next one, would go on in a process that outlives the node, as the one of
+	   a test does, so a node that stops interrupts it */
+	@Example
+	@SneakyThrows
+	public void shouldInterruptTheInstallOfTheSnapshotAsItStops() {
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				worker.complete(Thread.currentThread());
+
+				try {
+					new CountDownLatch(1).await();
+				} catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		};
+
+		final Daemon daemon = daemonInstallingWith(new SnapshotInstaller());
+
+		daemon.start(null);
+		worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+		daemon.destroy();
+
+		assertThat(worker.get().join(Duration.ofSeconds(INSTALL_TIMEOUT_SECONDS)), equalTo(true));
+	}
+
+	/* A node that is stopped before it started the install has none to interrupt */
+	@Example
+	public void shouldStopWithNoInstallOfTheSnapshotStarted() {
+		new Daemon().destroy();
 	}
 }
