@@ -28,8 +28,12 @@ import lombok.extern.slf4j.Slf4j;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE) @Slf4j
 public final class SnapshotBuilder {
-	private static final String PARTIAL_PREFIX = "snapshot-";
-	private static final String PARTIAL_SUFFIX = ".part";
+	/*
+	   Not the name a download gives its partial files: a download sweeps those out of the directory it
+	   installs into, and a build that shares the directory would lose its file halfway through.
+	*/
+	private static final String PARTIAL_PREFIX = "bootstrap-build-";
+	private static final String PARTIAL_SUFFIX = ".tmp";
 
 	public static BuildReport build(Path blocksDirectory, Path output) throws IOException {
 		final BlockFileStore store = BlockFileStore.open(blocksDirectory);

@@ -22,10 +22,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,16 +43,20 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.crypto.ReleaseKeyFixture;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class SnapshotBuilderTest {
 	private static final byte[] PREVIOUS = { 1, 2, 3, 4, 5, 6, 7, 8 };
 	private static final int BLOCK_SIZE = 256;
+	private static final String DOWNLOADED = "/bootstrap.dat";
 
 	private static boolean writtenTotalIsWrong;
 	private static boolean firstBalanceIsOff;
 	private static int addressesEncoded;
+	private static Runnable whileTheCheckRuns = () -> { };
 
 	/*
 	   The fakes do the real work unless a test switches a failure on, and are installed once so they are not
@@ -59,6 +66,7 @@ public class SnapshotBuilderTest {
 	public static void beforeContainer() {
 		new MockUp<SnapshotInspector>() {
 			@Mock public /* static */ long totalBalance(Invocation invocation, Path snapshot) throws IOException {
+				whileTheCheckRuns.run();
 				return writtenTotalIsWrong ? -1 : invocation.<Long>proceed();
 			}
 		};
@@ -91,6 +99,7 @@ public class SnapshotBuilderTest {
 		writtenTotalIsWrong = false;
 		firstBalanceIsOff = false;
 		addressesEncoded = 0;
+		whileTheCheckRuns = () -> { };
 	}
 
 	/*
@@ -199,6 +208,56 @@ public class SnapshotBuilderTest {
 
 		assertThat(Files.mismatch(fresh, target), equalTo(-1L));
 		assertThat(entriesOf(target.getParent()), equalTo(List.of("bootstrap.dat", "fresh.dat")));
+	}
+
+	/*
+	   A download clears the partial files of an earlier download out of the directory it installs into,
+	   and an import of the blocks can run in that directory while the node fetches or starts. A download
+	   that is refused after that sweep runs while the build checks its snapshot, which is when the
+	   partial file of the build is on disk.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldKeepItsPartialFileWhenADownloadClearsTheDirectoryItBuildsIn() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		@Cleanup final LoopbackHost host = new LoopbackHost();
+		final Path target = fs.getPath("/data/bootstrap.dat");
+		final URL refused = refusedDownload(host);
+
+		Files.createDirectories(target.getParent());
+
+		whileTheCheckRuns = () -> {
+			final List<String> building = entriesOf(target.getParent());
+
+			assertThat(building, hasSize(1));
+			refuse(refused, target.resolveSibling("downloaded.dat"));
+			assertThat(entriesOf(target.getParent()), equalTo(building));
+		};
+
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(entriesOf(target.getParent()), equalTo(List.of("bootstrap.dat")));
+	}
+
+	@SneakyThrows
+	private static URL refusedDownload(LoopbackHost host) {
+		final byte[] hashFile = (DigestUtils.sha256Hex("another body") + "  " + DOWNLOADED.substring(1) + "\n")
+			.getBytes(StandardCharsets.US_ASCII);
+
+		host.serve(DOWNLOADED, "not a snapshot".getBytes(StandardCharsets.US_ASCII));
+		host.serve(DOWNLOADED + SnapshotDownload.HASH_SUFFIX, hashFile);
+		host.serve(DOWNLOADED + SnapshotDownload.HASH_SIGNATURE_SUFFIX, ReleaseKeyFixture.trusted().sign(hashFile));
+		return host.url(DOWNLOADED);
+	}
+
+	private static void refuse(URL source, Path target) {
+		try {
+			SnapshotDownload.install(source, target);
+			throw new AssertionError("A download that does not match its hash was installed");
+
+		} catch (IOException expected) {
+			assertThat(expected.getMessage(), containsString("does not match the hash"));
+		}
 	}
 
 	@SneakyThrows

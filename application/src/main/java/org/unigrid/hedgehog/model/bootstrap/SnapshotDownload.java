@@ -256,8 +256,10 @@ public final class SnapshotDownload {
 
 	/*
 	   A kill or an exit skips the clean-up of a download, so the partial file of an earlier start can
-	   still be here, as large as the ceiling allows, and nothing else would ever remove it. Only a
-	   download names its files this way, and a data directory has one download at a time.
+	   still be here, as large as the ceiling allows, and nothing else would ever remove it. Only the
+	   name a download gives its files is swept: the partial file of a snapshot build in the same
+	   directory has a name of its own and stays. Another download into the directory at the same time
+	   would lose its partial file, so a directory is assumed to have one download at a time.
 	*/
 	private static void sweepStale(Path directory) {
 		try (DirectoryStream<Path> stale = Files.newDirectoryStream(directory,
