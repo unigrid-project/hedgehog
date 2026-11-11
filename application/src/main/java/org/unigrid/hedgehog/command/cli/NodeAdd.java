@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
@@ -47,5 +48,13 @@ public class NodeAdd extends RestClientCommand {
 		} else {
 			System.out.println(response.getLocation());
 		}
+	}
+
+	/* The node answers 304 to its own address and to one it cannot use, which the client reports as the status alone */
+	@Override
+	protected String refusal(ResponseOddityException oddity) {
+		return oddity.getStatusCode() == Status.NOT_MODIFIED.getStatusCode()
+			? "The node did not take %s, which is its own address or one it cannot use".formatted(address)
+			: super.refusal(oddity);
 	}
 }

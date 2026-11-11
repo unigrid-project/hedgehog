@@ -22,6 +22,8 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -82,6 +84,26 @@ public class ResponseOddityExceptionTest {
 	public void shouldNotShowAnEmptyReasonOfAStatusThatHasNoName() {
 		assertThat(new ResponseOddityException(Response.status(599, "").build().getStatusInfo()).getMessage(),
 			equalTo("599"));
+	}
+
+	/* The name that jakarta gives a status is the reason phrase of it, which is shown once and not again in brackets */
+	@Property(tries = 100)
+	public void shouldShowThePhraseOfAKnownStatusOnce(@ForAll Status status) {
+		assertThat(new ResponseOddityException(status).getMessage(),
+			equalTo(status.getStatusCode() + " " + status.getReasonPhrase()));
+	}
+
+	@Example
+	public void shouldNotShowAnEmptyPhraseOfAKnownStatus() {
+		assertThat(new ResponseOddityException(Response.status(404, "").build().getStatusInfo()).getMessage(),
+			equalTo("404 Not Found"));
+	}
+
+	/* A node, or a proxy, may word a status in its own way, which is not lost for being worded differently */
+	@Example
+	public void shouldKeepThePhraseOfANodeThatWordsAKnownStatusDifferently() {
+		assertThat(new ResponseOddityException(Response.status(404, "Nothing here").build().getStatusInfo())
+			.getMessage(), equalTo("404 Not Found (Nothing here)"));
 	}
 
 	@Example

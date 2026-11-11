@@ -45,17 +45,20 @@ public class ResponseOddityException extends Exception {
 		this.statusCode = status.getStatusCode();
 	}
 
-	/* A status that jakarta has no name for, such as one of a proxy in between, is shown by its number */
+	/* A status that jakarta has no name for, such as one of a proxy in between, is shown by its number. The phrase that
+	   a node words a known status in is shown only where it is not the name of the status already. */
 	private static String describe(StatusType status) {
 		final int code = status.getStatusCode();
 		final Status known = Status.fromStatusCode(code);
+		final String phrase = status.getReasonPhrase();
 
 		if (known != null) {
-			return String.format("%d %s (%s)", code, known, status.getReasonPhrase());
+			return StringUtils.isBlank(phrase) || known.getReasonPhrase().equals(phrase)
+				? String.format("%d %s", code, known.getReasonPhrase())
+				: String.format("%d %s (%s)", code, known.getReasonPhrase(), phrase);
 		}
 
-		return StringUtils.isBlank(status.getReasonPhrase()) ? String.valueOf(code)
-			: String.format("%d (%s)", code, status.getReasonPhrase());
+		return StringUtils.isBlank(phrase) ? String.valueOf(code) : String.format("%d (%s)", code, phrase);
 	}
 
 	public static ResponseOddityException of(Response response) {

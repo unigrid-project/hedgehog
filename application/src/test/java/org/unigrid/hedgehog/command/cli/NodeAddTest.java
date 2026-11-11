@@ -39,6 +39,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -95,11 +96,15 @@ public class NodeAddTest {
 	}
 
 	/* As the shell sees it: through the command line of the application, which exits with what the command says */
-	private static int exitCodeOf(String address, Answer node) {
+	private static HedgehogCli.Result runThroughTheCli(String address, Answer node) {
 		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
 
 		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "node-add", address)), node);
-		return cli.get().exitCode();
+		return cli.get();
+	}
+
+	private static int exitCodeOf(String address, Answer node) {
+		return runThroughTheCli(address, node).exitCode();
 	}
 
 	@Property(tries = 10)
@@ -110,6 +115,20 @@ public class NodeAddTest {
 			.location(locationOf(address)).build();
 
 		assertThat(exitCodeOf(address, request -> answer), equalTo(conflict ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	/* The node answers 304 for its own address and for one it cannot use, which the client takes for no answer at all:
+	   the line says that the address was not taken, and not only the status */
+	@Property(tries = 10)
+	public void saysThatTheNodeDidNotTakeTheAddress(@ForAll("addresses") String address) {
+		final HedgehogCli.Result result = runThroughTheCli(address, request -> {
+			throw new ResponseOddityException(Status.NOT_MODIFIED);
+		});
+
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("The node did not take " + address
+			+ ", which is its own address or one it cannot use")));
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Property(tries = 5)
