@@ -50,6 +50,12 @@ public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
 	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
 	private byte[] lastWritten;
+
+	/* The saves take turns on a lock of their own, as the save of a stop does not wait for the timer. Every lookup of
+	   the database takes the lock of the producer, on the threads that read the network, and would wait for the
+	   disk with a save that held it. */
+	private final Object saving = new Object();
+
 	private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(task -> {
 		final Thread thread = new Thread(task, "spork-database-saver");
 
@@ -207,21 +213,23 @@ public class SporkDatabaseProducer {
 
 	/* The timer runs whether or not a spork came in, and a write forces the whole file to the disk, so a database
 	   that is what the last save wrote is left as it is, unless its file is gone */
-	private synchronized void save() {
-		try {
-			Files.createDirectories(applicationDirectory.getUserDataDir());
+	private void save() {
+		synchronized (saving) {
+			try {
+				Files.createDirectories(applicationDirectory.getUserDataDir());
 
-			final byte[] content = SporkDatabase.serialize(sporkDatabase.get());
-			final byte[] digest = DigestUtils.sha256(content);
+				final byte[] content = SporkDatabase.serialize(sporkDatabase.get());
+				final byte[] digest = DigestUtils.sha256(content);
 
-			if (!Arrays.equals(digest, lastWritten) || Files.notExists(path())) {
-				SporkDatabase.persist(path(), content);
-				lastWritten = digest;
+				if (!Arrays.equals(digest, lastWritten) || Files.notExists(path())) {
+					SporkDatabase.persist(path(), content);
+					lastWritten = digest;
+				}
+
+			} catch (Exception ex) {
+				log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
+				log.atTrace().log(() -> ex.toString());
 			}
-
-		} catch (Exception ex) {
-			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
-			log.atTrace().log(() -> ex.toString());
 		}
 	}
 

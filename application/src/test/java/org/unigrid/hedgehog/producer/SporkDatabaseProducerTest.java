@@ -40,6 +40,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import lombok.Cleanup;
 import lombok.Data;
@@ -51,6 +57,7 @@ import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
+import static org.awaitility.Awaitility.await;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -574,5 +581,114 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 
 			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(10)));
 		}
+	}
+
+	/* What a caller that is not kept waiting gets through in with room to spare, on a machine that is busy */
+	private static final long SECONDS = 10;
+
+	/* A data directory on a disk that stops answering: once it is held, whoever asks for it waits until it is
+	   released, as a save does that looks at its directory before it writes */
+	private static final class HeldDirectory extends ApplicationDirectory {
+		private final Path dataDirectory;
+		private final CountDownLatch release = new CountDownLatch(1);
+		private final AtomicInteger waiting = new AtomicInteger();
+		private volatile boolean held;
+
+		private HeldDirectory(Path dataDirectory) {
+			super("test", "test");
+			this.dataDirectory = dataDirectory;
+		}
+
+		@Override
+		@SneakyThrows
+		public Path getUserDataDir() {
+			if (held) {
+				waiting.incrementAndGet();
+				release.await();
+			}
+
+			return dataDirectory;
+		}
+	}
+
+	private static boolean isKeptWaiting(Thread thread) {
+		return thread.getState() == Thread.State.BLOCKED || thread.getState() == Thread.State.WAITING;
+	}
+
+	/* Every lookup of the database runs the producer: on the threads that read the network, for each spork a peer
+	   sends and each stream it opens, and on those that answer REST. A save that waits on a disk that does not answer
+	   keeps the saver waiting, and must not keep them waiting with it. */
+	@Example
+	@SneakyThrows
+	public void shouldHandOutTheDatabaseWhileASaveWaitsOnTheDisk() {
+		final ExecutorService executor = Executors.newFixedThreadPool(2);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HeldDirectory directory = new HeldDirectory(Files.createDirectories(fs.getPath("/data")));
+			final SporkDatabaseProducer producer = producerOf(directory);
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			try {
+				directory.held = true;
+
+				final Future<?> save = executor.submit(() -> Reflection.invoke(producer, "save"));
+
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> directory.waiting.get() == 1);
+
+				final Future<SporkDatabase> lookup = executor.submit(() -> Reflection.invoke(producer, "produce"));
+
+				await("a lookup of the database while a save waits on the disk").atMost(SECONDS, TimeUnit.SECONDS)
+					.until(lookup::isDone);
+
+				assertThat(lookup.get(), sameInstance(db));
+				assertThat(save.isDone(), is(false));
+			} finally {
+				directory.release.countDown();
+				executor.shutdown();
+				executor.awaitTermination(SECONDS, TimeUnit.SECONDS);
+			}
+		}
+	}
+
+	/* A stop does not wait for the timer to end before it saves, so its save can meet one that is under way. The two
+	   take turns, as each goes by what the save before it wrote: the save of the stop does not as much as look at the
+	   directory until the other is done. */
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheSaveOfAStopWaitingForASaveThatIsUnderWay() {
+		final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final HeldDirectory directory = new HeldDirectory(data);
+			final SporkDatabaseProducer producer = producerOf(directory);
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+			final Thread stop = new Thread(() -> destroy(producer), "stop");
+
+			db.set(supplyOf(10));
+
+			try {
+				directory.held = true;
+				executor.submit(() -> Reflection.invoke(producer, "save"));
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> directory.waiting.get() == 1);
+
+				stop.start();
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> isKeptWaiting(stop));
+				assertThat(directory.waiting.get(), is(1));
+			} finally {
+				directory.release.countDown();
+				executor.shutdown();
+				executor.awaitTermination(SECONDS, TimeUnit.SECONDS);
+				stop.join(TimeUnit.SECONDS.toMillis(SECONDS));
+			}
+
+			assertThat(maxSupplyIn(data.resolve(SporkDatabase.SPORK_DB_FILE)), equalTo(BigDecimal.valueOf(10)));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	@SneakyThrows
+	private static void destroy(SporkDatabaseProducer producer) {
+		Reflection.invoke(producer, "destroy");
 	}
 }
