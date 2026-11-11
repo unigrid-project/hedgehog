@@ -112,11 +112,12 @@ public final class ChangeFile {
 		return IntStream.range(1, keys.size()).allMatch(i -> keys.get(i - 1).compareTo(keys.get(i)) < 0);
 	}
 
-	/* The chain of board keys of a spork database, or the keys built into the release when none is given or it holds
-	   none; one that is given is judged by the record of this machine first */
+	/* The chain of board keys of a spork database, or the chain that the release ships, which is none but the keys built
+	   into it when it ships no chain, when none is given or it holds none; one that is given is judged by the record of
+	   this machine first */
 	static List<KeyChange> chainOf(CommandSpec spec, Path sporkDb) {
 		if (Objects.isNull(sporkDb)) {
-			return List.of();
+			return BoardKeyChain.shipped();
 		}
 
 		final SporkDatabase database = SporkDatabaseFile.load(spec, sporkDb);

@@ -54,6 +54,7 @@ import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysFixture;
 import org.unigrid.hedgehog.model.spork.BoardKeysRecordFixture;
@@ -220,6 +221,46 @@ public class BoardKeysCommandTest {
 			assertThat(run(fs, "board-keys", "propose", "--output", "/e.json").err(), containsString("changes nothing"));
 			assertThat(Files.list(fs.getPath("/")).filter(file -> file.toString().endsWith(".json")).count(),
 				is(0L));
+		}
+	}
+
+	/* A machine without a node database goes by the chain that its release ships, so a change that is proposed without
+	   --spork-db follows on the head of that chain and not on the keys built into the release alone */
+	@Example
+	@SneakyThrows
+	public void proposesOverTheShippedChainWhenNoSporkDbIsGiven() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final KeyChange first = change(rootOf(keys(0, 1)), List.of(), keys(1, 2), keys(0, 1, 2));
+
+			shipping(List.of(first), true);
+
+			final HedgehogCli.Result proposed = run(fs, "board-keys", "propose", "--activate",
+				key(3).getPublicKey(), "--output", "/change.json");
+
+			assertSucceeded(proposed);
+
+			final KeyChange change = new JsonConfiguration().getContext(ProposedKeyChange.class)
+				.readValue(Files.readAllBytes(fs.getPath("/change.json")), ProposedKeyChange.class).getChange();
+
+			assertThat(change.getSequence(), equalTo(1));
+			assertThat(change.getPrevious(), equalTo(BoardKeyChain.digestOf(first)));
+		}
+	}
+
+	/* The refusal names the chain it judged, and a chain that is not in a file is that of the release */
+	@Example
+	@SneakyThrows
+	public void namesTheReleaseAndNoMissingFileWhenTheShippedChainDoesNotHold() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			shipping(List.of(change(rootOf(keys(0, 1)), List.of(), keys(1, 2), List.of())), true);
+
+			final HedgehogCli.Result proposed = run(fs, "board-keys", "propose", "--activate",
+				key(3).getPublicKey(), "--output", "/change.json");
+
+			assertThat(proposed.exitCode(), equalTo(2));
+			assertThat(proposed.err(), containsString("The board keys of the release do not hold"));
+			assertThat(proposed.err(), not(containsString("of null")));
+			assertThat(Files.exists(fs.getPath("/change.json")), is(false));
 		}
 	}
 
