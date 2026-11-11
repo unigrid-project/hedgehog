@@ -55,6 +55,7 @@ import org.unigrid.hedgehog.model.option.NetOptions;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Node {
+	private static final int MAX_PORT = 0xFFFF;
 
 	private InetSocketAddress address;
 
@@ -187,12 +188,16 @@ public class Node {
 	}
 
 	/* A node made by hand is refused when its host does not resolve, rather than stored under a name that may never
-	   match the address a peer connects from */
-	public static Node fromURI(URI uri) throws UnknownHostException {
+	   match the address a peer connects from, and so is a port that no host has, which the URI takes as it is */
+	public static Node fromURI(URI uri) throws URISyntaxException, UnknownHostException {
 		int port = uri.getPort();
 
 		if (uri.getPort() == -1) {
 			port = NetOptions.DEFAULT_PORT;
+		}
+
+		if (port > MAX_PORT) {
+			throw new URISyntaxException(uri.toString(), "Port above " + MAX_PORT);
 		}
 
 		final InetSocketAddress address = new InetSocketAddress(uri.getHost(), port);

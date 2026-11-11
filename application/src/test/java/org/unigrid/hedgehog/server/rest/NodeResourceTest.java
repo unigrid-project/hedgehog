@@ -59,9 +59,10 @@ import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
 
 public class NodeResourceTest extends BaseRestClientTest {
-	/* A port that is no number, and a host that does not resolve */
+	/* A port that is no number, a port that no host has, and a host that does not resolve */
 	private static final String UNRESOLVABLE = "no-such-host.invalid";
-	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", UNRESOLVABLE);
+	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", "1.2.3.4:65536", "1.2.3.4:2147483647",
+		UNRESOLVABLE);
 
 	@Mocked
 	private Connection emptyConnection;

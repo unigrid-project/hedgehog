@@ -25,6 +25,7 @@ import jakarta.inject.Inject;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
@@ -101,6 +102,19 @@ public class NodeTest extends BaseMockedWeldTest {
 			assertThat("A host that does not resolve should be refused", false);
 		} catch (UnknownHostException ex) {
 			assertThat(ex.getMessage(), containsString("no-such-host.invalid"));
+		}
+	}
+
+	/* The address of a node is parsed as the callers expect: a port above 65535 is an address that does not parse,
+	   not an IllegalArgumentException from the socket address that no caller of the method catches */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAPortThatNoHostHas() {
+		try {
+			Node.fromAddress("1.2.3.4:70000");
+			assertThat("A port above 65535 should be refused", false);
+		} catch (URISyntaxException ex) {
+			assertThat(ex.getMessage(), containsString("70000"));
 		}
 	}
 
