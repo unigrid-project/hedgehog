@@ -20,12 +20,10 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 
@@ -34,26 +32,23 @@ import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 * whose height lies above the current height. A mint at or below it is already part of the chain's own
 * balances.
 */
-@Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PendingMints {
 	public static BigDecimal amountFor(String address, MintStorage mintStorage, int currentHeight) {
-		final byte[] addressHash = LegacyAddress.decode(address);
+		LegacyAddress.decode(address);
+
 		final Map<Location, BigDecimal> mints = Objects.isNull(mintStorage) ? Map.of()
 			: mintStorage.<MintStorage.SporkData>getData().getMints();
 
 		return mints.entrySet().stream()
-			.filter(mint -> mint.getKey().getHeight() > currentHeight && isFor(addressHash, mint.getKey()))
+			.filter(mint -> mint.getKey().getHeight() > currentHeight && isFor(address, mint.getKey()))
 			.map(Map.Entry::getValue).reduce(BigDecimal.ZERO, BigDecimal::add)
 			.setScale(Coin.DECIMALS, RoundingMode.DOWN);
 	}
 
-	private static boolean isFor(byte[] addressHash, Location location) {
-		try {
-			return Arrays.equals(addressHash, LegacyAddress.decode(location.getAddress().getWif()));
-		} catch (IllegalArgumentException ex) {
-			log.atDebug().log("Skipped a mint for the undecodable address {}", location.getAddress().getWif());
-			return false;
-		}
+	/* A valid address has one spelling, so the mint of an address is found by its text. The requested address
+	   is decoded once to refuse one that is not valid; the many addresses of the mints are never decoded. */
+	private static boolean isFor(String address, Location location) {
+		return address.equals(location.getAddress().getWif());
 	}
 }
