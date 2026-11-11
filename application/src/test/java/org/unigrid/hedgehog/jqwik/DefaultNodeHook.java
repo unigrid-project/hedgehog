@@ -19,7 +19,7 @@
 package org.unigrid.hedgehog.jqwik;
 
 import java.util.List;
-import me.alexpanov.net.FreePortFinder;
+import lombok.SneakyThrows;
 import net.jqwik.api.lifecycle.BeforeContainerHook;
 import net.jqwik.api.lifecycle.ContainerLifecycleContext;
 import org.unigrid.hedgehog.model.option.OptionsCli;
@@ -38,14 +38,15 @@ public class DefaultNodeHook implements BeforeContainerHook {
 		});
 	}
 
-	/* The S3 endpoint is on once the preview is, so it is given a port of its own as well */
+	/* The S3 endpoint is on once the preview is, so it is given a port of its own as well. The three ports are held at
+	   once, so that they differ, and are let go before the container starts the servers that bind them. */
+	@SneakyThrows
 	private static void parseTheOptions() {
-		final int netPort = FreePortFinder.findFreeLocalPort();
-		final int restPort = FreePortFinder.findFreeLocalPort(netPort + 1);
-		final int s3Port = FreePortFinder.findFreeLocalPort(restPort + 1);
-
-		OptionsCli.parse(List.of("daemon"), "--nethost", "localhost", "--netport", String.valueOf(netPort),
-			"--resthost", "localhost", "--restport", String.valueOf(restPort), "--resttoken", RestToken.generate(),
-			"--no-seeds", "--s3host", "localhost", "--s3port", String.valueOf(s3Port));
+		try (FreePort net = FreePort.hold(); FreePort rest = FreePort.hold(); FreePort s3 = FreePort.hold()) {
+			OptionsCli.parse(List.of("daemon"), "--nethost", "localhost", "--netport",
+				String.valueOf(net.getNumber()), "--resthost", "localhost", "--restport",
+				String.valueOf(rest.getNumber()), "--resttoken", RestToken.generate(), "--no-seeds", "--s3host",
+				"localhost", "--s3port", String.valueOf(s3.getNumber()));
+		}
 	}
 }

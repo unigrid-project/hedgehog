@@ -30,6 +30,7 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.util.NetUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -37,10 +38,8 @@ import jakarta.ws.rs.core.Application;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.security.cert.CertificateException;
 import javax.net.ssl.SSLException;
@@ -122,11 +121,19 @@ public class RestServer extends AbstractServer {
 		}
 	}
 
+	/* The address that the resources answer under, which is the host and the port that the server binds: a location
+	   that a resource hands out is resolved against it. An IPv6 address goes in brackets, as its colons would end the
+	   host otherwise, and the path ends in a slash, as the container puts the path of a request straight after it. */
+	static URI baseUri() throws URISyntaxException {
+		final String address = NetUtil.toSocketAddressString(RestOptions.getHost(), RestOptions.getPort());
+
+		return new URI("https://" + address + "/");
+	}
+
 	private ChannelHandler getJerseyInitializerInstance(Container container) throws CertificateException,
 		ClassNotFoundException, IllegalAccessException, InstantiationException, InvocationTargetException,
-		MalformedURLException, NoSuchMethodException, SSLException, UnknownHostException, URISyntaxException {
+		NoSuchMethodException, SSLException, URISyntaxException {
 
-		final String url = String.format("https://%s:%d", RestOptions.getHost(), RestOptions.getPort());
 		final SslContext context = serverContext();
 
 		final Constructor<?> constructor = Reflection.getConstructor(
@@ -134,9 +141,7 @@ public class RestServer extends AbstractServer {
 			SslContext.class, container.getClass(), ResourceConfig.class
 		);
 
-		return (ChannelHandler) constructor.newInstance(allocate(url).toURI(), context,
-			container, resourceConfig
-		);
+		return (ChannelHandler) constructor.newInstance(baseUri(), context, container, resourceConfig);
 	}
 
 	/* The initializer of the container builds the pipeline of a connection, so the limit is set in after its codec,

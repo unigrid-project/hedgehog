@@ -108,6 +108,18 @@ public class NodeResourceTest extends BaseRestClientTest {
 		assertThat(topology.cloneConfigured(), hasItem(node));
 	}
 
+	/* The location of a node that was added is one that the REST server answers on, so it carries the port that the
+	   server listens on */
+	@Example
+	@SneakyThrows
+	public void shouldNameTheNodeItAddedUnderTheAddressThatTheServerListensOn() {
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.15", 1234)).build();
+		final URI location = postAssert("/node", node).getLocation();
+		final int port = server.getRest().getPort();
+
+		assertThat(location, equalTo(URI.create("https://localhost:" + port + "/45.9.9.15:1234")));
+	}
+
 	/* A peer that tells of an address first, as an attacker may to keep it from the operator, leaves it to be configured
 	   all the same: the node says that it knew it, and the connection that it dialed to it is one to a configured node
 	   from then on */
