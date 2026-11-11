@@ -64,18 +64,19 @@ public final class BootstrapSnapshot {
 		return previous != null && FileIdentity.of(path).map(previous::equals).orElse(false);
 	}
 
-	/* The board keys are taken as they are when the open begins, so that keys learnt of meanwhile make the refusal
-	   stale on the next request */
+	/* The file is taken as it is when the open begins, and the board keys with it, as the open takes seconds for a
+	   large snapshot: whatever changes meanwhile is a change from what was read, and is seen on the next request. */
 	private synchronized void open() {
 		if (!needsOpen()) {
 			return;
 		}
 
 		final long generation = NetworkKey.getGeneration();
+		final FileIdentity before = FileIdentity.of(path).orElse(null);
 
 		try {
 			reader.set(SnapshotReader.open(path));
-			opened.set(FileIdentity.of(path).orElse(null));
+			opened.set(before);
 			refusal.set(null);
 			log.atInfo().log("Opened the legacy chain snapshot at {}", path);
 
@@ -85,7 +86,7 @@ public final class BootstrapSnapshot {
 			}
 		} catch (IOException ex) {
 			reader.set(null);
-			refusal.set(new Refusal(FileIdentity.of(path).orElse(null), generation));
+			refusal.set(new Refusal(before, generation));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}
 	}
