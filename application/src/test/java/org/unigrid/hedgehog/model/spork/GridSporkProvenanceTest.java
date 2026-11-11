@@ -370,8 +370,8 @@ public class GridSporkProvenanceTest {
 		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
 	}
 
-	/* A version made over a sibling of the stored spork carries on the stored log with the head of the sibling, whose
-	   signatures are not the stored ones: two compares tell that, before either log is hashed */
+	/* A version made over a sibling of the stored spork carries on the stored log with the head of the sibling, which
+	   was made at another time than the stored one: its time stamp tells that, before either log is hashed */
 	@Example
 	public void shouldRefuseALogThatGoesOnWithAnotherHeadWithoutHashingALog() {
 		final GridSpork first = stored(null, 10);

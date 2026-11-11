@@ -71,7 +71,7 @@ final class SporkSuccession {
 		/* Anyone can send a proposal, and refusing one must not take the stored data encoded or its head hashed,
 		   which cost far more than the frame does. What the frame holds is judged first, then the data, and the head
 		   last. */
-		return endsWithTheSignaturesOf(spork, stored) && isOverTheVersionOf(spork, stored)
+		return mayEndWithTheHeadOf(spork, stored) && isOverTheVersionOf(spork, stored)
 			&& hasTheDigestOf(spork.getSignatureLog().last(), stored);
 	}
 
@@ -88,15 +88,26 @@ final class SporkSuccession {
 	}
 
 	private static boolean endsWithTheHeadOf(final GridSpork spork, final GridSpork stored) {
-		return endsWithTheSignaturesOf(spork, stored) && hasTheDigestOf(spork.getSignatureLog().last(), stored);
+		return mayEndWithTheHeadOf(spork, stored) && hasTheDigestOf(spork.getSignatureLog().last(), stored);
 	}
 
 	/* What is public of the stored head, which a log entry can copy without the stored data */
-	private static boolean endsWithTheSignaturesOf(final GridSpork spork, final GridSpork stored) {
+	private static boolean mayEndWithTheHeadOf(final GridSpork spork, final GridSpork stored) {
 		final SignatureLog log = spork.getSignatureLog();
 
-		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.getTimeStamp())
-			&& hasTheSignaturesOf(log.last(), stored);
+		return !log.isEmpty() && mayLogTheHeadOf(log.last(), stored);
+	}
+
+	/* The signatures are no part of what a head signs, so one version is had as heads that differ in them: a board
+	   member co-signs a proposal twice, or whoever holds a head writes a signature of it in its other form. Neither
+	   is newer, so a node keeps the one it has, and it tells its head by the digest: what is made over any head of the
+	   version that it holds is made over its own. What an entry shows of the head costs nothing and is judged before
+	   the digest: the time stamp, and a co-signature where the head has one, as an entry without it logs a version
+	   that one key made. A head that one key signed, as builds from before co-signatures made, is still told by the
+	   bytes of its signature. */
+	private static boolean mayLogTheHeadOf(final SignatureLogEntry entry, final GridSpork stored) {
+		return millisOf(entry.getTimeStamp()) == millisOf(stored.getTimeStamp())
+			&& (stored.isPending() ? hasTheSignaturesOf(entry, stored) : entry.isCosigned());
 	}
 
 	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
@@ -212,8 +223,8 @@ final class SporkSuccession {
 
 	/* An entry may carry a single signature, which one key alone can make, so a version that the network never took
 	   could follow the stored log as an entry, and a version over it would pass for one over the stored spork. A node
-	   that missed versions still finds its own head where its log ends. The signatures of the stored head are compared
-	   first, as that costs nothing. They are public, so an entry can copy them, and a log that does not carry on the
+	   that missed versions still finds its own head where its log ends. What the entry shows of the stored head is
+	   judged first, as that costs nothing. It is public, so an entry can copy it, and a log that does not carry on the
 	   stored one is refused before the stored head is hashed, which costs the stored data encoded and the stored log
 	   hashed. */
 	private static boolean goesOnWithTheHeadOf(final GridSpork spork, final GridSpork stored,
@@ -227,12 +238,12 @@ final class SporkSuccession {
 
 		final SignatureLogEntry next = log.getEntries().get(storedLog.size());
 
-		return hasTheSignaturesOf(next, stored) && storedLog.isPrefixOf(log) && hasTheDigestOf(next, stored);
+		return mayLogTheHeadOf(next, stored) && storedLog.isPrefixOf(log) && hasTheDigestOf(next, stored);
 	}
 
-	private static boolean hasTheSignaturesOf(final SignatureLogEntry next, final GridSpork stored) {
-		return Arrays.equals(next.getSignature(), stored.getSignature())
-			&& Arrays.equals(next.getCosignature(), stored.getCosignature());
+	private static boolean hasTheSignaturesOf(final SignatureLogEntry entry, final GridSpork stored) {
+		return Arrays.equals(entry.getSignature(), stored.getSignature())
+			&& Arrays.equals(entry.getCosignature(), stored.getCosignature());
 	}
 
 	private static boolean hasTheDigestOf(final SignatureLogEntry next, final GridSpork stored) {
