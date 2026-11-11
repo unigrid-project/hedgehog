@@ -38,6 +38,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
@@ -94,20 +95,32 @@ public class Node {
 	/* Every node a peer tells of is asked whether it is this one, under the lock of the topology, so the addresses of
 	   the host are listed once a minute and not for each node: they seldom change, and listing the interfaces, or
 	   resolving the configured host, takes long enough for a list of peers to hold the lock for seconds */
-	private record LocalAddresses(Set<InetAddress> addresses, long listedAt) {
+	record LocalAddresses(Set<InetAddress> addresses, long listedAt) {
 		private static final long LIFETIME_MILLIS = 60_000;
 		private static volatile LocalAddresses held;
 
 		static Set<InetAddress> current() {
-			final LocalAddresses known = held;
-			final long now = System.currentTimeMillis();
+			return current(System::currentTimeMillis);
+		}
 
-			if (known != null && now - known.listedAt() < LIFETIME_MILLIS) {
+		static Set<InetAddress> current(LongSupplier clock) {
+			final LocalAddresses known = held;
+			final long now = clock.getAsLong();
+
+			if (known != null && known.isFresh(now)) {
 				return known.addresses();
 			}
 
 			held = new LocalAddresses(listed(), now);
 			return held.addresses();
+		}
+
+		/* The host, or a time service, may step the clock back. A list that is dated after the clock now is older
+		   than it looks, so it is made again at once and not kept for as long as the clock was stepped back. */
+		private boolean isFresh(long now) {
+			final long age = now - listedAt;
+
+			return age >= 0 && age < LIFETIME_MILLIS;
 		}
 
 		private static Set<InetAddress> listed() {

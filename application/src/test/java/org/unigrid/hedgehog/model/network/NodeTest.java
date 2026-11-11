@@ -29,6 +29,7 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.SneakyThrows;
 import mockit.Capturing;
 import mockit.Expectations;
@@ -215,6 +216,30 @@ public class NodeTest extends BaseMockedWeldTest {
 		} else {
 			topology.addNode(node);
 			assertThat(topology.cloneNodes().size(), is(originalSize + 1));
+		}
+	}
+
+	/* The addresses of the host are listed once a minute. The host, or a time service, may step the clock back by an hour
+	   after a start with a wrong clock or a resume; the list must not be taken for fresh for that hour too, as an
+	   address of this node that came up in it would then go unknown, and the node would dial itself. */
+	@Example
+	public void shouldListTheAddressesAgainWhenTheClockStepsBack() {
+		final long year2100 = 4_102_444_800_000L;
+		final long anHour = 3_600_000L;
+		final AtomicLong clock = new AtomicLong(year2100);
+
+		try {
+			final Set<InetAddress> listed = Node.LocalAddresses.current(clock::get);
+
+			clock.addAndGet(1000);
+			assertThat("the list was made again within a minute", Node.LocalAddresses.current(clock::get),
+				sameInstance(listed));
+
+			clock.addAndGet(-anHour);
+			assertThat("the list was kept for the hour that the clock stepped back",
+				Node.LocalAddresses.current(clock::get), not(sameInstance(listed)));
+		} finally {
+			Node.LocalAddresses.current(() -> 0);
 		}
 	}
 
