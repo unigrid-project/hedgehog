@@ -148,6 +148,11 @@ public class RequestBodyLimitTest {
 		return request(path, HttpHeaderNames.CONTENT_LENGTH.toString(), String.valueOf(length));
 	}
 
+	private static HttpRequest expecting(final HttpRequest request) {
+		request.headers().set(HttpHeaderNames.EXPECT, HttpHeaderValues.CONTINUE);
+		return request;
+	}
+
 	private static HttpContent chunk(final int size) {
 		return new DefaultHttpContent(Unpooled.wrappedBuffer(new byte[size]));
 	}
@@ -252,6 +257,32 @@ public class RequestBodyLimitTest {
 		assertThat(written(), hasSize(1));
 		assertThat(container.read, hasSize(3));
 		assertThat(container.read.get(2), instanceOf(LastHttpContent.class));
+	}
+
+	/* The handler that answers Expect: 100-continue stands between the limit and the container, and its 100 Continue
+	   is an interim answer: the request is not answered yet, and a refusal after it still has to reach the sender */
+	@Example
+	public void shouldStillRefuseABodyPastTheLimitAfterTheContainerSaidToContinue() {
+		channel.writeInbound(expecting(chunked(SUBMIT)));
+		container.answer(HttpResponseStatus.CONTINUE);
+		channel.writeInbound(chunk(60), chunk(60));
+
+		final List<FullHttpResponse> responses = written();
+
+		assertThat(responses.stream().map(FullHttpResponse::status).toList(),
+			contains(HttpResponseStatus.CONTINUE, HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE));
+		assertThat(container.read.get(container.read.size() - 1), instanceOf(LastHttpContent.class));
+	}
+
+	@Example
+	public void shouldStillAnswerABodyThatStaysUnfinishedAfterTheContainerSaidToContinue() {
+		channel.writeInbound(expecting(chunked(SUBMIT)));
+		container.answer(HttpResponseStatus.CONTINUE);
+		channel.writeInbound(chunk(10));
+		passTime(BODY_TIME);
+
+		assertThat(written().stream().map(FullHttpResponse::status).toList(),
+			contains(HttpResponseStatus.CONTINUE, HttpResponseStatus.REQUEST_TIMEOUT));
 	}
 
 	@Example

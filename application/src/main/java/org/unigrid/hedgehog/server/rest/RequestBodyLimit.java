@@ -29,6 +29,7 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpStatusClass;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
@@ -208,7 +209,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	}
 
 	/* What the container writes after a refusal answers a request that was cut short, and the sender has had its
-	   answer already */
+	   answer already. A 100 Continue is no answer: the sender is still to send its body, and may yet be refused. */
 	@Override
 	public void write(final ChannelHandlerContext ctx, final Object message, final ChannelPromise promise) {
 		if (refused) {
@@ -217,7 +218,8 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 			return;
 		}
 
-		answered |= message instanceof HttpResponse;
+		answered |= message instanceof HttpResponse response
+			&& response.status().codeClass() != HttpStatusClass.INFORMATIONAL;
 		ctx.write(message, promise);
 	}
 
