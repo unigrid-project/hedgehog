@@ -120,6 +120,23 @@ public class BootstrapImportTest {
 		assertThat(Files.exists(snapshot.getParent()), equalTo(false));
 	}
 
+	/* A bare name has no parent directory of its own, so the snapshot goes to the working directory as it does
+	   for ./name */
+	@Example
+	public void shouldWriteTheSnapshotToABareFileName() {
+		final FileSystem fs = snapshot.getFileSystem();
+		final HedgehogCli.Result result = HedgehogCli.run(() -> new CommandLine(Hedgehog.class)
+			.registerConverter(Path.class, fs::getPath), "bootstrap", "import", "-b", BLOCKS.toString(),
+			"-o", "snapshot.dat"
+		);
+
+		result.assertNoStackTrace();
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), containsString("Snapshot:           snapshot.dat"));
+		assertThat(builds, equalTo(List.of(List.of(fs.getPath(BLOCKS.toString()), fs.getPath("snapshot.dat")))));
+		assertThat(Files.exists(snapshot.getParent()), equalTo(false));
+	}
+
 	/* What is wrong with the block files, or with the disk the snapshot goes to, is told in a line, as the other
 	   bootstrap commands tell it, and not shown as the trace of an exception that came out of the command */
 	@Property(tries = 20)
