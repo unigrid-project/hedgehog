@@ -78,12 +78,14 @@ public class SporkDatabaseProducer {
 	   would write over it, and what it held is the operator's to look at and the network's to send again. A class
 	   that the file names can refuse what it reads with a runtime exception, such as an Instant that is given seconds
 	   it cannot hold, which the stream passes on as it is, so any such failure is a file that cannot be read. The chain
-	   that the release ships is gone by before anything of the file is judged. */
+	   that the release ships is gone by before anything of the file is judged. The files of a save that did not finish
+	   when its process died are removed first: the node holds the lock of its database, so no import writes one. */
 	private SporkDatabase loaded(Path path) {
 		BoardKeysAuthority.installTheRelease();
 
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
+			SporkDatabase.removeAbandonedFiles(path);
 			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
 				: SporkDatabase.builder().build();
 

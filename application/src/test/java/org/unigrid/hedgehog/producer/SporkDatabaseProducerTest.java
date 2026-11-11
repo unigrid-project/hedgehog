@@ -163,6 +163,52 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		}
 	}
 
+	/* A node that is killed after a save made the file it writes into and before it moved the file over the database
+	   leaves that file behind, and every save names a new one. The node removes them when it loads the database, and
+	   only the regular files that a save names so, beside the database. */
+	@Example
+	@SneakyThrows
+	public void shouldRemoveTheFilesOfASaveThatDidNotFinishWhenItLoads() {
+		final List<String> unrelated = List.of("spork.db.lock", "spork.db.1700000000", "spork.db.unreadable-1700000000",
+			"spork.db.unsigned-1700000000", "spork.db.abc.tmp", "spork.db..tmp", "spork.db.12.tmp.bak", "rest.token77.tmp",
+			"other.123.tmp", "xspork.db.123.tmp");
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path nested = Files.createDirectories(data.resolve("nested"));
+			final Path directory = Files.createDirectories(data.resolve("spork.db.5.tmp"));
+
+			SporkDatabase.persist(data.resolve(SporkDatabase.SPORK_DB_FILE), SporkDatabase.builder().build());
+			Files.write(data.resolve("spork.db.123.tmp"), new byte[] {1, 2, 3});
+			Files.write(data.resolve("spork.db.18446744073709551615.tmp"), new byte[0]);
+			Files.write(nested.resolve("spork.db.9.tmp"), new byte[] {4});
+
+			for (String name : unrelated) {
+				Files.write(data.resolve(name), new byte[] {5});
+			}
+
+			assertThat(produced(holding(data)), equalTo(SporkDatabase.builder().build()));
+			assertThat(namesIn(data), containsInAnyOrder(Stream.concat(unrelated.stream(),
+				Stream.of(SporkDatabase.SPORK_DB_FILE, "nested", "spork.db.5.tmp")).toArray(String[]::new)));
+			assertThat(namesIn(nested), contains("spork.db.9.tmp"));
+			assertThat(Files.isDirectory(directory), is(true));
+		}
+	}
+
+	/* The first save of a node that was killed has no database to leave next to the file it was writing */
+	@Example
+	@SneakyThrows
+	public void shouldRemoveTheFileOfASaveThatDidNotFinishWhenThereIsNoDatabase() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+
+			Files.write(data.resolve("spork.db.123.tmp"), new byte[] {1});
+
+			assertThat(produced(holding(data)), equalTo(SporkDatabase.builder().build()));
+			assertThat(namesIn(data), hasSize(0));
+		}
+	}
+
 	@SneakyThrows
 	private static List<Path> unreadableCopiesIn(Path directory) {
 		try (Stream<Path> files = Files.list(directory)) {

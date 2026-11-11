@@ -25,10 +25,12 @@ import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
+import java.io.UncheckedIOException;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -37,6 +39,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -54,6 +57,9 @@ public class SporkDatabase implements Serializable {
 	private static final long serialVersionUID = 5650360876357285601L;
 
 	public static final String SPORK_DB_FILE = "spork.db";
+
+	/* What Files.createTempFile makes of the name of the database as prefix: the name, a dot, a number and this */
+	private static final String TEMPORARY_SUFFIX = ".tmp";
 
 	/* The network threads store sporks while other threads read them, so a stored spork must be seen at once */
 	private volatile MintStorage mintStorage;
@@ -126,10 +132,38 @@ public class SporkDatabase implements Serializable {
 		void write(FileChannel channel) throws IOException;
 	}
 
+	/* A process that dies after replace() made its file and before it moved the file over the database leaves the
+	   file behind, and no later save names it again. They are removed by whoever holds the database, as nothing else
+	   writes beside it then: the regular files that replace() names so, beside the database and in no directory below
+	   it. A directory that cannot be listed leaves them, which does no harm. */
+	public static void removeAbandonedFiles(Path path) {
+		final Path file = path.toAbsolutePath();
+		final Pattern abandoned = Pattern.compile(Pattern.quote(file.getFileName() + ".") + "[0-9]+"
+			+ Pattern.quote(TEMPORARY_SUFFIX));
+
+		try (Stream<Path> entries = Files.list(file.getParent())) {
+			entries.filter(entry -> abandoned.matcher(entry.getFileName().toString()).matches())
+				.filter(entry -> Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS))
+				.forEach(SporkDatabase::removeQuietly);
+		} catch (IOException | UncheckedIOException ex) {
+			log.atDebug().addArgument(file.getParent()).addArgument(ex.getMessage())
+				.log("Could not look for abandoned files of a save in {}: {}");
+		}
+	}
+
+	private static void removeQuietly(Path abandoned) {
+		try {
+			Files.deleteIfExists(abandoned);
+		} catch (IOException ex) {
+			log.atDebug().addArgument(abandoned).addArgument(ex.getMessage())
+				.log("Could not remove the abandoned file {} of a save: {}");
+		}
+	}
+
 	/* As persist() writes a database, any content that the writer puts into the channel and forces to the disk */
 	static void replace(Path path, ChannelWriter writer) throws IOException {
 		final Path file = path.toAbsolutePath();
-		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", ".tmp");
+		final Path temporary = Files.createTempFile(file.getParent(), file.getFileName() + ".", TEMPORARY_SUFFIX);
 
 		try {
 			try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.CREATE,
