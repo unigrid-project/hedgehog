@@ -326,4 +326,65 @@ public class GridSporkProvenanceTest {
 		assertThat(forged.canReplace(stored), is(false));
 		assertThat(read.reads, is(0));
 	}
+
+	/* The log of a spork that counts how often it is hashed, which takes a digest for each entry it holds */
+	private static final class HashedLog extends SignatureLog {
+		private static final long serialVersionUID = 1L;
+		private int hashes;
+
+		private HashedLog(SignatureLog log) {
+			super(log.getEntries());
+		}
+
+		@Override
+		public byte[] headHash(int count) {
+			hashes++;
+			return super.headHash(count);
+		}
+	}
+
+	/* The spork with the same log in a form that counts its hashes, so that its signatures still hold */
+	private static HashedLog hashed(GridSpork spork) {
+		final HashedLog log = new HashedLog(spork.getSignatureLog());
+
+		spork.setSignatureLog(log);
+		return log;
+	}
+
+	/* Every peer sends the sporks that count again every few minutes, on each of its streams, so a node is sent the
+	   version it holds over and over. The log sent is as long as the stored one and the version is not newer, which
+	   the sizes and the time stamps tell. Hashing the two logs to tell it takes a digest for each entry of a log that
+	   grows with every version, on the thread that reads the network. */
+	@Example
+	public void shouldRefuseTheStoredSporkSentAgainWithoutHashingALog() {
+		final GridSpork stored = stored(stored(null, 10), 20);
+		final GridSpork again = SerializationUtils.clone(stored);
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(again);
+
+		assertThat(again.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
+	}
+
+	/* A version made over a sibling of the stored spork carries on the stored log with the head of the sibling, whose
+	   signatures are not the stored ones: two compares tell that, before either log is hashed */
+	@Example
+	public void shouldRefuseALogThatGoesOnWithAnotherHeadWithoutHashingALog() {
+		final GridSpork first = stored(null, 10);
+		final GridSpork stored = stored(first, 20);
+		final GridSpork overSibling = stored(stored(first, 30), 40);
+
+		assertThat(stored.isAnchoring(), is(true));
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(overSibling);
+
+		assertThat(sentLog.size(), is(storedLog.size() + 1));
+		assertThat(overSibling.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
+	}
 }

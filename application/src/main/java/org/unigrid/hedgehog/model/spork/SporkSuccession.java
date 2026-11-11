@@ -172,14 +172,11 @@ final class SporkSuccession {
 	static boolean isSuccessorByLogOf(final GridSpork spork, final GridSpork stored, final SignatureLog storedLog) {
 		final SignatureLog log = spork.getSignatureLog();
 
-		/* A log that does not carry on the stored one is refused before the stored head is hashed, as the signatures
-		   that a log entry copies are public and the hash costs the stored data encoded and the stored log hashed */
-		if (!storedLog.isPrefixOf(log)) {
-			return false;
-		}
-
-		return log.size() > storedLog.size() ? goesOnWithTheHeadOf(spork, stored, storedLog.size())
-			: spork.isNewerThan(stored) && mayTakeThePlaceOf(spork, stored);
+		/* Whether the log carries on the stored one takes both logs hashed, so what the sizes, the time stamps and
+		   the data tell comes first: every peer sends the version that a node holds again and again, and it is
+		   not newer */
+		return log.size() > storedLog.size() ? goesOnWithTheHeadOf(spork, stored, storedLog)
+			: spork.isNewerThan(stored) && mayTakeThePlaceOf(spork, stored) && storedLog.isPrefixOf(log);
 	}
 
 	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
@@ -215,15 +212,22 @@ final class SporkSuccession {
 
 	/* An entry may carry a single signature, which one key alone can make, so a version that the network never took
 	   could follow the stored log as an entry, and a version over it would pass for one over the stored spork. A node
-	   that missed versions still finds its own head where its log ends. */
-	private static boolean goesOnWithTheHeadOf(final GridSpork spork, final GridSpork stored, final int index) {
+	   that missed versions still finds its own head where its log ends. The signatures of the stored head are compared
+	   first, as that costs nothing. They are public, so an entry can copy them, and a log that does not carry on the
+	   stored one is refused before the stored head is hashed, which costs the stored data encoded and the stored log
+	   hashed. */
+	private static boolean goesOnWithTheHeadOf(final GridSpork spork, final GridSpork stored,
+		final SignatureLog storedLog) {
+
+		final SignatureLog log = spork.getSignatureLog();
+
 		if (Objects.isNull(stored)) {
-			return true;
+			return storedLog.isPrefixOf(log);
 		}
 
-		final SignatureLogEntry next = spork.getSignatureLog().getEntries().get(index);
+		final SignatureLogEntry next = log.getEntries().get(storedLog.size());
 
-		return hasTheSignaturesOf(next, stored) && hasTheDigestOf(next, stored);
+		return hasTheSignaturesOf(next, stored) && storedLog.isPrefixOf(log) && hasTheDigestOf(next, stored);
 	}
 
 	private static boolean hasTheSignaturesOf(final SignatureLogEntry next, final GridSpork stored) {
