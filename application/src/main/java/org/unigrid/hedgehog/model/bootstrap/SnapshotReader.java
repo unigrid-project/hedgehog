@@ -73,7 +73,7 @@ public final class SnapshotReader {
 
 		final SignatureStatus status = SnapshotSignature.read(path).getStatus();
 
-		if (status == SignatureStatus.INVALID) {
+		if (status == SignatureStatus.INVALID || status == SignatureStatus.MALFORMED) {
 			throw new IOException("The snapshot at " + path + " has a signature that does not "
 				+ "verify against any trusted key and will not be used");
 		}

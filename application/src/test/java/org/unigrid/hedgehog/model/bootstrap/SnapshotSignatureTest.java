@@ -111,7 +111,24 @@ public class SnapshotSignatureTest {
 		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
 		truncateTrailingBlock(snapshot, SnapshotFormat.SIGNATURE_HEADER_SIZE - 1);
 
-		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.MALFORMED));
+	}
+
+	/* The start of a block is no signature, wherever it ends: read as one, the bytes that are missing would count
+	   as the zeroes of a signature that does not verify, and the content as one not to trust */
+	@SneakyThrows
+	@Property(tries = 50)
+	public void shouldTellTheStartOfASignatureFromOneThatDoesNotVerify(@ForAll @IntRange(min = 1) int cut) {
+		final byte[] content = content(0);
+		final Path snapshot = SyntheticSnapshots.inMemory(content);
+
+		SnapshotSignature.signAndReplace(snapshot, trustedKey().getPrivateKey());
+
+		final int block = (int) Files.size(snapshot) - content.length;
+
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.SIGNED));
+		truncateTrailingBlock(snapshot, 1 + (cut - 1) % (block - 1));
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.MALFORMED));
 	}
 
 	@Example
@@ -122,7 +139,7 @@ public class SnapshotSignatureTest {
 		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
 		corruptByteAfterContent(snapshot, 0);
 
-		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.MALFORMED));
 	}
 
 	@Example
@@ -133,7 +150,7 @@ public class SnapshotSignatureTest {
 		SnapshotSignature.signAndAppend(snapshot, trustedKey().getPrivateKey());
 		writeSignatureLength(snapshot, 0);
 
-		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.INVALID));
+		assertThat(SnapshotSignature.read(snapshot).getStatus(), equalTo(SignatureStatus.MALFORMED));
 	}
 
 	/* A replaced signature must not stay behind the content, or the new one would be appended after it: whatever a

@@ -207,6 +207,46 @@ public class BootstrapSignTest {
 		assertNothingSigned();
 	}
 
+	/* A whole signature that does not verify makes the content one not to trust, which no option overrides */
+	@Example
+	public void shouldRefuseASnapshotWhoseSignatureDoesNotVerifyWhenForcedToo() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(SignatureStatus.INVALID, null);
+
+		final HedgehogCli.Result result = sign("--force");
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("does not verify"));
+		assertNothingSigned();
+	}
+
+	/* What a signing that was cut short leaves is no signature, so the line says what it is and how to go on */
+	@Example
+	public void shouldRefuseASnapshotThatEndsInNoWholeSignature() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(SignatureStatus.MALFORMED, null);
+
+		final HedgehogCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(ExitCode.UNUSABLE));
+		assertThat(result.err().lines().toList(), equalTo(List.of(snapshot + " ends in bytes that are no whole"
+			+ " signature, as a signing that was cut short leaves them, pass --force to cut them off and"
+			+ " sign")));
+		assertNothingSigned();
+	}
+
+	@Example
+	public void shouldSignASnapshotThatEndsInNoWholeSignatureWhenForced() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(SignatureStatus.MALFORMED, null);
+
+		final HedgehogCli.Result result = sign("--force");
+
+		assertThat(result.exitCode(), equalTo(0));
+		assertThat(result.out(), containsString("Signed " + snapshot));
+		assertThat(signings, equalTo(List.of(List.of(snapshot, KEY))));
+	}
+
 	@Example
 	public void shouldLeaveAnExistingSignatureAlone() {
 		existingSnapshot(CONTENT);

@@ -22,8 +22,10 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import java.util.function.Consumer;
 import lombok.SneakyThrows;
@@ -154,6 +156,28 @@ public class SnapshotReaderTest {
 
 		SnapshotSignature.signAndAppend(path, new Signature().getPrivateKey());
 		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "does not verify against any trusted key");
+	}
+
+	/* What a signing that was cut short leaves after the content is no signature, and the snapshot none to use: it
+	   is refused as one whose signature does not verify is, whether the cut fell in the head of the block or after */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotThatEndsInTheStartOfASignature() {
+		final int head = SnapshotFormat.SIGNATURE_HEADER_SIZE;
+
+		for (int left : new int[] { 1, head, head + 1 }) {
+			final Path path = validSnapshot();
+			final long content = SnapshotDigest.contentLengthOf(path);
+
+			SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+
+			try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+				channel.truncate(content + left);
+			}
+
+			SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path),
+				"does not verify against any trusted key");
+		}
 	}
 
 	@Provide

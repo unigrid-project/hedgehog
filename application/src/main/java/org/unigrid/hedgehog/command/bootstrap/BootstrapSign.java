@@ -46,7 +46,8 @@ public class BootstrapSign implements Callable<Integer> {
 	)
 	private String key;
 
-	@Option(names = "--force", description = "Replace an existing signature.")
+	@Option(names = "--force", description = "Replace an existing signature, or the remains of one that was never"
+		+ " finished.")
 	private boolean force;
 
 	@Option(names = "--spork-db", paramLabel = "<file>", description = "A spork database whose chain of board keys"
@@ -74,7 +75,7 @@ public class BootstrapSign implements Callable<Integer> {
 			return ExitCode.UNUSABLE;
 		}
 
-		final String problem = unsignableReason(snapshot);
+		final String problem = unsignableReason(snapshot, force);
 
 		if (problem != null) {
 			System.err.println(problem);
@@ -106,8 +107,12 @@ public class BootstrapSign implements Callable<Integer> {
 	   Signing is what turns a file into an authenticated artefact, so refuse anything this build
 	   cannot read rather than vouching for bytes it does not understand. Returns null when there is
 	   nothing wrong with the file.
+
+	   A snapshot that ends in bytes that are no whole signature is one whose signing was cut short. Its content
+	   was read as that of any other, and those bytes say nothing of it, so they are cut off and the snapshot
+	   signed, once the user asks for that.
 	*/
-	private static String unsignableReason(Path snapshot) {
+	private static String unsignableReason(Path snapshot, boolean force) {
 		final SignatureStatus status;
 
 		try {
@@ -115,6 +120,11 @@ public class BootstrapSign implements Callable<Integer> {
 
 		} catch (IOException ex) {
 			return FileFailure.describe(ex);
+		}
+
+		if (status == SignatureStatus.MALFORMED && !force) {
+			return snapshot + " ends in bytes that are no whole signature, as a signing that was cut short"
+				+ " leaves them, pass --force to cut them off and sign";
 		}
 
 		return status == SignatureStatus.INVALID ? snapshot + " already carries a signature that"

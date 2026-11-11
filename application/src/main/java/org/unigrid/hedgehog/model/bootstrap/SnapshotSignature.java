@@ -114,7 +114,7 @@ public final class SnapshotSignature implements Signable {
 
 	public SignatureStatus getStatus() {
 		if (malformed) {
-			return SignatureStatus.INVALID;
+			return SignatureStatus.MALFORMED;
 		}
 
 		if (!isPresent()) {
@@ -183,7 +183,7 @@ public final class SnapshotSignature implements Signable {
 
 		final int length = header.getInt(SnapshotFormat.SIGNATURE_LENGTH_OFFSET);
 
-		if (!isWellFormedHeader(magic, length)) {
+		if (!isWellFormedHeader(magic, length) || isCutShort(trailing, length)) {
 			log.atWarn().log("Rejecting an unrecognisable block after the snapshot content");
 			return null;
 		}
@@ -192,6 +192,12 @@ public final class SnapshotSignature implements Signable {
 
 		channel.read(bytes);
 		return bytes.array();
+	}
+
+	/* A block that ends before its signature does is the start of one and no signature: read as one, the bytes that
+	   are missing would be zeroes, and the snapshot would count as one whose signature does not verify */
+	private static boolean isCutShort(long trailing, int length) {
+		return trailing < SnapshotFormat.SIGNATURE_HEADER_SIZE + length;
 	}
 
 	private static boolean isWellFormedHeader(byte[] magic, int length) {
