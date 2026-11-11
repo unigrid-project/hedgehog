@@ -56,7 +56,8 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	   of the ledger among them, so a megabyte holds every one of them with room to spare */
 	public static final long MAX_REQUEST_BYTES = 1L << 20;
 
-	/* A sender that trickles holds a thread of the container in its read for as long as the body is open */
+	/* A sender that trickles holds a thread of the container in its read for as long as the body is open, and one that
+	   says nothing holds its connection, so the head of a request has the same time to arrive in as its body has */
 	public static final Duration BODY_TIME = Duration.ofSeconds(30);
 	public static final Duration LINGER = Duration.ofSeconds(2);
 
@@ -77,7 +78,9 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private long allowed;
 	private long remaining;
+	private int unanswered;
 	private boolean unfinished;
+	private boolean answering;
 	private boolean answered;
 	private boolean refused;
 	private Future<?> deadline;
@@ -94,6 +97,30 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		return SPORK.equals(path) ? Math.max(limit, SporkWire.MAX_SIZE) : limit;
+	}
+
+	/* A sender that has connected and says nothing, or stops in the middle of the head of a request, holds a socket of
+	   the node for as long as it likes. A connection is therefore given the time of a body for the head of its next
+	   request to arrive in: from when it opens, and again from when a request is over, which it is once its body has
+	   ended and its answer is written out. A request that a resource is still working on is not timed by this. */
+	@Override
+	public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+		awaitRequest(ctx);
+		super.channelActive(ctx);
+	}
+
+	private void awaitRequest(final ChannelHandlerContext ctx) {
+		if (unanswered == 0 && !unfinished && !refused && ctx.channel().isActive()) {
+			answered = false;
+			cancelDeadline();
+			deadline = timeout(ctx);
+		}
+	}
+
+	private Future<?> timeout(final ChannelHandlerContext ctx) {
+		return ctx.executor().schedule(() -> refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT,
+			"A request has to arrive within " + bodyTime.toSeconds() + " seconds")), bodyTime.toMillis(),
+			TimeUnit.MILLISECONDS);
 	}
 
 	@Override
@@ -118,6 +145,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private boolean begin(final ChannelHandlerContext ctx, final HttpRequest request) {
 		answered = false;
+		cancelDeadline();
 		ctx.channel().attr(CUT).set(Boolean.FALSE);
 
 		if (!authentication.isAuthorized(request.headers().get(HttpHeaderNames.AUTHORIZATION))) {
@@ -142,11 +170,10 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		unfinished = true;
+		unanswered++;
 
 		if (!upload && (declared > 0 || HttpUtil.isTransferEncodingChunked(request))) {
-			deadline = ctx.executor().schedule(() -> refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT,
-				"A request has to arrive within " + bodyTime.toSeconds() + " seconds")), bodyTime.toMillis(),
-				TimeUnit.MILLISECONDS);
+			deadline = timeout(ctx);
 		}
 
 		return true;
@@ -163,6 +190,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		if (content instanceof LastHttpContent) {
 			unfinished = false;
 			cancelDeadline();
+			awaitRequest(ctx);
 		}
 
 		return true;
@@ -231,9 +259,33 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 			return;
 		}
 
-		answered |= message instanceof HttpResponse response
-			&& response.status().codeClass() != HttpStatusClass.INFORMATIONAL;
-		ctx.write(message, promise);
+		ctx.write(message, isInterim(message) ? promise : answer(ctx, message, promise));
+	}
+
+	private static boolean isInterim(final Object message) {
+		return message instanceof HttpResponse response
+			&& response.status().codeClass() == HttpStatusClass.INFORMATIONAL;
+	}
+
+	/* An answer begins with its head and is over once its end is written out, which may be long after the container
+	   handed it over if the sender reads slowly. The container ends an answer without a body twice, with the answer
+	   itself and with an empty end after it, and only the first of the two ends an answer. */
+	private ChannelPromise answer(final ChannelHandlerContext ctx, final Object message, final ChannelPromise promise) {
+		if (message instanceof HttpResponse) {
+			answered = true;
+			answering = true;
+		}
+
+		if (!answering || !(message instanceof LastHttpContent)) {
+			return promise;
+		}
+
+		answering = false;
+
+		return promise.unvoid().addListener(written -> {
+			unanswered--;
+			awaitRequest(ctx);
+		});
 	}
 
 	/* The container closes the connection of a request that it failed, and it fails one whose body was cut short. The

@@ -30,6 +30,7 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpContent;
 import io.netty.handler.codec.http.DefaultHttpRequest;
+import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -68,6 +69,10 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.awaitility.Awaitility.await;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.monitoring.ApplicationEvent;
+import org.glassfish.jersey.server.monitoring.ApplicationEventListener;
+import org.glassfish.jersey.server.monitoring.RequestEvent;
+import org.glassfish.jersey.server.monitoring.RequestEventListener;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -109,7 +114,12 @@ public class RequestBodyLimitTest {
 		}
 
 		private void answer(final HttpResponseStatus status) {
-			context.writeAndFlush(new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status));
+			send(new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status));
+		}
+
+		/* One piece of an answer that is written piece by piece */
+		private void send(final Object piece) {
+			context.writeAndFlush(piece);
 		}
 
 		/* As the container closes the connection of a request that it failed */
@@ -121,12 +131,15 @@ public class RequestBodyLimitTest {
 	private Container container;
 	private EmbeddedChannel channel;
 
+	/* The time is held still before the connection opens, so that what the limit starts as it opens is exact too */
+	@SneakyThrows
 	private static EmbeddedChannel channelTo(final Container container) {
-		final EmbeddedChannel created = new EmbeddedChannel(
+		final EmbeddedChannel created = new EmbeddedChannel(false, false,
 			new RequestBodyLimit(new BearerTokenFilter(TOKEN), LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER),
 			container);
 
 		created.freezeTime();
+		created.register();
 		return created;
 	}
 
@@ -195,6 +208,10 @@ public class RequestBodyLimitTest {
 		}
 
 		return responses;
+	}
+
+	private List<HttpResponseStatus> answers() {
+		return written().stream().map(FullHttpResponse::status).toList();
 	}
 
 	private static String textOf(final FullHttpResponse response) {
@@ -396,6 +413,148 @@ public class RequestBodyLimitTest {
 		assertThat(channel.isActive(), is(true));
 	}
 
+	/* A sender that has connected and then says nothing holds a socket of the node for as long as it likes, so the
+	   request of a connection is given the time that a body is given, from the moment that the connection opens */
+	@Example
+	public void shouldAnswerAConnectionThatSendsNoRequestAndCloseIt() {
+		passTime(BODY_TIME.minusMillis(1));
+		assertThat(written(), empty());
+		assertThat(channel.isActive(), is(true));
+		passTime(Duration.ofMillis(1));
+
+		final List<FullHttpResponse> responses = written();
+
+		assertThat(responses, hasSize(1));
+		assertThat(responses.get(0).status(), equalTo(HttpResponseStatus.REQUEST_TIMEOUT));
+		assertThat(textOf(responses.get(0)), equalTo("{\"error\":\"A request has to arrive within "
+			+ BODY_TIME.toSeconds() + " seconds\"}"));
+		assertThat(responses.get(0).headers().get(HttpHeaderNames.CONNECTION), equalTo("close"));
+		assertThat(container.read, empty());
+		assertThat(channel.isActive(), is(true));
+		passTime(LINGER);
+		assertThat(channel.isActive(), is(false));
+	}
+
+	/* The wait for a request is over with its head, and the body that follows has its own time from there */
+	@Example
+	public void shouldGiveABodyItsOwnTimeFromAHeadThatCameInTime() {
+		passTime(BODY_TIME.minusMillis(1));
+		channel.writeInbound(chunked(SUBMIT));
+		passTime(BODY_TIME.minusMillis(1));
+		assertThat(written(), empty());
+		passTime(Duration.ofMillis(1));
+		assertThat(answers(), contains(HttpResponseStatus.REQUEST_TIMEOUT));
+	}
+
+	/* A resource takes as long as it needs for its answer. The wait is for a request, so it begins again only once
+	   this one is answered. */
+	@Example
+	public void shouldWaitForTheNextRequestOnlyOnceTheResourceHasAnswered() {
+		channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
+		passTime(BODY_TIME.multipliedBy(2));
+		container.answer(HttpResponseStatus.OK);
+		passTime(BODY_TIME.minusMillis(1));
+		assertThat(answers(), contains(HttpResponseStatus.OK));
+		assertThat(channel.isActive(), is(true));
+		passTime(Duration.ofMillis(1));
+		assertThat(answers(), contains(HttpResponseStatus.REQUEST_TIMEOUT));
+		passTime(LINGER);
+		assertThat(channel.isActive(), is(false));
+	}
+
+	@Example
+	public void shouldTakeEachRequestOfAConnectionThatComesInTimeAfterTheOneBefore() {
+		for (int i = 0; i < 3; i++) {
+			passTime(BODY_TIME.minusMillis(1));
+			channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
+			container.answer(HttpResponseStatus.OK);
+		}
+
+		assertThat(answers(), contains(HttpResponseStatus.OK, HttpResponseStatus.OK, HttpResponseStatus.OK));
+		assertThat(container.read, hasSize(6));
+		assertThat(channel.isActive(), is(true));
+	}
+
+	/* An answer that is written piece by piece is under way until its end is written, however long that takes */
+	@Example
+	public void shouldNotCutAnAnswerThatIsStillBeingWritten() {
+		channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
+		container.send(new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK));
+		passTime(BODY_TIME.multipliedBy(2));
+		container.send(chunk(10));
+		passTime(BODY_TIME.multipliedBy(2));
+
+		assertThat(channel.outboundMessages(), hasSize(2));
+		assertThat(channel.isActive(), is(true));
+		channel.releaseOutbound();
+
+		container.send(LastHttpContent.EMPTY_LAST_CONTENT);
+		passTime(BODY_TIME);
+
+		assertThat(channel.readOutbound(), sameInstance(LastHttpContent.EMPTY_LAST_CONTENT));
+		assertThat(answers(), contains(HttpResponseStatus.REQUEST_TIMEOUT));
+	}
+
+	/* A sender may send its next request before the one before it is answered, and that one is then under way too */
+	@Example
+	public void shouldNotWaitForARequestWhileOneThatCameEarlyIsStillToBeAnswered() {
+		channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT,
+			request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
+
+		container.answer(HttpResponseStatus.OK);
+		passTime(BODY_TIME.multipliedBy(2));
+		assertThat(answers(), contains(HttpResponseStatus.OK));
+		assertThat(channel.isActive(), is(true));
+
+		container.answer(HttpResponseStatus.OK);
+		passTime(BODY_TIME);
+		assertThat(answers(), contains(HttpResponseStatus.OK, HttpResponseStatus.REQUEST_TIMEOUT));
+	}
+
+	/* The container ends an answer without a body twice, with the answer itself and with an empty end after it. That
+	   is one answer, and not also the answer of the request that came after. */
+	@Example
+	public void shouldTakeAnAnswerThatIsEndedTwiceForOneAnswer() {
+		channel.writeInbound(request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT,
+			request(HttpMethod.GET, "/ledger"), LastHttpContent.EMPTY_LAST_CONTENT);
+
+		container.answer(HttpResponseStatus.OK);
+		container.send(LastHttpContent.EMPTY_LAST_CONTENT);
+		passTime(BODY_TIME.multipliedBy(2));
+
+		assertThat(channel.outboundMessages(), hasSize(2));
+		assertThat(channel.isActive(), is(true));
+	}
+
+	/* An answer may be out before the body has ended, as the answer to a path that is not there is. The request is
+	   over, and the next one waited for, once its body has ended as well. */
+	@Example
+	public void shouldWaitForTheNextRequestOnlyOnceABodyThatWasAnsweredEarlyHasEnded() {
+		channel.writeInbound(declaring("/storage", UPLOAD_LIMIT), chunk(10));
+		container.answer(HttpResponseStatus.NOT_FOUND);
+		passTime(BODY_TIME.multipliedBy(2));
+		assertThat(answers(), contains(HttpResponseStatus.NOT_FOUND));
+		assertThat(channel.isActive(), is(true));
+
+		channel.writeInbound(LastHttpContent.EMPTY_LAST_CONTENT);
+		passTime(BODY_TIME.minusMillis(1));
+		assertThat(written(), empty());
+		passTime(Duration.ofMillis(1));
+		assertThat(answers(), contains(HttpResponseStatus.REQUEST_TIMEOUT));
+	}
+
+	/* A 100 Continue is no answer: the request that it was written for is still to be answered */
+	@Example
+	public void shouldNotWaitForARequestAfterAContinueToOneThatIsStillToBeAnswered() {
+		channel.writeInbound(expecting(declaring(SUBMIT, 10)));
+		container.answer(HttpResponseStatus.CONTINUE);
+		channel.writeInbound(chunk(10), LastHttpContent.EMPTY_LAST_CONTENT);
+		passTime(BODY_TIME.multipliedBy(2));
+
+		assertThat(answers(), contains(HttpResponseStatus.CONTINUE));
+		assertThat(channel.isActive(), is(true));
+	}
+
 	@Example
 	public void shouldGiveAnUploadItsOwnLargerLimitAndNoTimeLimit() {
 		for (final String path : List.of("/storage", "/storage?x=1", "/storage-object/bucket/key",
@@ -547,6 +706,29 @@ public class RequestBodyLimitTest {
 		}
 	}
 
+	/* Counts the requests that the container is done with, each one once its answer is written and the container has
+	   nothing left to do for it */
+	private static final class Finished implements ApplicationEventListener, RequestEventListener {
+		private final AtomicInteger requests = new AtomicInteger();
+
+		@Override
+		public void onEvent(final ApplicationEvent event) {
+			/* Only what becomes of a request is counted */
+		}
+
+		@Override
+		public RequestEventListener onRequest(final RequestEvent event) {
+			return this;
+		}
+
+		@Override
+		public void onEvent(final RequestEvent event) {
+			if (event.getType() == RequestEvent.Type.FINISHED) {
+				requests.incrementAndGet();
+			}
+		}
+	}
+
 	/* The container of the server, built the way the server builds it and standing behind the limit, so that what a
 	   body cut short does to a resource is what the library does with it. The decoder of the codec stands in front. */
 	private static final class Served implements AutoCloseable {
@@ -556,13 +738,14 @@ public class RequestBodyLimitTest {
 		private final List<String> taken = new CopyOnWriteArrayList<>();
 		private final BlockedReaders readers = new BlockedReaders();
 		private final Closes closes = new Closes();
+		private final Finished finished = new Finished();
 		private final org.glassfish.jersey.server.spi.Container jersey;
 		private final EmbeddedChannel channel;
 
 		@SneakyThrows
 		private Served() {
 			final ResourceConfig config = new ResourceConfig().registerInstances(new Body(taken),
-				new CutBodyFilter());
+				new CutBodyFilter(), finished);
 
 			jersey = (org.glassfish.jersey.server.spi.Container) Reflection.getConstructor(CONTAINER,
 				Application.class).newInstance(config);
@@ -601,6 +784,18 @@ public class RequestBodyLimitTest {
 			} finally {
 				out.release();
 			}
+		}
+
+		/* What the connection has been sent since this was last asked, which may be nothing */
+		private String answers() {
+			final StringBuilder answers = new StringBuilder();
+
+			for (ByteBuf out = channel.readOutbound(); out != null; out = channel.readOutbound()) {
+				answers.append(out.toString(StandardCharsets.US_ASCII));
+				out.release();
+			}
+
+			return answers.toString();
 		}
 
 		@Override
@@ -669,6 +864,36 @@ public class RequestBodyLimitTest {
 			await().atMost(PATIENCE).until(() -> served.closes.made.get() > 0);
 			assertThat(served.refusal(), startsWith("HTTP/1.1 413"));
 			assertThat(served.channel.isActive(), is(true));
+		}
+	}
+
+	/* The decoder hands on the head of a request only once it is whole, so a head that stops half way is a request
+	   that has not arrived, and its sender holds the connection as one that says nothing does */
+	@Example
+	public void shouldAnswerAHeadThatStopsHalfWay() {
+		try (Served served = new Served()) {
+			served.send("POST /body HTTP/1.1\r\nHost: loc");
+			served.passTime(BODY_TIME);
+
+			assertThat(served.answers(), startsWith("HTTP/1.1 408"));
+			assertThat(served.taken, empty());
+		}
+	}
+
+	/* The answer is written by the container here, the way it writes one without a body: it ends it twice, with the
+	   answer itself and with an empty end after it. The connection is then waiting for its next request. */
+	@Example
+	public void shouldAnswerAConnectionThatSendsNoRequestAfterTheContainerAnsweredOne() {
+		try (Served served = new Served()) {
+			served.send(Served.head("Content-Length: 10") + "10.0.0.1:5");
+			await().atMost(PATIENCE).until(() -> served.finished.requests.get() > 0);
+			assertThat(served.answers(), startsWith("HTTP/1.1 200"));
+
+			served.passTime(BODY_TIME.minusMillis(1));
+			assertThat(served.answers(), equalTo(""));
+			served.passTime(Duration.ofMillis(1));
+			assertThat(served.answers(), startsWith("HTTP/1.1 408"));
+			assertThat(served.taken, contains("10.0.0.1:5"));
 		}
 	}
 }
