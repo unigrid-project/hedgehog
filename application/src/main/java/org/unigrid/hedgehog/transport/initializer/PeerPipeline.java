@@ -41,6 +41,7 @@ import org.unigrid.hedgehog.transport.handler.PingChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.transport.handler.SporkProtocol;
 import org.unigrid.hedgehog.transport.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer.Type;
 import org.unigrid.hedgehog.transport.schedule.LedgerStatusSchedule;
@@ -74,7 +75,7 @@ public final class PeerPipeline {
 
 		handlers.addAll(List.of(
 			new PingEncoder(), new PingDecoder(),
-			new PublishSporkEncoder(), new PublishSporkDecoder(),
+			new PublishSporkEncoder(), new PublishSporkDecoder(SporkProtocol::inTheLayoutOfThisRelease),
 			new PublishPeersEncoder(), new PublishPeersDecoder(),
 			new PingChannelHandler(), new PublishSporkChannelHandler()
 		));

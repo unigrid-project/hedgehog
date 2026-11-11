@@ -19,16 +19,24 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import java.util.Optional;
+import java.util.function.BiPredicate;
+import lombok.NoArgsConstructor;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.codec.api.PacketDecoder;
 import org.unigrid.hedgehog.model.network.Packet;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 
+@NoArgsConstructor
 @ChannelCodec(priority = 11)
 public class PublishSporkDecoder extends AbstractGridSporkDecoder<PublishSpork> implements PacketDecoder<PublishSpork> {
+	public PublishSporkDecoder(final BiPredicate<Channel, GridSpork.Type> inTheLayoutOfThisRelease) {
+		super(inTheLayoutOfThisRelease);
+	}
+
 	/*
 	    Packet format:
 	    0.............................63.............................128

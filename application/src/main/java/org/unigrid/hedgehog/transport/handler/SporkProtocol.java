@@ -25,6 +25,7 @@ import java.util.Optional;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 
 /* Whether the other end of a stream reads every spork type of this release: its connection settled on the protocol
@@ -37,6 +38,14 @@ public final class SporkProtocol {
 	public static boolean negotiatedOn(final Channel stream) {
 		return LedgerProtocol.negotiatedOn(stream)
 			|| Optional.ofNullable(stream.parent()).map(SporkProtocol::settledOn).orElse(false);
+	}
+
+	/* Whether a spork of the type that comes in over the stream has the layout of this release. A node of release 0.0.8
+	   sends its vesting spork on every new stream and every few minutes, each entry without the cliff, the percent and
+	   the block. That frame cannot be read here, and its spork could not be taken if it were, as its signatures cover
+	   the bytes of the earlier layout. */
+	public static boolean inTheLayoutOfThisRelease(final Channel stream, final GridSpork.Type type) {
+		return type != GridSpork.Type.VESTING_STORAGE || negotiatedOn(stream);
 	}
 
 	/* A connection that has not said yet what it settled on is not remembered as not having settled on the protocol */

@@ -19,13 +19,16 @@
 package org.unigrid.hedgehog.model.network.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.CorruptedFrameException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiPredicate;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.collection.OptionalMap;
 import org.unigrid.hedgehog.model.spork.ChunkData;
@@ -42,9 +45,16 @@ import org.unigrid.hedgehog.model.spork.ChunkDecoder;
 public abstract class AbstractGridSporkDecoder<T extends Packet> extends AbstractReplayingDecoder<T> {
 
 	private final OptionalMap<GridSpork.Type, ChunkDecoder> decoders;
+	private final BiPredicate<Channel, GridSpork.Type> inTheLayoutOfThisRelease;
 
 	protected AbstractGridSporkDecoder() {
+		this((stream, type) -> true);
+	}
+
+	/* A spork that its sender wrote in the layout of another release is left whole, as one of an unknown type is */
+	protected AbstractGridSporkDecoder(final BiPredicate<Channel, GridSpork.Type> inTheLayoutOfThisRelease) {
 		decoders = ChunkScanner.scan(ChunkType.DECODER, ChunkGroup.GRIDSPORK);
+		this.inTheLayoutOfThisRelease = inTheLayoutOfThisRelease;
 	}
 
 	/*
@@ -71,7 +81,7 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 	*/
 	public Optional<GridSpork> decodeGridSpork(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
 		final GridSpork.Type type = GridSpork.Type.get(in.readShort());
-		final Optional<ChunkDecoder> cd = decoders.getOptional(type);
+		final Optional<ChunkDecoder> cd = decoders.getOptional(type).filter(decoder -> isReadable(ctx, type));
 
 		if (cd.isPresent()) {
 			log.atTrace().log("decoding spork chunk of type {}", type);
@@ -92,9 +102,15 @@ public abstract class AbstractGridSporkDecoder<T extends Packet> extends Abstrac
 			return Optional.of(gridSpork);
 		}
 
-		/* A peer of a later release sends types this node does not know, which is no fault of either */
+		/* A peer of a later release sends types this node does not know, and one of an earlier release a type in the
+		   layout it had then, which is no fault of either */
 		log.atDebug().log("Unable to handle spork chunk of type {}", type);
 		return Optional.empty();
+	}
+
+	/* A spork that comes over no stream, such as one of the command line, was written by this release */
+	private boolean isReadable(ChannelHandlerContext ctx, GridSpork.Type type) {
+		return Objects.isNull(ctx) || inTheLayoutOfThisRelease.test(ctx.channel(), type);
 	}
 
 	private SignatureLog decodeLog(ByteBuf in) {
