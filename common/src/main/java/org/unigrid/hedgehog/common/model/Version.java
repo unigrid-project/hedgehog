@@ -17,6 +17,7 @@
 package org.unigrid.hedgehog.common.model;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Objects;
 import java.util.Properties;
 import lombok.SneakyThrows;
@@ -38,10 +39,10 @@ public class Version {
 		String name = String.format("%s %s", DEFAULT_AUTHOR, DEFAULT_NAME);
 		String version  = DEFAULT_VERSION;
 
-		try {
-			properties.load(Thread.currentThread().getContextClassLoader()
-				.getResourceAsStream("application.properties"));
+		try (InputStream file = Thread.currentThread().getContextClassLoader()
+			.getResourceAsStream("application.properties")) {
 
+			properties.load(file);
 			name = Objects.requireNonNull(properties.getProperty("project.name"));
 			version = Objects.requireNonNull(properties.getProperty("project.version"));
 		} catch (IOException | NullPointerException ex) {

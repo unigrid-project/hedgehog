@@ -19,19 +19,30 @@
 package org.unigrid.hedgehog.common.model;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 
 public class VersionTest {
 	private static final String DEFAULTS = "Unigrid Hedgehog 0.0.0-BASTARD";
 
 	/* The version is read from the class loader of the thread, which here hands out the given text or nothing */
 	static <T> T withProperties(String text, Supplier<T> reading) {
+		return withStreams(() -> text == null ? null
+			: new ByteArrayInputStream(text.getBytes(StandardCharsets.ISO_8859_1)), reading);
+	}
+
+	/* Every look for the file gets a stream of its own from the supplier */
+	static <T> T withStreams(Supplier<InputStream> streams, Supplier<T> reading) {
 		final Thread thread = Thread.currentThread();
 		final ClassLoader previous = thread.getContextClassLoader();
 		final String version = System.getProperty(Version.VERSION_PROPERTY_NAME);
@@ -40,7 +51,7 @@ public class VersionTest {
 		thread.setContextClassLoader(new ClassLoader(previous) {
 			@Override
 			public InputStream getResourceAsStream(String name) {
-				return text == null ? null : new ByteArrayInputStream(text.getBytes(StandardCharsets.ISO_8859_1));
+				return streams.get();
 			}
 		});
 
@@ -97,6 +108,63 @@ public class VersionTest {
 	public void shouldFallBackToTheDefaultVersionWhenItIsMissing() {
 		assertThat(withProperties("project.name=Other Name\n", VersionTest::version),
 			equalTo("Other Name 0.0.0-BASTARD"));
+	}
+
+	/* A stream that notes whether it was closed */
+	private static final class Watched extends InputStream {
+		private final InputStream content;
+		private boolean closed;
+
+		private Watched(InputStream content) {
+			this.content = content;
+		}
+
+		@Override
+		public int read() throws IOException {
+			return content.read();
+		}
+
+		@Override
+		public void close() throws IOException {
+			closed = true;
+			content.close();
+		}
+	}
+
+	private static List<Watched> opened(InputStream content) {
+		final List<Watched> opened = new ArrayList<>();
+
+		withStreams(() -> {
+			final Watched stream = new Watched(content);
+
+			opened.add(stream);
+			return stream;
+		}, VersionTest::version);
+
+		return opened;
+	}
+
+	/* The file is found again at every call, so a stream left open at each one piles up until it is collected */
+	@Example
+	public void shouldCloseThePropertyFileOnceItIsRead() {
+		final List<Watched> opened = opened(new ByteArrayInputStream(
+			"project.name=Unigrid Hedgehog\nproject.version=1.2.3\n".getBytes(StandardCharsets.ISO_8859_1)));
+
+		assertThat(opened, hasSize(1));
+		assertThat(opened.get(0).closed, is(true));
+	}
+
+	@Example
+	public void shouldCloseThePropertyFileThatCannotBeRead() {
+		final List<Watched> opened = opened(new InputStream() {
+			@Override
+			public int read() throws IOException {
+				throw new IOException("unreadable");
+			}
+		});
+
+		assertThat(opened, hasSize(1));
+		assertThat(opened.get(0).closed, is(true));
 	}
 
 	@Example
