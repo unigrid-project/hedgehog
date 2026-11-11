@@ -36,7 +36,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.SerializationException;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
@@ -76,7 +75,9 @@ public class SporkDatabaseProducer {
 	}
 
 	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
-	   would write over it, and what it held is the operator's to look at and the network's to send again. The chain
+	   would write over it, and what it held is the operator's to look at and the network's to send again. A class
+	   that the file names can refuse what it reads with a runtime exception, such as an Instant that is given seconds
+	   it cannot hold, which the stream passes on as it is, so any such failure is a file that cannot be read. The chain
 	   that the release ships is gone by before anything of the file is judged. */
 	private SporkDatabase loaded(Path path) {
 		BoardKeysAuthority.installTheRelease();
@@ -86,7 +87,7 @@ public class SporkDatabaseProducer {
 			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
 				: SporkDatabase.builder().build();
 
-		} catch (IOException | ClassCastException | SerializationException ex) {
+		} catch (IOException | RuntimeException ex) {
 			log.atWarn().addArgument(path).addArgument(movedAside(path)).addArgument(ex.getMessage())
 				.log("The spork database {} cannot be read, it is kept as {} and the node starts with an "
 					+ "empty one: {}");

@@ -30,10 +30,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +109,65 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 			assertThat(aside, hasSize(1));
 			assertThat(Files.readAllBytes(aside.get(0)), equalTo(original));
 			Files.delete(aside.get(0));
+		}
+	}
+
+	/* Seconds that an Instant holds, and that are found in the written file by their bytes, to be changed to seconds
+	   that it does not */
+	private static final long SECONDS_MARKED = 0x0001020304050607L;
+
+	private static byte[] withSecondsBeyondAnInstant(byte[] file) {
+		final byte[] marked = ByteBuffer.allocate(Long.BYTES).putLong(SECONDS_MARKED).array();
+		final byte[] beyond = ByteBuffer.allocate(Long.BYTES).putLong(Long.MAX_VALUE).array();
+		final byte[] changed = file.clone();
+
+		for (int at = 0; at <= file.length - marked.length; at++) {
+			if (Arrays.equals(file, at, at + marked.length, marked, 0, marked.length)) {
+				System.arraycopy(beyond, 0, changed, at, beyond.length);
+				return changed;
+			}
+		}
+
+		throw new IllegalStateException("The time of the spork is not in the file");
+	}
+
+	/* The time of a spork is read by the Instant itself, which refuses seconds it cannot hold with a runtime exception
+	   that the stream does not turn into an IOException. Such a file is moved aside like any other that cannot be read,
+	   and the node starts: if the exception left the producer, the node would not exchange sporks until the file was
+	   removed by hand, and a start would read the same file again. */
+	@Example
+	@SneakyThrows
+	public void shouldMoveAsideAFileWhoseTimeIsBeyondTheRangeOfAnInstant() {
+		final GridSpork spork = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		fakeTheBoard(new Signature(), new Signature());
+		spork.setTimeStamp(Instant.ofEpochSecond(SECONDS_MARKED));
+		stored.set(spork);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			Files.write(file, withSecondsBeyondAnInstant(Files.readAllBytes(file)));
+
+			final byte[] original = Files.readAllBytes(file);
+			final SporkDatabase db = produced(holding(data));
+			final List<Path> aside = unreadableCopiesIn(data);
+
+			assertThat(db, equalTo(SporkDatabase.builder().build()));
+			assertThat(Files.exists(file), is(false));
+			assertThat(aside, hasSize(1));
+			assertThat(Files.readAllBytes(aside.getFirst()), equalTo(original));
+		}
+	}
+
+	@SneakyThrows
+	private static List<Path> unreadableCopiesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.filter(file -> file.getFileName().toString().startsWith(SporkDatabase.SPORK_DB_FILE
+				+ ".unreadable-")).toList();
 		}
 	}
 
