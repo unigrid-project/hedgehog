@@ -43,6 +43,15 @@ public class Ping extends Packet implements Serializable {
 	public static final int MISSED_PINGS_BEFORE_CLOSE = 3;
 	public static final AttributeKey<Integer> MISSED_PINGS_KEY = AttributeKey.valueOf("MISSED_PINGS");
 
+	/* A stream that takes no more is not written to by the schedules, and its peer is taken for gone as well once the
+	   stream stayed so through this many periods in a row while less than this left it in a second: a peer that reads
+	   nothing fills its stream for good, whatever it sends meanwhile. A peer on a slow link reads no slower than this,
+	   and is kept however long something large takes to reach it. */
+	public static final int UNWRITABLE_PERIODS_BEFORE_CLOSE = 3;
+	public static final int SLOWEST_READ_BYTES_PER_SECOND = 32 * 1024;
+	public static final AttributeKey<Integer> UNWRITABLE_PERIODS_KEY = AttributeKey.valueOf("UNWRITABLE_PERIODS");
+	public static final AttributeKey<Long> TAKEN_BYTES_KEY = AttributeKey.valueOf("TAKEN_BYTES");
+
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();
 
