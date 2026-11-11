@@ -26,11 +26,15 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.Status.Family;
 import java.io.IOException;
+import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
@@ -48,6 +52,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.ExitCode;
+import org.unigrid.hedgehog.command.HedgehogCli;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Connection;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
@@ -163,6 +169,40 @@ public class RestClientCommandTest {
 		assertThat(result.closed(), is(true));
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of(oddity.getMessage())));
+	}
+
+	/* As the shell sees it: through the command line of the application, which shows the trace of an exception that
+	   the command lets escape */
+	private static HedgehogCli.Result cli(Answer node, List<String> arguments) {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+		final String[] line = Stream.concat(Stream.of("cli"), arguments.stream()).toArray(String[]::new);
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run(line)), node);
+		return cli.get();
+	}
+
+	@Provide
+	public Arbitrary<List<String>> commands() {
+		return Arbitraries.of(List.of("node-list"), List.of("stop"), List.of("node-add", "10.0.0.1:52883"),
+			List.of("node-remove", "10.0.0.1:52883"));
+	}
+
+	/* A node that does not answer, or answers too late, is reported by the client as an exception of its own around
+	   the socket error: the operator is told in a line what could not be reached, and not shown the trace */
+	@Property(tries = 10)
+	public void tellsInOneLineThatTheNodeCannotBeReached(@ForAll("commands") List<String> command,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 20) String reason, @ForAll boolean silent) {
+
+		final IOException cause = silent ? new SocketTimeoutException(reason) : new ConnectException(reason);
+		final HedgehogCli.Result result = cli(RestCommandFixture.unreachable(cause), command);
+
+		result.assertNoStackTrace();
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("Could not reach the node at "
+			+ RestCommandFixture.HOST + ":" + RestCommandFixture.PORT + ": " + cause.getClass().getSimpleName() + ": "
+			+ reason)));
+
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Property(tries = 20)

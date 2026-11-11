@@ -22,10 +22,12 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -283,5 +285,21 @@ public class GridSporkCosignTest {
 		}));
 
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* A node that does not answer is reported by the client as an exception of its own: the command says so in a line */
+	@Example
+	public void saysInOneLineThatTheNodeCannotBeReached() {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-cosign", "-k", COSIGNER.getPrivateKey(),
+			"ab".repeat(DIGEST_LENGTH / 2))), RestCommandFixture.unreachable(new ConnectException("Connection refused")));
+
+		cli.get().assertNoStackTrace();
+		assertThat(cli.get().out(), equalTo(""));
+		assertThat(cli.get().err().lines().toList(), equalTo(List.of("Could not reach the node at "
+			+ RestCommandFixture.HOST + ":" + RestCommandFixture.PORT + ": ConnectException: Connection refused")));
+
+		assertThat(cli.get().exitCode(), equalTo(ExitCode.FAILED));
 	}
 }

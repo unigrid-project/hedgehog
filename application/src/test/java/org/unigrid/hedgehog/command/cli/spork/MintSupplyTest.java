@@ -22,6 +22,7 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -228,6 +229,22 @@ public class MintSupplyTest {
 
 		assertThat(exitCodeOf(refused ? refusing(node) : node, "cli", "gridspork-set", "--data", supply, "--key",
 			PROPOSER.getPrivateKey(), NAME), equalTo(refused ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	/* A node that does not answer is reported by the client as an exception of its own: the command says so in a line */
+	@Example
+	public void saysInOneLineThatTheNodeCannotBeReached() {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-set", "--data", "7", "--key",
+			PROPOSER.getPrivateKey(), NAME)), RestCommandFixture.unreachable(new ConnectException("Connection refused")));
+
+		cli.get().assertNoStackTrace();
+		assertThat(cli.get().out(), equalTo(""));
+		assertThat(cli.get().err().lines().toList(), equalTo(List.of("Could not reach the node at "
+			+ RestCommandFixture.HOST + ":" + RestCommandFixture.PORT + ": ConnectException: Connection refused")));
+
+		assertThat(cli.get().exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Property(tries = 4)

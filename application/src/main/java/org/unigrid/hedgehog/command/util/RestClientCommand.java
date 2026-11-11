@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.util;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -37,6 +38,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.ExitCode;
@@ -141,7 +143,7 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		} catch (ResponseOddityException ex) {
 			System.err.println(refusal(ex));
 			exitCode = ExitCode.FAILED;
-		} catch (IOException ex) {
+		} catch (IOException | ProcessingException ex) {
 			System.err.println(describe(ex));
 			exitCode = ExitCode.FAILED;
 		} catch (LocalFileException ex) {
@@ -172,6 +174,14 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		if (ex instanceof NoSuchFileException missing) {
 			return "No REST token in %s; is the daemon running? Otherwise pass --resttoken."
 				.formatted(missing.getFile());
+		}
+
+		/* The client reports a node that does not answer as an exception of its own, around the socket error */
+		if (ex instanceof ProcessingException unreachable) {
+			final String cause = ExceptionUtils.getRootCauseMessage(unreachable);
+
+			return TerminalText.printable("Could not reach the node at %s:%d: %s"
+				.formatted(RestOptions.getHost(), RestOptions.getPort(), cause));
 		}
 
 		return TerminalText.printable(String.valueOf(ex.getMessage()));

@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
@@ -106,7 +107,7 @@ public final class SporkProposal {
 			show("Proposed " + type + " data, signed now:", Optional.of(spork));
 			spork.sign(key);
 			return print(sporks.submit(spork));
-		} catch (ResponseOddityException | IOException ex) {
+		} catch (ResponseOddityException | IOException | ProcessingException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 		} catch (UntrustedSporkException ex) {
 			System.err.println("Nothing was signed: " + ex.getMessage());

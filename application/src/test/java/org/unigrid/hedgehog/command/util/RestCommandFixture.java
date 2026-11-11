@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.util;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.HttpHeaders;
@@ -107,6 +108,13 @@ public final class RestCommandFixture {
 		return run(HOST, command, () -> TOKEN, request -> {
 			throw oddity;
 		});
+	}
+
+	/* A node that does not answer: the client reports the socket error that it ran into as an exception of its own */
+	public static Answer unreachable(IOException cause) {
+		return request -> {
+			throw new ProcessingException(cause);
+		};
 	}
 
 	public static Result runWithoutToken(Runnable command, IOException unreadable) {

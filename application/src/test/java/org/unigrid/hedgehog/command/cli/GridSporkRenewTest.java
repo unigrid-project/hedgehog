@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -200,6 +201,22 @@ public class GridSporkRenewTest {
 
 		RestCommandFixture.runWithOddity(command, new ResponseOddityException(status));
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* A node that does not answer is reported by the client as an exception of its own: the command says so in a line */
+	@Example
+	public void saysInOneLineThatTheNodeCannotBeReached() {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-renew", "--key",
+			PROPOSER.getPrivateKey())), RestCommandFixture.unreachable(new ConnectException("Connection refused")));
+
+		cli.get().assertNoStackTrace();
+		assertThat(cli.get().out(), equalTo(""));
+		assertThat(cli.get().err().lines().toList(), equalTo(List.of("Could not reach the node at "
+			+ RestCommandFixture.HOST + ":" + RestCommandFixture.PORT + ": ConnectException: Connection refused")));
+
+		assertThat(cli.get().exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	/* As the shell sees it: through the command line of the application */

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.cli;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
@@ -99,7 +100,7 @@ public class GridSporkCosign implements Runnable, IExitCodeGenerator {
 					exitCode = ExitCode.FAILED;
 				}
 			}
-		} catch (ResponseOddityException | IOException ex) {
+		} catch (ResponseOddityException | IOException | ProcessingException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 			exitCode = ExitCode.FAILED;
 		} catch (UntrustedSporkException ex) {
