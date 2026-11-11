@@ -27,9 +27,13 @@ import io.netty.incubator.codec.quic.QuicStreamChannel;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
+import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
@@ -41,6 +45,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
@@ -49,15 +54,22 @@ import org.unigrid.hedgehog.transport.schedule.AbstractSchedule;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 
 /* The schedules of a stream (ping, peers, sporks) are set up once, as it is made, on a live stream of a QUIC
-   connection over loopback. A task of a fixed rate on the event loop is never run again once a run of it throws, and
+   connection over loopback. A periodic task on the event loop is never run again once a run of it throws, and
    says nothing of it, so a run that fails must not get out of the registration: a ping that stopped would leave a
    dead peer open until it idles out. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class RegisterQuicChannelInitializerTest {
 	private static final int PERIOD_MILLIS = 50;
 	private static final int RUNS = 5;
+	private static final int STALL_MILLIS = 10 * PERIOD_MILLIS;
+	private static final int AFTERWARDS_MILLIS = 4 * PERIOD_MILLIS;
 	private static final Duration PATIENCE = Duration.ofSeconds(10);
 	private static final String FAILURE = "A run of the schedule failed";
+
+	@SneakyThrows
+	private static void standStill(int millis) {
+		Thread.sleep(millis);
+	}
 
 	/* What the stream asks of the node once its schedules are set up is of no concern here, and there is none to ask */
 	@BeforeTry
@@ -142,6 +154,38 @@ public class RegisterQuicChannelInitializerTest {
 			}, RegisterQuicChannelInitializer.Type.SERVER).initChannel(loopback.stream());
 
 			assertThat(asked.get(), is(1));
+		}
+	}
+
+	/* An event loop that is held up, by a lock that a thread waits on or by a machine that stood still, leaves the runs it
+	   missed due all at once. Made one after the other in the same breath, as many unanswered pings as that would close
+	   a connection whose peer answered every one before the stall: a schedule goes on with its period from the run that
+	   it made last and does not make up for the ones that it missed. */
+	@Example
+	public void doesNotMakeUpForTheRunsAStallMissed() throws Exception {
+		final List<Long> runs = new CopyOnWriteArrayList<>();
+		final AtomicLong resumed = new AtomicLong();
+
+		try (QuicLoopback loopback = QuicLoopback.between(QuicLoopback.PREVIOUS_RELEASE,
+			QuicLoopback.PREVIOUS_RELEASE)) {
+
+			final QuicStreamChannel stream = loopback.stream();
+
+			initializerOf(every(PERIOD_MILLIS, false, channel -> runs.add(System.nanoTime()))).initChannel(stream);
+
+			stream.eventLoop().execute(() -> {
+				standStill(STALL_MILLIS);
+				resumed.set(System.nanoTime());
+			});
+
+			await().atMost(PATIENCE).alias("The loop to be running again for a while after the stall")
+				.until(() -> resumed.get() != 0
+					&& System.nanoTime() - resumed.get() > MILLISECONDS.toNanos(AFTERWARDS_MILLIS));
+
+			final long burstEnd = resumed.get() + MILLISECONDS.toNanos(PERIOD_MILLIS / 2);
+
+			assertThat("Runs made in half a period after a stall of ten", runs.stream()
+				.filter(at -> at >= resumed.get() && at < burstEnd).count(), is(lessThanOrEqualTo(1L)));
 		}
 	}
 

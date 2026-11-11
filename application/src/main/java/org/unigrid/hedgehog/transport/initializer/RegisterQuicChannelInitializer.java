@@ -88,8 +88,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
 
 		if (Objects.nonNull(s.getConsumer())) {
-			final Future<?> future = channel.eventLoop().scheduleAtFixedRate(() -> runOnce(channel, s),
-				s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
+			/* The period is counted from the end of a run, as one counted from the start would make up for
+			   the runs that a stalled event loop missed by making them back to back, each as one more
+			   ping unanswered. */
+			final Future<?> future = channel.eventLoop().scheduleWithFixedDelay(
+				() -> runOnce(channel, s), s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(),
+				s.getTimeUnit());
 
 			channel.closeFuture().addListener(f -> {
 				future.cancel(true);
@@ -97,7 +101,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		}
 	}
 
-	/* A task of a fixed rate is never run again once a run of it throws, and says nothing of it, so a run that fails
+	/* A periodic task is never run again once a run of it throws, and says nothing of it, so a run that fails
 	   is logged here and the next one is still made: a ping that stopped would leave a dead peer open. */
 	private static void runOnce(QuicStreamChannel channel, Schedulable s) {
 		try {
