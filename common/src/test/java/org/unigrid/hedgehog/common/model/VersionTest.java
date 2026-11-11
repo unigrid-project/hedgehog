@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
@@ -165,6 +166,72 @@ public class VersionTest {
 
 		assertThat(opened, hasSize(1));
 		assertThat(opened.get(0).closed, is(true));
+	}
+
+	private static InputStream stream(String text) {
+		return new ByteArrayInputStream(text.getBytes(StandardCharsets.ISO_8859_1));
+	}
+
+	/* The file cannot change while the process runs, yet the directories and the version call asks for it each time */
+	@Example
+	public void shouldReadThePropertyFileOnceForManyCalls() {
+		final AtomicInteger reads = new AtomicInteger();
+
+		final List<String> values = withStreams(() -> {
+			reads.incrementAndGet();
+			return stream("project.name=Unigrid Hedgehog\nproject.version=1.2.3\n");
+		}, () -> List.of(version(), Version.getAuthor(), Version.getName(), Version.getVersionNumber(), version()));
+
+		assertThat(values, equalTo(List.of("Unigrid Hedgehog 1.2.3", "Unigrid", "Hedgehog", "1.2.3",
+			"Unigrid Hedgehog 1.2.3")));
+		assertThat("reads of the property file", reads.get(), equalTo(1));
+	}
+
+	/* What was read for one class loader must not be handed to a thread that sees another file */
+	@Example
+	public void shouldReadTheFileOfTheClassLoaderThatAsks() {
+		final String first = "project.name=Unigrid Hedgehog\nproject.version=1.2.3\n";
+		final String second = "project.name=Other Name\nproject.version=4.5.6\n";
+
+		assertThat(withProperties(first, VersionTest::version), equalTo("Unigrid Hedgehog 1.2.3"));
+		assertThat(withProperties(second, VersionTest::version), equalTo("Other Name 4.5.6"));
+		assertThat(withProperties(null, VersionTest::version), equalTo(DEFAULTS));
+		assertThat(withProperties(first, VersionTest::version), equalTo("Unigrid Hedgehog 1.2.3"));
+	}
+
+	/* The header of the command line reads the properties, so every call keeps setting them */
+	@Example
+	public void shouldSetTheSystemPropertiesAtEveryCall() {
+		final String properties = "project.name=Unigrid Hedgehog\nproject.version=1.2.3\n";
+
+		final List<String> set = withProperties(properties, () -> {
+			version();
+			System.clearProperty(Version.VERSION_PROPERTY_NAME);
+			System.clearProperty(Version.VERSION_PAD_PROPERTY_NAME);
+			version();
+
+			return List.of(System.getProperty(Version.VERSION_PROPERTY_NAME),
+				System.getProperty(Version.VERSION_PAD_PROPERTY_NAME));
+		});
+
+		assertThat(set, equalTo(List.of("Unigrid Hedgehog 1.2.3", " ".repeat(42 - "Unigrid Hedgehog 1.2.3".length()))));
+	}
+
+	/* A file that could not be read at first is looked for again, not given up on for good */
+	@Example
+	public void shouldReadTheFileAgainAfterItCouldNotBeRead() {
+		final AtomicInteger reads = new AtomicInteger();
+
+		final List<String> values = withStreams(() -> {
+			if (reads.incrementAndGet() == 1) {
+				return null;
+			}
+
+			return stream("project.name=Unigrid Hedgehog\nproject.version=1.2.3\n");
+		}, () -> List.of(version(), version(), version()));
+
+		assertThat(values, equalTo(List.of(DEFAULTS, "Unigrid Hedgehog 1.2.3", "Unigrid Hedgehog 1.2.3")));
+		assertThat("reads of the property file", reads.get(), equalTo(2));
 	}
 
 	@Example
