@@ -230,13 +230,13 @@ public class Topology {
 		return nodes.remove(node);
 	}
 
-	@Protected @Lock(LockMode.READ)
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {
 		sendAll(packet, topology, channel -> true, consumer);
 	}
 
-	/* Only on the streams that the predicate takes, for a packet that not every node could read */
-	@Protected @Lock(LockMode.READ)
+	/* Only on the streams that the predicate takes, for a packet that not every node could read. The container
+	   intercepts no static method, so the read lock is the one that forEach takes, which holds for the whole send:
+	   the consumer must never call a method of the topology that writes. */
 	public static void sendAll(Packet packet, Topology topology, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 

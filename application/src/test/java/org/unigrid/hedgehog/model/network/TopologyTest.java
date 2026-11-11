@@ -25,6 +25,8 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.core.UriBuilder;
 import java.net.InetSocketAddress;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Expectations;
 import mockit.Invocation;
@@ -63,6 +66,8 @@ import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.Network;
+import org.unigrid.hedgehog.model.cdi.Lock;
+import org.unigrid.hedgehog.model.cdi.Protected;
 import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
@@ -484,6 +489,58 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(dialed.<Packet>readOutbound(), nullValue());
 		assertThat(opened.<Packet>readOutbound(), is(packet));
 		topology.removeNode(node);
+	}
+
+	/* The container intercepts the methods of a bean that it is called on, never a static one, so an annotation that asks
+	   for a lock on a static method promises a lock that nothing takes: a send is locked by the iteration of the
+	   topology that it runs in */
+	@Example
+	public void shouldAskForNoLockOnAStaticMethod() {
+		final List<String> promised = Stream.of(Topology.class, ChannelMap.class)
+			.flatMap(type -> Arrays.stream(type.getDeclaredMethods()))
+			.filter(method -> Modifier.isStatic(method.getModifiers()))
+			.filter(method -> method.isAnnotationPresent(Protected.class) || method.isAnnotationPresent(Lock.class))
+			.map(Method::toGenericString).toList();
+
+		assertThat("static methods that ask for a lock that the container never takes", promised, empty());
+	}
+
+	/* A send goes through the nodes under the read lock of the topology, so it waits for a writer that holds the lock */
+	@Example
+	public void shouldWaitForAWriterBeforeSendingToTheNodes() throws Exception {
+		final EmbeddedChannel stream = new EmbeddedChannel();
+		final Node node = NodeConnections.connected("127.0.100.46:52883", stream);
+		final Packet packet = PublishGridnode.builder().build();
+		final CountDownLatch writing = new CountDownLatch(1);
+		final CountDownLatch release = new CountDownLatch(1);
+		final ExecutorService threads = Executors.newFixedThreadPool(2);
+
+		try {
+			assertThat(topology.addNode(node), is(true));
+			threads.submit(() -> topology.modifyNode(node, n -> {
+				writing.countDown();
+				awaitQuietly(release);
+			}));
+			assertThat(writing.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), is(true));
+
+			final Future<?> sending = threads.submit(() -> Topology.sendAll(packet, topology, Optional.empty()));
+			boolean sentWhileWriting = true;
+
+			try {
+				sending.get(300, TimeUnit.MILLISECONDS);
+			} catch (TimeoutException ex) {
+				sentWhileWriting = false;
+			}
+
+			release.countDown();
+			assertThat("the packet was sent while another thread wrote to the topology", sentWhileWriting, is(false));
+			sending.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+			assertThat(stream.<Packet>readOutbound(), is(packet));
+		} finally {
+			release.countDown();
+			threads.shutdownNow();
+			topology.removeNode(node);
+		}
 	}
 
 	/* Counts the times it is rendered as text, as a spork is whole: all its data, its signatures and its log */
