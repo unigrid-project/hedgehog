@@ -53,7 +53,8 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
    whose pipeline starts as a node's does. The network examples of PingScheduleTest and PingChannelHandlerTest fail
    once another example of their class has run before them, so these are kept apart. A frame that is not whole is
    held by the stream while the bytes of it arrive, and the bytes count as a sign of life, so the pings never end a
-   frame that crawls in: it has a time of its own to be whole in, which grows with what its header says it holds. */
+   frame that crawls in: what arrives of it is looked at once in every period, and its stream is closed once too
+   little arrived in each of three periods in a row, however much its header says it holds. */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class MissedPingsTest {
 	private static final int DATA_BYTES = 1024;
@@ -66,12 +67,11 @@ public class MissedPingsTest {
 	private static final int HOUR_IN_PERIODS = 3600 / Ping.HEARTBEAT_SECONDS;
 	private static final int ONE_MEBIBYTE_A_PERIOD = 9;
 
-	/* A frame is to be whole a minute after its header, and a second later for every 32 KiB that the header says it
-	   holds, written out here and not taken from the decoder: 572 seconds for the largest spork frame, which is in
-	   the twenty-ninth period */
-	private static final int SPORK_DEADLINE_SECONDS = 60 + SPORK_CAP / (32 * 1024);
-	private static final int PERIODS_TO_THE_DEADLINE = (SPORK_DEADLINE_SECONDS + Ping.HEARTBEAT_SECONDS - 1)
-		/ Ping.HEARTBEAT_SECONDS;
+	/* The periods in a row in which less than 16 KiB of a frame arrived after which its stream is closed, written
+	   out here and not taken from the decoder */
+	private static final int SLOW_PERIODS = 3;
+	private static final int SLOWLY_A_PERIOD = 17 * 1024;
+	private static final int PERIODS = 100;
 
 	/* The round trip of an answer goes to the node in the topology, which a stream of its own is in none of */
 	@BeforeTry
@@ -235,7 +235,9 @@ public class MissedPingsTest {
 		assertThat(stream.isOpen(), is(false));
 	}
 
-	/* A frame that a peer leaves unfinished, with nothing more from it, is held until the pings go unanswered */
+	/* A frame that a peer leaves unfinished, with nothing more from it, is held until the pings go unanswered: the
+	   body here arrives in the first period, so the fourth ping finds three unanswered a period before the third
+	   in a row ends in which too little of the frame arrived */
 	@Example
 	public void closesTheStreamOfAPeerThatLeavesASporkFrameUnfinishedAndSendsNothingMore() {
 		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
@@ -261,10 +263,10 @@ public class MissedPingsTest {
 
 	/* The peer here sends a byte in each period, never answers a ping, and never finishes the frame: the bytes are as
 	   few as can be, and the stream holds the most that a frame of the type may, in memory that the peer has paid for
-	   with the bytes alone. A stream is one of sixteen on a connection, and eight connections come from one address.
-	   The bytes keep the pings from closing anything, so it is the time of the frame that ends this: the stream is
-	   closed in the period that the frame was to be whole in, its connection is not, and what the stream held of the
-	   frame is freed with it. */
+	   with the bytes alone. A connection is served one main stream, and eight connections come from one address.
+	   The bytes keep the pings from closing anything, so it is what arrives of the frame that ends this: the body
+	   arrives in the first period, and the stream is closed at the end of the third after it, in each of which a
+	   byte arrived. Its connection is not, and what the stream held of the frame is freed with it. */
 	@Example
 	public void closesTheStreamOfAPeerThatLetsASporkFrameCrawlInAByteAPeriod() {
 		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
@@ -289,12 +291,11 @@ public class MissedPingsTest {
 				+ Network.IDLE_TIME_MINUTES * 60 + " s) the stream is " + (stream.isOpen() ? "open" : "closed")
 				+ " and holds " + held + " bytes of a spork frame of " + SPORK_CAP + " bytes, of which "
 				+ (SPORK_CAP - STILL_TO_COME + periods) + " have arrived, " + periods + " of them a byte in a period; with "
-				+ Network.MAX_STREAMS + " streams on each of " + ConnectionLimiter.MAX_PER_ADDRESS
-				+ " connections that is " + held * Network.MAX_STREAMS * ConnectionLimiter.MAX_PER_ADDRESS
-				+ " bytes for one address";
+				+ "one main stream on each of " + ConnectionLimiter.MAX_PER_ADDRESS + " connections that is "
+				+ held * ConnectionLimiter.MAX_PER_ADDRESS + " bytes for one address";
 
 			assertThat(message, stream.isOpen(), is(false));
-			assertThat(message, periods, is(PERIODS_TO_THE_DEADLINE));
+			assertThat(message, periods, is(1 + SLOW_PERIODS));
 			assertThat(message, held, is(0L));
 			assertThat(message, connection.isOpen(), is(true));
 		} finally {
@@ -322,6 +323,39 @@ public class MissedPingsTest {
 
 			assertThat(stream.isOpen(), is(true));
 			assertThat(connection.isOpen(), is(true));
+		} finally {
+			stream.finishAndReleaseAll();
+			connection.finishAndReleaseAll();
+		}
+	}
+
+	/* A peer on a slow link, which delivers 17 KiB of the frame in a period and would need more than five hours for
+	   all of it, is kept as well: no ping of it is answered, as an answer waits behind the frame, and what arrives
+	   of the frame is enough in every period */
+	@Example
+	public void keepsTheStreamOfAPeerThatDeliversASporkFrameSlowly() {
+		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
+		final EmbeddedChannel connection = new EmbeddedChannel();
+		final EmbeddedChannel stream = defaultNodeStreamOf(connection, allocator);
+		final Consumer<Channel> ping = new PingSchedule().getConsumer();
+
+		try {
+			beginSporkFrame(stream, allocator, 0);
+
+			int periods = 0;
+
+			while (stream.isOpen() && periods < PERIODS) {
+				writeZeros(stream, allocator, SLOWLY_A_PERIOD);
+				period(stream, ping);
+				periods++;
+			}
+
+			final String message = "after " + periods + " periods of " + Ping.HEARTBEAT_SECONDS + " s, in each of which "
+				+ SLOWLY_A_PERIOD + " bytes of a spork frame of " + SPORK_CAP + " bytes arrived";
+
+			assertThat(message, stream.isOpen(), is(true));
+			assertThat(message, connection.isOpen(), is(true));
+			assertThat(message, periods, is(PERIODS));
 		} finally {
 			stream.finishAndReleaseAll();
 			connection.finishAndReleaseAll();

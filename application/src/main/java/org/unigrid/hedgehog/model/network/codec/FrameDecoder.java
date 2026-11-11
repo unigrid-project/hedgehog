@@ -37,6 +37,7 @@ import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
@@ -130,17 +131,20 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		Packet.Type.LEDGER_TRANSACTION, Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT,
 		Packet.Type.LEDGER_STATUS, Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH));
 
-	/* The stream holds what has arrived of a frame until the frame is whole, and every byte of it counts as a sign of
-	   its peer, so the pings never close the stream of a peer that lets a frame crawl in. A frame is given a minute
-	   to be whole in, and a second more for every 32 KiB that its header says it holds. */
-	private static final int SECONDS_FOR_A_FRAME = 60;
-	private static final int BYTES_A_SECOND = 32 * 1024;
-
 	private final int maxBodyBytes;
 	private final Map<Packet.Type, BodySize> bodySizes;
 	private final Set<Packet.Type> unreadTypes;
 	private int unreadBytes;
-	private Future<?> deadline;
+
+	/* The stream holds what has arrived of a frame until the frame is whole, and every byte of it counts as a sign of
+	   its peer, so the pings never close the stream of a peer that lets a frame crawl in. What has arrived of a frame
+	   that is not whole is therefore looked at once in every ping period, and the stream is closed once too little
+	   of the frame arrived in each of as many periods in a row as close a stream that takes no more (Ping). However
+	   long a frame takes, a peer on a slow link is kept. */
+	private Future<?> look;
+	private int arrived;
+	private int arrivedBefore;
+	private int slowPeriods;
 
 	/*
 	    Packet format:
@@ -216,59 +220,79 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			/* The header is read here, ahead of the superclass, so its discard mode can never run: the bytes
 			   behind a frame over the limit are dropped only because the exception closes the stream */
 			in.resetReaderIndex();
-			return timed(ctx, type, size, super.decode(ctx, in));
+
+			final Object frame = super.decode(ctx, in);
+
+			return watched(ctx, type, size, in.readableBytes(), frame);
 		}
 
 		throw new InvalidFrameMagicNumberException();
 	}
 
-	/* The time of a frame runs from the read that brought its header and left the frame unfinished, and what
-	   arrives of the frame after that gives it no more. A frame that is whole ends it. A frame that is passed over
-	   has none, as the stream holds nothing of it. */
-	private Object timed(final ChannelHandlerContext ctx, final Packet.Type type, final int size, final Object frame) {
-		if (frame != null) {
-			cancelDeadline();
-		} else if (deadline == null) {
-			final long seconds = SECONDS_FOR_A_FRAME + size / BYTES_A_SECOND;
+	/* The periods of a frame run from the read that brought its header and left the frame unfinished, so what that
+	   read brought is no part of what arrives in the first. A frame that is whole ends them. A frame that is passed
+	   over has none, as the stream holds nothing of it. */
+	private Object watched(final ChannelHandlerContext ctx, final Packet.Type type, final int size, final int held,
+		final Object frame) {
 
-			deadline = ctx.executor().schedule(() -> closeUnfinished(ctx, type, size, seconds), seconds,
-				TimeUnit.SECONDS);
+		if (frame != null) {
+			endLooks();
+		} else {
+			arrived = held;
+			lookEveryPeriod(ctx, type, size);
 		}
 
 		return frame;
 	}
 
-	/* The stream frees what it holds of the frame as it closes. A frame that does not come is the doing of the peer,
-	   which can leave any number of them unfinished, so it is told in one line at debug level. */
-	private void closeUnfinished(final ChannelHandlerContext ctx, final Packet.Type type, final int size,
-		final long seconds) {
-
-		log.atDebug().log("Closed a stream: a {} frame of {} bytes was not whole after {} seconds", type, size,
-			seconds);
-		ctx.close();
-	}
-
-	private void cancelDeadline() {
-		if (deadline != null) {
-			deadline.cancel(false);
-			deadline = null;
+	/* A period is counted from the end of a look, as one counted from the start would make up for the looks that a
+	   stalled event loop missed by making them back to back, each as one more period in which too little arrived */
+	private void lookEveryPeriod(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
+		if (look == null) {
+			arrivedBefore = arrived;
+			slowPeriods = 0;
+			look = ctx.executor().scheduleWithFixedDelay(() -> lookAt(ctx, type, size), Ping.HEARTBEAT_SECONDS,
+				Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS);
 		}
 	}
 
-	/* What is left of a frame is decoded once more as the stream closes, which is not to start its time again, so the
-	   time is ended behind that */
+	/* A period in which enough of the frame arrived starts the count again, so only a peer that delivered too little
+	   in every one of them is closed. The stream frees what it holds of the frame as it closes. A frame that does not
+	   come is the doing of the peer, which can leave any number of them unfinished, so it is told in one line at
+	   debug level. */
+	private void lookAt(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
+		slowPeriods = arrived - arrivedBefore < Ping.LEAST_BYTES_A_PERIOD ? slowPeriods + 1 : 0;
+		arrivedBefore = arrived;
+
+		if (slowPeriods >= Ping.SLOW_PERIODS_BEFORE_CLOSE) {
+			log.atDebug().log("Closed a stream: less than {} bytes of a {} frame of {} bytes arrived in each "
+				+ "of {} periods of {} seconds", Ping.LEAST_BYTES_A_PERIOD, type, size, slowPeriods,
+				Ping.HEARTBEAT_SECONDS);
+			ctx.close();
+		}
+	}
+
+	private void endLooks() {
+		if (look != null) {
+			look.cancel(false);
+			look = null;
+		}
+	}
+
+	/* What is left of a frame is decoded once more as the stream closes, which is not to start its periods again, so
+	   they are ended behind that */
 	@Override
 	public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
 		try {
 			super.channelInactive(ctx);
 		} finally {
-			cancelDeadline();
+			endLooks();
 		}
 	}
 
 	@Override
 	protected void handlerRemoved0(final ChannelHandlerContext ctx) throws Exception {
-		cancelDeadline();
+		endLooks();
 		super.handlerRemoved0(ctx);
 	}
 

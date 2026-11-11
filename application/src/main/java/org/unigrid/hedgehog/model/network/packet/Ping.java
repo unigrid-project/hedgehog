@@ -47,7 +47,11 @@ public class Ping extends Packet implements Serializable {
 	   than this left the stream in each of this many periods in a row, about a minute: a peer that reads nothing fills
 	   its stream for good, whatever it sends meanwhile. A period in which this much left it starts the count again, so
 	   a peer on a slow link is kept however long something large takes to reach it. It is no rate to keep up with,
-	   as what leaves a stream is bounded by the link of this node as much as by that of the peer. */
+	   as what leaves a stream is bounded by the link of this node as much as by that of the peer.
+
+	   The same holds the other way: a stream is closed once less than this arrived of a frame that is not whole in
+	   each of this many periods in a row (FrameDecoder), as the stream holds what has arrived of the frame until
+	   then. */
 	public static final int LEAST_BYTES_A_PERIOD = 16 * 1024;
 	public static final int SLOW_PERIODS_BEFORE_CLOSE = 3;
 	public static final AttributeKey<Integer> SLOW_PERIODS_KEY = AttributeKey.valueOf("SLOW_PERIODS");
