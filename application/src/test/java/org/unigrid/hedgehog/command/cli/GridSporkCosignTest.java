@@ -50,6 +50,8 @@ import org.unigrid.hedgehog.command.HedgehogCli;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.COSIGNER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejecting;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejection;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -284,6 +286,20 @@ public class GridSporkCosignTest {
 			throw oddity;
 		}));
 
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* The node says why it turned a co-signature down in the body of its answer, which the status line does not say */
+	@Example
+	public void showsWhyTheNodeTurnedTheCoSignatureDown() {
+		final GridSpork stored = stored(Type.MINT_SUPPLY, supplyOf(7));
+		final GridSpork proposal = proposal(Type.MINT_SUPPLY, stored, supplyOf(8), PROPOSER);
+		final FakeSporkNode node = new FakeSporkNode().holding(stored).waitingOn(proposal);
+		final GridSporkCosign command = cosign(COSIGNER.getPrivateKey(), List.of(PendingSporks.digestOf(proposal)));
+		final String reason = "This node takes no MINT_SUPPLY spork";
+		final Result result = RestCommandFixture.run(command, rejecting(node, reason));
+
+		assertThat(result.err().lines().toList(), equalTo(List.of(rejection(reason))));
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
 	}
 

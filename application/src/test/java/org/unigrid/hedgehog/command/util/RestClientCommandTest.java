@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.Status.Family;
+import jakarta.ws.rs.core.Response.StatusType;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
@@ -169,6 +170,23 @@ public class RestClientCommandTest {
 		assertThat(result.closed(), is(true));
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of(oddity.getMessage())));
+	}
+
+	/* The node says in the body of the answer why it turned a request down, which the status line does not say */
+	@Property(tries = 50)
+	public void addsTheReasonOfTheNodeToTheOddAnswer(@ForAll("methods") String method,
+		@ForAll @IntRange(min = 100, max = 599) int status,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 40) String reason, @ForAll boolean endsWithALineBreak) {
+
+		final StatusType type = Response.status(status).build().getStatusInfo();
+		final ResponseOddityException oddity = new ResponseOddityException(type,
+			reason + (endsWithALineBreak ? "\n" : ""));
+
+		final Result result = RestCommandFixture.runWithOddity(command(method, "/", Optional.empty()), oddity);
+
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of(new ResponseOddityException(type).getMessage() + ": "
+			+ reason)));
 	}
 
 	/* As the shell sees it: through the command line of the application, which shows the trace of an exception that

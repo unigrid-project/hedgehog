@@ -48,6 +48,8 @@ import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.refusing;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejecting;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejection;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -200,6 +202,18 @@ public class GridSporkRenewTest {
 		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
 
 		RestCommandFixture.runWithOddity(command, new ResponseOddityException(status));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* The node says why it turned a renewal down in the body of its answer, which the status line does not say */
+	@Example
+	public void showsWhyTheNodeTurnedARenewalDown() {
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf(10)));
+		final String reason = "This node takes no MINT_SUPPLY spork";
+		final Result result = RestCommandFixture.run(command, rejecting(node, reason));
+
+		assertThat(result.err().lines().toList(), equalTo(List.of(rejection(reason))));
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
 	}
 

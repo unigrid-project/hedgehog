@@ -38,6 +38,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
@@ -182,6 +183,11 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 
 			return TerminalText.printable("Could not reach the node at %s:%d: %s"
 				.formatted(RestOptions.getHost(), RestOptions.getPort(), cause));
+		}
+
+		/* A node says in the body of its answer why it turned a request down, which the status line does not say */
+		if (ex instanceof ResponseOddityException oddity && StringUtils.isNotBlank(oddity.getBody())) {
+			return TerminalText.printable(oddity.getMessage() + ": " + oddity.getBody().strip());
 		}
 
 		return TerminalText.printable(String.valueOf(ex.getMessage()));

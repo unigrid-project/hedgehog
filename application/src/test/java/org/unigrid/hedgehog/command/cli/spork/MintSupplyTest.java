@@ -50,6 +50,8 @@ import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposed;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.refusal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.refusing;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejecting;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejection;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.subcommand;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
@@ -229,6 +231,16 @@ public class MintSupplyTest {
 
 		assertThat(exitCodeOf(refused ? refusing(node) : node, "cli", "gridspork-set", "--data", supply, "--key",
 			PROPOSER.getPrivateKey(), NAME), equalTo(refused ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	/* The node says why it turned a proposal down in the body of its answer, which the status line does not say */
+	@Example
+	public void showsWhyTheNodeTurnedTheProposalDown() {
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf("10")));
+		final String reason = "This node takes no MINT_SUPPLY spork";
+		final Result result = RestCommandFixture.run(set("20", PROPOSER.getPrivateKey(), true), rejecting(node, reason));
+
+		assertThat(result.err().lines().toList(), equalTo(List.of(rejection(reason))));
 	}
 
 	/* A node that does not answer is reported by the client as an exception of its own: the command says so in a line */
