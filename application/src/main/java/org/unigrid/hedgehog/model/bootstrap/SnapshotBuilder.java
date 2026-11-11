@@ -101,18 +101,20 @@ public final class SnapshotBuilder {
 	}
 
 	private static void verifyAddress(Ledger ledger, long[] summed, int address) {
-		final String name = LegacyAddress.encode(ledger.getAddresses().hashOf(address));
-
 		if (summed[address] < 0) {
-			throw new IllegalStateException("Address " + name + " ends with a negative balance of "
-				+ Coin.toDecimal(summed[address]));
+			throw new IllegalStateException("Address " + nameOf(ledger, address)
+				+ " ends with a negative balance of " + Coin.toDecimal(summed[address]));
 		}
 
 		if (summed[address] != ledger.getBalances()[address]) {
-			throw new IllegalStateException("Address " + name + " holds "
+			throw new IllegalStateException("Address " + nameOf(ledger, address) + " holds "
 				+ Coin.toDecimal(ledger.getBalances()[address]) + " unspent but its entries sum to "
 				+ Coin.toDecimal(summed[address]));
 		}
+	}
+
+	private static String nameOf(Ledger ledger, int address) {
+		return LegacyAddress.encode(ledger.getAddresses().hashOf(address));
 	}
 
 	/*

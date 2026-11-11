@@ -22,6 +22,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.matchesPattern;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
@@ -47,8 +48,13 @@ public class SnapshotBuilderTest {
 	private static final int BLOCK_SIZE = 256;
 
 	private static boolean writtenTotalIsWrong;
+	private static boolean firstBalanceIsOff;
+	private static int addressesEncoded;
 
-	/* The fake does the real work unless a test switches the failure on, and is installed once so it is not stacked */
+	/*
+	   The fakes do the real work unless a test switches a failure on, and are installed once so they are not
+	   stacked
+	*/
 	@BeforeContainer
 	public static void beforeContainer() {
 		new MockUp<SnapshotInspector>() {
@@ -56,11 +62,71 @@ public class SnapshotBuilderTest {
 				return writtenTotalIsWrong ? -1 : invocation.<Long>proceed();
 			}
 		};
+
+		new MockUp<LegacyAddress>() {
+			@Mock public /* static */ String encode(Invocation invocation, byte[] addressHash) {
+				addressesEncoded++;
+				return invocation.proceed();
+			}
+		};
+
+		new MockUp<Ledger>() {
+			@Mock public long[] getBalances(Invocation invocation) {
+				final long[] balances = invocation.proceed();
+
+				if (firstBalanceIsOff) {
+					final long[] off = balances.clone();
+
+					off[0]++;
+					return off;
+				}
+
+				return balances;
+			}
+		};
 	}
 
 	@BeforeTry
 	public void beforeTry() {
 		writtenTotalIsWrong = false;
+		firstBalanceIsOff = false;
+		addressesEncoded = 0;
+	}
+
+	/*
+	   An address is only named when a balance disagrees, which is a defect in the build. Naming every
+	   address of the legacy chain costs a double digest and a string each, for text nobody reads.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldNameNoAddressWhenEveryBalanceAgrees() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		final Path target = fs.getPath("/data/bootstrap.dat");
+
+		Files.createDirectories(target.getParent());
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(addressesEncoded, equalTo(0));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNameTheAddressWhoseBalanceDisagreesWithItsEntries() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		final Path target = fs.getPath("/data/bootstrap.dat");
+
+		Files.createDirectories(target.getParent());
+		firstBalanceIsOff = true;
+
+		try {
+			SnapshotBuilder.build(BlockFixture.directory(), target);
+			throw new AssertionError("A ledger whose balance disagrees with its entries was reported as built");
+
+		} catch (IllegalStateException expected) {
+			assertThat(expected.getMessage(), matchesPattern(
+				"Address [1-9A-HJ-NP-Za-km-z]{34} holds .* unspent but its entries sum to .*"));
+			assertThat(Files.exists(target), equalTo(false));
+		}
 	}
 
 	/*
