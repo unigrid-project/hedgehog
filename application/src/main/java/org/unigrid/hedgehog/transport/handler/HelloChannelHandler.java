@@ -38,10 +38,17 @@ public class HelloChannelHandler extends AbstractInboundHandler<Hello> {
 		super(Hello.class);
 	}
 
+	/* A connection names one node, by the first port that its peer says. A hello that follows it on any stream of the
+	   connection is left unanswered: each would name one more node in a topology that all peers share and that holds
+	   no more than MAX_NODES of them, so one peer could fill it alone. */
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, Hello hello) throws Exception {
-		RemoteAddress.listensOn(ctx.channel(), hello.getPort());
+		if (RemoteAddress.listensOn(ctx.channel(), hello.getPort())) {
+			name(ctx, hello);
+		}
+	}
 
+	private static void name(ChannelHandlerContext ctx, Hello hello) {
 		CDIUtil.resolveAndRun(Topology.class, topology -> {
 			final InetSocketAddress address = ctx.channel().parent().attr(SOCKET_ADDRESS_KEY).get();
 			log.atTrace().log("HELLO with port {} from source {}", hello.getPort(), address.getAddress());
