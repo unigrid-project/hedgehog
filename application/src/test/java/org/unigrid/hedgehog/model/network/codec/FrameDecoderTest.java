@@ -20,12 +20,15 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.DecoderException;
@@ -136,6 +139,16 @@ public class FrameDecoderTest {
 	private static final Set<Packet.Type> UNREAD_TYPES = Set.of(Packet.Type.UNDEFINED,
 		Packet.Type.PUBLISH_NODE_DETAILS, Packet.Type.ASK_SPORKS, Packet.Type.GROW_SPORK);
 
+	/* The types that only a node run with the preview has stages for, those of the gridnodes and the storage, and the
+	   types that only a node that offers the ledger has stages for */
+	private static final Set<Packet.Type> PREVIEW_TYPES = Set.of(Packet.Type.GRIDNODE, Packet.Type.STORE_FRAGMENT,
+		Packet.Type.FETCH_FRAGMENT, Packet.Type.FRAGMENT_REPLY, Packet.Type.HAS_FRAGMENT, Packet.Type.FRAGMENT_STATUS,
+		Packet.Type.DELETE_GROUP, Packet.Type.STORAGE_ACK);
+
+	private static final Set<Packet.Type> LEDGER_TYPES = Set.of(Packet.Type.LEDGER_TRANSACTION,
+		Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT, Packet.Type.LEDGER_STATUS,
+		Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH);
+
 	private static ByteBuf frameOf(byte[] payload) {
 		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.PING.getValue())
 			.writeInt(payload.length).writeBytes(payload);
@@ -168,6 +181,28 @@ public class FrameDecoderTest {
 	Arbitrary<Short> unreadTypes() {
 		return Arbitraries.of(Stream.concat(UNREAD_TYPES.stream().map(Packet.Type::getValue), Stream.of(UNKNOWN_TYPE))
 			.toList());
+	}
+
+	@Provide
+	Arbitrary<Packet.Type> typesOfTheParts() {
+		return Arbitraries.of(Stream.concat(PREVIEW_TYPES.stream(), LEDGER_TYPES.stream()).toList());
+	}
+
+	/* The most that a frame of the type may hold, which for a fragment is what the stream may */
+	private static int capOf(final Packet.Type type) {
+		return FRAGMENT_TYPES.contains(type) ? Network.MAX_DATA_SIZE - HEADER_SIZE : CAPS.get(type);
+	}
+
+	/* Whether a frame of the type, whole and as small as one may be, comes out of the decoder */
+	private static boolean reads(final FrameDecoder decoder, final Packet.Type type) {
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+		final int size = MINIMA.get(type);
+
+		channel.writeInbound(headerOf(type, size).writeZero(size));
+
+		final ByteBuf frame = channel.readInbound();
+
+		return frame != null && frame.readableBytes() == size;
 	}
 
 	@Example
@@ -316,6 +351,99 @@ public class FrameDecoderTest {
 
 		assertThrows(TooLongFrameException.class, () -> channel.writeInbound(headerOf(type,
 			Network.MAX_DATA_SIZE - HEADER_SIZE + excess)));
+	}
+
+	/* The main stream of a node reads the frames of the parts that the node runs. Of the parts it does without it
+	   hands on no frame, as it has no stage for one, and the frames of the pings, peers and sporks it reads always. */
+	@Example
+	public void readsOnTheMainStreamTheFramesOfThePartsThatTheNodeRunsAndOfNoOther() {
+		MINIMA.keySet().forEach(type -> {
+			final boolean ledger = LEDGER_TYPES.contains(type);
+			final boolean preview = PREVIEW_TYPES.contains(type);
+
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(true, true), type), is(true));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(false, true), type), is(!ledger));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(true, false), type), is(!preview));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(false, false), type),
+				is(!ledger && !preview));
+		});
+	}
+
+	/* A node that runs every part holds the caps that the plain decoder does */
+	@Example
+	public void waitsOnTheMainStreamOfANodeThatRunsEveryPartForTheBodyOfAFrameAtTheCapOfItsType() {
+		MINIMA.keySet().forEach(type -> {
+			final EmbeddedChannel atTheCap = new EmbeddedChannel(FrameDecoder.forMainStream(true, true));
+			final EmbeddedChannel beyond = new EmbeddedChannel(FrameDecoder.forMainStream(true, true));
+
+			atTheCap.writeInbound(headerOf(type, capOf(type)));
+			assertThat(atTheCap.readInbound(), nullValue());
+			assertThat(atTheCap.attr(Packet.KEY).get(), equalTo(type));
+			assertThrows(TooLongFrameException.class, () -> beyond.writeInbound(headerOf(type, capOf(type) + 1)));
+		});
+	}
+
+	/* The header of a frame and then a piece of its body, as a stream hands them over, and the memory of the buffers
+	   that the stream has not let go of afterwards, read off the allocator that every one of them comes from */
+	private static long heldOf(final FrameDecoder decoder, final Packet.Type type, final int size, final int piece) {
+		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+
+		channel.config().setAllocator(allocator);
+		channel.writeInbound(allocator.heapBuffer(HEADER_SIZE).writeShort(FrameDecoder.MAGIC)
+			.writeShort(type.getValue()).writeInt(size));
+		channel.writeInbound(allocator.heapBuffer(piece).writeZero(piece));
+		assertThat(channel.readInbound(), nullValue());
+		assertThat(channel.isOpen(), is(true));
+		return allocator.metric().usedHeapMemory();
+	}
+
+	/* A frame of a part that the node does without is not collected: what arrives of it is used up and freed with
+	   every read, however much the header says is to come, where a node that reads the type keeps it for the frame */
+	@Property(tries = 50)
+	public void holdsNothingOfAFrameOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 1, max = 64 * 1024) int arrived) {
+
+		final int size = capOf(type);
+		final int piece = Math.min(arrived, size - 1);
+
+		assertThat(heldOf(FrameDecoder.forMainStream(false, false), type, size, piece), is(0L));
+		assertThat(heldOf(FrameDecoder.forMainStream(true, true), type, size, piece),
+			greaterThanOrEqualTo((long) HEADER_SIZE + piece));
+	}
+
+	/* What a node takes of a peer does not turn on the parts it runs: a frame that would only be passed over is held
+	   to the bounds of its type all the same */
+	@Property(tries = 50)
+	public void holdsAFrameOfAPartThatTheNodeDoesWithoutToTheBoundsOfItsType(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 1, max = 100_000) int excess) {
+
+		final EmbeddedChannel above = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+		final EmbeddedChannel below = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+
+		assertThrows(TooLongFrameException.class, () -> above.writeInbound(headerOf(type, capOf(type) + excess)));
+		assertThrows(CorruptedFrameException.class, () -> below.writeInbound(headerOf(type, MINIMA.get(type) - 1)));
+	}
+
+	/* The bytes to pass over end where the frame does, wherever the reads of the stream fall, so the frame behind it
+	   is read whole and nothing else comes out */
+	@Property(tries = 200)
+	public void readsTheFrameBehindOneOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 0, max = 10_000) int at, @ForAll @Size(16) byte[] payload) {
+
+		final EmbeddedChannel channel = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+		final int size = MINIMA.get(type);
+		final ByteBuf frames = headerOf(type, size).writeZero(size).writeBytes(frameOf(payload));
+		final int firstPart = 1 + at % (frames.readableBytes() - 1);
+
+		channel.writeInbound(frames.readRetainedSlice(firstPart));
+		channel.writeInbound(frames.readRetainedSlice(frames.readableBytes()));
+
+		final ByteBuf decoded = channel.readInbound();
+
+		assertThat(ByteBufUtil.getBytes(decoded), equalTo(payload));
+		assertThat(channel.readInbound(), nullValue());
+		assertThat(channel.attr(Packet.KEY).get(), equalTo(Packet.Type.PING));
 	}
 
 	/* A mint storage at its cap in both its data and its previous data, at the longest address and amount, signed

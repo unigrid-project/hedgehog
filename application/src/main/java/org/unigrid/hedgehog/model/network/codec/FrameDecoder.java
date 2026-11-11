@@ -25,7 +25,10 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.AttributeKey;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
@@ -114,7 +117,19 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		Map.entry(Packet.Type.ENTRY_REFUSED, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE + Long.BYTES + 1)),
 		Map.entry(Packet.Type.LEAVE_CHAIN, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE)));
 
+	/* The frames of the gridnodes and the storage, which only a node run with the preview has stages for, and those of
+	   the ledger, which only a node that offers the ledger has stages for */
+	private static final Set<Packet.Type> PREVIEW_TYPES = Collections.unmodifiableSet(EnumSet.of(Packet.Type.GRIDNODE,
+		Packet.Type.STORE_FRAGMENT, Packet.Type.FETCH_FRAGMENT, Packet.Type.FRAGMENT_REPLY, Packet.Type.HAS_FRAGMENT,
+		Packet.Type.FRAGMENT_STATUS, Packet.Type.DELETE_GROUP, Packet.Type.STORAGE_ACK));
+	private static final Set<Packet.Type> LEDGER_TYPES = Collections.unmodifiableSet(EnumSet.of(
+		Packet.Type.LEDGER_TRANSACTION, Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT,
+		Packet.Type.LEDGER_STATUS, Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH));
+
+	private final int maxBodyBytes;
 	private final Map<Packet.Type, BodySize> bodySizes;
+	private final Set<Packet.Type> unreadTypes;
+	private int unreadBytes;
 
 	/*
 	    Packet format:
@@ -123,21 +138,47 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		this(Network.MAX_DATA_SIZE, BODY_SIZES);
+		this(Network.MAX_DATA_SIZE, BODY_SIZES, Set.of());
 	}
 
-	private FrameDecoder(final int maxFrameBytes, final Map<Packet.Type, BodySize> bodySizes) {
+	private FrameDecoder(final int maxFrameBytes, final Map<Packet.Type, BodySize> bodySizes,
+		final Set<Packet.Type> unreadTypes) {
+
 		super(maxFrameBytes, 4, 4, 0, HEADER_SIZE);
+		this.maxBodyBytes = maxFrameBytes - HEADER_SIZE;
 		this.bodySizes = bodySizes;
+		this.unreadTypes = unreadTypes;
 	}
 
 	/* Frames of a limit of their own, far below the one of the main stream, header included */
 	public static FrameDecoder forChainStream() {
-		return new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES, CHAIN_BODY_SIZES);
+		return new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES, CHAIN_BODY_SIZES, Set.of());
+	}
+
+	/* A peer sends the frames of every part it runs, and a node that does without a part has no stage that reads
+	   them: the frame would be collected whole, a fragment of hundreds of megabytes among them, only to be dropped
+	   behind the last stage. The header of such a frame is held to the bounds of its type as on any node, and its
+	   body is let go of as it arrives. */
+	public static FrameDecoder forMainStream(final boolean ledger, final boolean preview) {
+		final Set<Packet.Type> unreadTypes = EnumSet.noneOf(Packet.Type.class);
+
+		if (!ledger) {
+			unreadTypes.addAll(LEDGER_TYPES);
+		}
+
+		if (!preview) {
+			unreadTypes.addAll(PREVIEW_TYPES);
+		}
+
+		return new FrameDecoder(Network.MAX_DATA_SIZE, BODY_SIZES, unreadTypes);
 	}
 
 	@Override
 	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		if (unreadBytes > 0) {
+			return discard(in);
+		}
+
 		/* A read can end inside the header, and reading on would fail the decoder and close the stream */
 		if (in.readableBytes() < HEADER_SIZE) {
 			return null;
@@ -152,6 +193,11 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 			requireAllowed(in, type, size);
 
+			if (isUnread(type, size)) {
+				unreadBytes = size;
+				return discard(in);
+			}
+
 			/* Tell the pipeline what packet to handle next */
 			ctx.channel().attr(Packet.KEY).set(type);
 			ctx.channel().attr(PACKET_SIZE_KEY).set(size);
@@ -163,6 +209,21 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		}
 
 		throw new InvalidFrameMagicNumberException();
+	}
+
+	/* A frame longer than the stream takes is left to be refused as on a node that reads its type */
+	private boolean isUnread(final Packet.Type type, final int size) {
+		return unreadTypes.contains(type) && size <= maxBodyBytes;
+	}
+
+	/* What has arrived of a body that no stage reads is passed over, so the buffer of the stream is used up and freed
+	   with every read, and only the count of the bytes still to come is kept. No frame comes of it. */
+	private Object discard(final ByteBuf in) {
+		final int arrived = Math.min(unreadBytes, in.readableBytes());
+
+		in.skipBytes(arrived);
+		unreadBytes -= arrived;
+		return null;
 	}
 
 	private void requireAllowed(final ByteBuf in, final Packet.Type type, final int size) {

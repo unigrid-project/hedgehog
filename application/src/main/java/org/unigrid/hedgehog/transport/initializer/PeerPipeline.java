@@ -59,13 +59,14 @@ public final class PeerPipeline {
 	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
 	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. The
 	   gridnode and storage stages, and the schedule that announces gridnodes, are there only when the node offers the
-	   proxy protocol, which only a node run with --preview does. A frame that no stage takes, such as one of a stage
-	   the node does without, is dropped behind the last of them. */
+	   proxy protocol, which only a node run with --preview does. The frames of the stages that the node does without
+	   are let go of by the frame decoder as they arrive, and any other frame that no stage takes is dropped behind
+	   the last of them. */
 	public static List<ChannelHandler> handlers(final Type side, final boolean ledger, final boolean preview) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new PeerActivityHandler(),
 			new LoggingHandler(LogLevel.DEBUG),
-			new FrameDecoder(),
+			FrameDecoder.forMainStream(ledger, preview),
 			hello(side)
 		));
 
