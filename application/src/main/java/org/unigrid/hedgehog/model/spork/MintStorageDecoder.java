@@ -23,6 +23,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.CorruptedFrameException;
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
@@ -55,12 +56,16 @@ public class MintStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkDeco
 
 		in.skipBytes(5 /* 40 bits */);
 
-		while (in.readableBytes() > 0 && mints.size() < entries) {
+		/* The count is what ends the reading: a mint that repeats replaces its first and leaves the map short of the
+		   count, so a body that only repeats it would be read to its last byte, and no honest peer sends one */
+		for (int read = 0; read < entries && in.readableBytes() > 0; read++) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in, Address.MAX_LENGTH));
 			final int height = in.readInt();
 			final BigDecimal amount = SporkAmount.read(in);
 
-			mints.put(new MintStorage.SporkData.Location(address, height), amount);
+			if (Objects.nonNull(mints.put(new MintStorage.SporkData.Location(address, height), amount))) {
+				throw new CorruptedFrameException("A mint storage holds the same mint twice");
+			}
 		}
 
 		if (entries == mints.size()) {
