@@ -19,22 +19,54 @@
 package org.unigrid.hedgehog.model.bootstrap;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE) @Slf4j
 public final class SnapshotBuilder {
+	private static final String PARTIAL_PREFIX = "snapshot-";
+	private static final String PARTIAL_SUFFIX = ".part";
+
 	public static BuildReport build(Path blocksDirectory, Path output) throws IOException {
 		final BlockFileStore store = BlockFileStore.open(blocksDirectory);
 		final Chain chain = ChainLinker.link(store);
 		final Ledger ledger = LedgerReplay.replay(store, chain);
 
 		verify(ledger);
-		SnapshotWriter.write(output, chain, ledger);
-		verifyWritten(output, ledger);
+		install(output, chain, ledger);
 		return report(chain, ledger);
+	}
+
+	/*
+	   The snapshot is written beside its destination and only moved into place once it has been read
+	   back and checked, so a build that runs out of disk, is killed or fails its own check leaves what
+	   was there before untouched, and a reader that has the old file mapped never sees it truncated.
+	*/
+	private static void install(Path output, Chain chain, Ledger ledger) throws IOException {
+		final Path partial = Files.createTempFile(output.toAbsolutePath().getParent(), PARTIAL_PREFIX,
+			PARTIAL_SUFFIX);
+
+		try {
+			SnapshotWriter.write(partial, chain, ledger);
+			verifyWritten(partial, ledger);
+			Files.move(partial, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+
+		} finally {
+			discard(partial);
+		}
+	}
+
+	/* Cleanup must never replace the failure that caused it with one about the leftover file. */
+	private static void discard(Path partial) {
+		try {
+			Files.deleteIfExists(partial);
+		} catch (IOException ex) {
+			log.atWarn().log("Could not remove the partial snapshot at {}: {}", partial, ex.getMessage());
+		}
 	}
 
 	private static BuildReport report(Chain chain, Ledger ledger) {
