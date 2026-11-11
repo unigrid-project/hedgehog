@@ -56,7 +56,7 @@ public class BootstrapImport implements Callable<Integer> {
 			Files.createDirectories(target.toAbsolutePath().getParent());
 			System.out.println(SnapshotBuilder.build(blocks, target));
 		} catch (IOException | IllegalStateException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.FAILED;
 		}
 

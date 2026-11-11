@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -152,6 +153,20 @@ public class BootstrapImportTest {
 		assertThat(result.err().lines().toList(), equalTo(List.of(reason)));
 		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 		assertThat(builds, equalTo(List.of(List.of(BLOCKS, snapshot))));
+	}
+
+	/* The file system names a directory that the user may not read by its path alone, so the line says what failed and
+	   why */
+	@Example
+	public void shouldSayThatTheBlockDirectoryMayNotBeRead() {
+		builderFails(new AccessDeniedException("/blocks"));
+
+		final HedgehogCli.Result result = BootstrapCli.run("import", "-b", "/blocks");
+
+		result.assertNoStackTrace();
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("Cannot access /blocks: permission denied")));
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Example

@@ -58,7 +58,7 @@ public class BootstrapHistory implements Callable<Integer> {
 			transactions = reader.transactionsOf(address, offset, limit);
 
 		} catch (IllegalArgumentException | IOException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.UNUSABLE;
 		}
 

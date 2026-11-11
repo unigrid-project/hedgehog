@@ -119,7 +119,7 @@ public class BootstrapSign implements Callable<Integer> {
 			status = SnapshotInspector.validate(snapshot);
 
 		} catch (IOException ex) {
-			return ex.getMessage();
+			return FileFailure.describe(ex);
 		}
 
 		return status == SignatureStatus.INVALID ? snapshot + " already carries a signature that"

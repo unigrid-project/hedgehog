@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
@@ -146,6 +148,22 @@ public class BootstrapSignTest {
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("There is no snapshot at " + snapshot));
+		assertNothingSigned();
+	}
+
+	/* The file system names a snapshot that the user may not read by its path alone, so the line says what failed and
+	   why */
+	@Example
+	public void shouldSayThatTheSnapshotMayNotBeRead() {
+		existingSnapshot(CONTENT);
+		inspectorFinds(null, new AccessDeniedException(snapshot.toString()));
+
+		final HedgehogCli.Result result = sign();
+
+		assertThat(result.exitCode(), equalTo(ExitCode.UNUSABLE));
+		assertThat(result.err().lines().toList(),
+			equalTo(List.of("Cannot access " + snapshot + ": permission denied")));
+		result.assertNoStackTrace();
 		assertNothingSigned();
 	}
 
