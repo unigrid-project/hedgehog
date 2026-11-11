@@ -19,17 +19,21 @@
 package org.unigrid.hedgehog.server.rest;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.matchesPattern;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -41,6 +45,7 @@ import net.jqwik.api.constraints.AlphaChars;
 import net.jqwik.api.constraints.NumericChars;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.constraints.Whitespace;
+import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 
@@ -86,6 +91,47 @@ public class RestTokenTest extends BaseMockedWeldTest {
 
 			RestToken.write(files.getPath(RestToken.FILE), token);
 			assertThat(RestToken.read(files.getPath("/work", RestToken.FILE)), equalTo(token));
+		}
+	}
+
+	private static List<String> namesIn(Path directory) throws IOException {
+		try (Stream<Path> entries = Files.list(directory)) {
+			return entries.map(entry -> entry.getFileName().toString()).sorted().toList();
+		}
+	}
+
+	/* The token is written to a file of its own beside the token file and moved into place, so a write that fails
+	   leaves that file behind with the mode of the token file, and no one sweeps it. Whatever the old token file
+	   holds is left as it was. */
+	@Example
+	@SneakyThrows
+	public void shouldLeaveNoTemporaryFileWhenTheTokenCannotBeMovedIntoPlace() {
+		try (FileSystem files = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = files.getPath("/work", RestToken.FILE);
+
+			Files.createDirectories(file.resolve("taken"));
+			assertThrows(IOException.class, () -> RestToken.write(file, RestToken.generate()));
+
+			assertThat(namesIn(file.getParent()), contains(RestToken.FILE));
+			assertThat(Files.isDirectory(file.resolve("taken")), equalTo(true));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldLeaveNoTemporaryFileAndKeepTheOldTokenWhenTheDiskIsFull() {
+		final int block = 64;
+		final Configuration oneBlock = Configuration.unix().toBuilder().setBlockSize(block).setMaxSize(block).build();
+
+		try (FileSystem files = Jimfs.newFileSystem(oneBlock)) {
+			final Path file = files.getPath("/work", RestToken.FILE);
+			final String old = RestToken.generate();
+
+			RestToken.write(file, old);
+			assertThrows(IOException.class, () -> RestToken.write(file, RestToken.generate()));
+
+			assertThat(namesIn(file.getParent()), contains(RestToken.FILE));
+			assertThat(RestToken.read(file), equalTo(old));
 		}
 	}
 
