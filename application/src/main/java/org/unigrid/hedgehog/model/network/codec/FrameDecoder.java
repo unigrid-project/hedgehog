@@ -25,10 +25,13 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Future;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
@@ -39,6 +42,7 @@ import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
+@Slf4j
 @ChannelCodec(priority = -10)
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	public static final int MAGIC = 0xBABE;
@@ -126,10 +130,17 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		Packet.Type.LEDGER_TRANSACTION, Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT,
 		Packet.Type.LEDGER_STATUS, Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH));
 
+	/* The stream holds what has arrived of a frame until the frame is whole, and every byte of it counts as a sign of
+	   its peer, so the pings never close the stream of a peer that lets a frame crawl in. A frame is given a minute
+	   to be whole in, and a second more for every 32 KiB that its header says it holds. */
+	private static final int SECONDS_FOR_A_FRAME = 60;
+	private static final int BYTES_A_SECOND = 32 * 1024;
+
 	private final int maxBodyBytes;
 	private final Map<Packet.Type, BodySize> bodySizes;
 	private final Set<Packet.Type> unreadTypes;
 	private int unreadBytes;
+	private Future<?> deadline;
 
 	/*
 	    Packet format:
@@ -205,10 +216,60 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			/* The header is read here, ahead of the superclass, so its discard mode can never run: the bytes
 			   behind a frame over the limit are dropped only because the exception closes the stream */
 			in.resetReaderIndex();
-			return super.decode(ctx, in);
+			return timed(ctx, type, size, super.decode(ctx, in));
 		}
 
 		throw new InvalidFrameMagicNumberException();
+	}
+
+	/* The time of a frame runs from the read that brought its header and left the frame unfinished, and what
+	   arrives of the frame after that gives it no more. A frame that is whole ends it. A frame that is passed over
+	   has none, as the stream holds nothing of it. */
+	private Object timed(final ChannelHandlerContext ctx, final Packet.Type type, final int size, final Object frame) {
+		if (frame != null) {
+			cancelDeadline();
+		} else if (deadline == null) {
+			final long seconds = SECONDS_FOR_A_FRAME + size / BYTES_A_SECOND;
+
+			deadline = ctx.executor().schedule(() -> closeUnfinished(ctx, type, size, seconds), seconds,
+				TimeUnit.SECONDS);
+		}
+
+		return frame;
+	}
+
+	/* The stream frees what it holds of the frame as it closes. A frame that does not come is the doing of the peer,
+	   which can leave any number of them unfinished, so it is told in one line at debug level. */
+	private void closeUnfinished(final ChannelHandlerContext ctx, final Packet.Type type, final int size,
+		final long seconds) {
+
+		log.atDebug().log("Closed a stream: a {} frame of {} bytes was not whole after {} seconds", type, size,
+			seconds);
+		ctx.close();
+	}
+
+	private void cancelDeadline() {
+		if (deadline != null) {
+			deadline.cancel(false);
+			deadline = null;
+		}
+	}
+
+	/* What is left of a frame is decoded once more as the stream closes, which is not to start its time again, so the
+	   time is ended behind that */
+	@Override
+	public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+		try {
+			super.channelInactive(ctx);
+		} finally {
+			cancelDeadline();
+		}
+	}
+
+	@Override
+	protected void handlerRemoved0(final ChannelHandlerContext ctx) throws Exception {
+		cancelDeadline();
+		super.handlerRemoved0(ctx);
 	}
 
 	/* A frame longer than the stream takes is left to be refused as on a node that reads its type */

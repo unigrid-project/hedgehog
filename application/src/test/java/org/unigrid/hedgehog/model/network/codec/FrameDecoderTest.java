@@ -40,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
@@ -181,6 +182,11 @@ public class FrameDecoderTest {
 	Arbitrary<Short> unreadTypes() {
 		return Arbitraries.of(Stream.concat(UNREAD_TYPES.stream().map(Packet.Type::getValue), Stream.of(UNKNOWN_TYPE))
 			.toList());
+	}
+
+	@Provide
+	Arbitrary<Packet.Type> boundedTypes() {
+		return Arbitraries.of(MINIMA.keySet());
 	}
 
 	@Provide
@@ -444,6 +450,137 @@ public class FrameDecoderTest {
 		assertThat(ByteBufUtil.getBytes(decoded), equalTo(payload));
 		assertThat(channel.readInbound(), nullValue());
 		assertThat(channel.attr(Packet.KEY).get(), equalTo(Packet.Type.PING));
+	}
+
+	/* The time that a frame has to be whole in: a minute, and a second more for every 32 KiB that its header says it
+	   holds, written out here and not taken from the decoder */
+	private static long secondsToBeWholeIn(final int size) {
+		return 60 + size / (32 * 1024);
+	}
+
+	/* A stream whose clock stands still but for the time that a test lets pass */
+	private static EmbeddedChannel timedChannel(final FrameDecoder decoder) {
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+
+		channel.freezeTime();
+		return channel;
+	}
+
+	private static void pass(final EmbeddedChannel channel, final long seconds) {
+		channel.advanceTimeBy(seconds, TimeUnit.SECONDS);
+		channel.runScheduledPendingTasks();
+	}
+
+	/* Whether the stream has anything set for a later time, which here can only be the end of the wait for a frame */
+	private static boolean isWaiting(final EmbeddedChannel channel) {
+		return channel.runScheduledPendingTasks() >= 0;
+	}
+
+	/* A peer that never finishes a frame cannot make a stream hold what has arrived of it for as long as it likes:
+	   when the time of the frame is up, and not a second before, the stream is closed and frees what it held, however
+	   little of the frame was still to come and whatever arrived in the meantime */
+	@Property(tries = 100)
+	public void closesTheStreamOfAFrameThatIsNotWholeWhenItsTimeIsUp(@ForAll("boundedTypes") Packet.Type type,
+		@ForAll @IntRange(min = 0) int pick, @ForAll @IntRange(min = 1, max = 4096) int arrived) {
+
+		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+		final int size = MINIMA.get(type) + pick % (capOf(type) - MINIMA.get(type) + 1);
+		final int piece = Math.min(arrived, size - 2);
+
+		channel.config().setAllocator(allocator);
+		channel.writeInbound(allocator.heapBuffer(HEADER_SIZE).writeShort(FrameDecoder.MAGIC)
+			.writeShort(type.getValue()).writeInt(size));
+		channel.writeInbound(allocator.heapBuffer().writeZero(piece));
+		pass(channel, secondsToBeWholeIn(size) - 1);
+		assertThat(channel.isOpen(), is(true));
+		assertThat(allocator.metric().usedHeapMemory(), greaterThanOrEqualTo((long) HEADER_SIZE + piece));
+
+		channel.writeInbound(allocator.heapBuffer(1).writeByte(0));
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
+		assertThat(allocator.metric().usedHeapMemory(), is(0L));
+	}
+
+	/* A frame that is whole in time ends the wait for it, so nothing is left to end a stream that then stays quiet,
+	   and the frame behind it has a time of its own, from its own header */
+	@Example
+	public void endsTheWaitForAFrameOnceItIsWholeAndStartsOneForTheNext() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+		final byte[] payload = new byte[2 * Long.BYTES];
+		final ByteBuf frame = frameOf(payload);
+
+		channel.writeInbound(frame.readRetainedSlice(HEADER_SIZE + 1));
+		assertThat(isWaiting(channel), is(true));
+		pass(channel, secondsToBeWholeIn(payload.length) - 1);
+		channel.writeInbound(frame.readRetainedSlice(frame.readableBytes()));
+		assertThat(ByteBufUtil.getBytes((ByteBuf) channel.readInbound()), equalTo(payload));
+		assertThat(isWaiting(channel), is(false));
+
+		pass(channel, 2 * secondsToBeWholeIn(payload.length));
+		assertThat(channel.isOpen(), is(true));
+
+		channel.writeInbound(headerOf(Packet.Type.PING, payload.length));
+		pass(channel, secondsToBeWholeIn(payload.length) - 1);
+		assertThat(channel.isOpen(), is(true));
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A frame that arrives whole in one read has no wait to end */
+	@Example
+	public void waitsForNoFrameThatArrivesWhole() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+
+		channel.writeInbound(frameOf(new byte[2 * Long.BYTES]));
+		assertThat(isWaiting(channel), is(false));
+	}
+
+	/* The wait for a frame ends with the stream, and with the decoder when it is taken off the stream, so that none
+	   outlives what it was to close */
+	@Example
+	public void endsTheWaitForAFrameWithTheStreamAndWithTheDecoder() {
+		final EmbeddedChannel inactive = timedChannel(new FrameDecoder());
+		final EmbeddedChannel removed = timedChannel(new FrameDecoder());
+
+		inactive.writeInbound(headerOf(Packet.Type.PUBLISH_SPORK, CAPS.get(Packet.Type.PUBLISH_SPORK)));
+		assertThat(isWaiting(inactive), is(true));
+		inactive.pipeline().fireChannelInactive();
+		assertThat(isWaiting(inactive), is(false));
+
+		removed.writeInbound(headerOf(Packet.Type.PUBLISH_SPORK, CAPS.get(Packet.Type.PUBLISH_SPORK)));
+		assertThat(isWaiting(removed), is(true));
+		removed.pipeline().remove(FrameDecoder.class);
+		assertThat(isWaiting(removed), is(false));
+		removed.releaseInbound();
+		pass(removed, 2 * secondsToBeWholeIn(CAPS.get(Packet.Type.PUBLISH_SPORK)));
+		assertThat(removed.isOpen(), is(true));
+	}
+
+	/* A frame of a part that the node does without holds nothing while it arrives, so there is nothing to free and no
+	   time is set for it: the stream is left open however slowly the frame comes */
+	@Property(tries = 20)
+	public void setsNoTimeForAFrameOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type) {
+		final EmbeddedChannel channel = timedChannel(FrameDecoder.forMainStream(false, false));
+
+		channel.writeInbound(headerOf(type, capOf(type)));
+		channel.writeInbound(Unpooled.buffer().writeZero(1));
+		assertThat(isWaiting(channel), is(false));
+		pass(channel, 2 * secondsToBeWholeIn(capOf(type)));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	/* The stream that chain traffic has to itself holds a frame for no longer than the main stream does */
+	@Example
+	public void closesTheChainStreamOfAFrameThatIsNotWholeWhenItsTimeIsUp() {
+		final EmbeddedChannel channel = timedChannel(FrameDecoder.forChainStream());
+		final int size = ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES;
+
+		channel.writeInbound(headerOf(Packet.Type.CHAIN_ENTRY, size));
+		pass(channel, secondsToBeWholeIn(size) - 1);
+		assertThat(channel.isOpen(), is(true));
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
 	}
 
 	/* A mint storage at its cap in both its data and its previous data, at the longest address and amount, signed
