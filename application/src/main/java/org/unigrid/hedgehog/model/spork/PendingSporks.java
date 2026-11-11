@@ -267,7 +267,7 @@ public class PendingSporks {
 		return Objects.nonNull(spork.getTimeStamp()) && spork.getTimeStamp().isAfter(now.plus(LEEWAY));
 	}
 
-	private boolean isAlive(GridSpork spork) {
+	public boolean isAlive(GridSpork spork) {
 		return Duration.between(spork.getTimeStamp(), clock.instant()).abs().compareTo(LIFETIME) <= 0;
 	}
 }
