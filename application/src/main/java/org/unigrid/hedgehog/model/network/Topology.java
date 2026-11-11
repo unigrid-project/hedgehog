@@ -223,11 +223,16 @@ public class Topology {
 		nodes.forEach(node -> node.setInbound(node.getInbound().filter(inbound -> inbound.getChannel().isActive())));
 	}
 
-	/* A node that the operator removes, which is no longer configured either */
+	/* A node that the operator removes, which is no longer configured either. It is given as the topology held it, so
+	   with the connection that a dial handed it up to the removal: no round sees the node again, and a dial that ends
+	   later finds none to hand its client to, so that connection is the caller's to close. */
 	@Protected @Lock(LockMode.WRITE)
-	public boolean removeConfigured(Node node) {
+	public Optional<Node> removeConfigured(Node node) {
+		final Optional<Node> held = nodes.stream().filter(node::equals).findFirst();
+
 		configured.remove(node);
-		return nodes.remove(node);
+		nodes.remove(node);
+		return held;
 	}
 
 	public static void sendAll(Packet packet, Topology topology, Optional<BiConsumer<Node, Future>> consumer) {

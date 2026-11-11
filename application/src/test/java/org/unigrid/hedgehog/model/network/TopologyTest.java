@@ -168,7 +168,7 @@ public class TopologyTest extends BaseMockedWeldTest {
 				is(Topology.Configured.ADDED));
 			topology.changeAddress(NodeConnections.unconnected("127.0.100.42:52883"), moved.getAddress());
 
-			assertThat(topology.removeConfigured(moved), is(true));
+			assertThat(topology.removeConfigured(moved), is(Optional.of(moved)));
 			assertThat("the node is still configured at the address it moved to", topology.cloneConfigured(),
 				not(hasItem(moved)));
 		} finally {

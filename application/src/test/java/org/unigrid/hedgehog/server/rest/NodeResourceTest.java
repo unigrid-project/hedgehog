@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
+import jakarta.interceptor.InvocationContext;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
@@ -32,8 +33,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import lombok.SneakyThrows;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
@@ -44,6 +47,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -52,6 +56,7 @@ import org.unigrid.hedgehog.jqwik.ArbitraryGenerator;
 import org.unigrid.hedgehog.jqwik.Expect;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.TestFileOutput;
+import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.network.Connection;
 import org.unigrid.hedgehog.model.network.Dialed;
 import org.unigrid.hedgehog.model.network.Node;
@@ -63,6 +68,9 @@ public class NodeResourceTest extends BaseRestClientTest {
 	private static final String UNRESOLVABLE = "no-such-host.invalid";
 	private static final List<String> BAD_ADDRESSES = List.of("not:a-port", "1.2.3.4:65536", "1.2.3.4:2147483647",
 		UNRESOLVABLE);
+
+	private static final Runnable NOTHING = () -> { };
+	private static final AtomicReference<Runnable> BEFORE_THE_REMOVAL = new AtomicReference<>(NOTHING);
 
 	@Mocked
 	private Connection emptyConnection;
@@ -131,6 +139,46 @@ public class NodeResourceTest extends BaseRestClientTest {
 		assertThat(Status.fromStatusCode(client.delete("/node" + node.getURI()).getStatus()), equalTo(Status.OK));
 		assertThat(topology.cloneConfigured(), not(hasItem(node)));
 		assertThat(topology.cloneNodes(), not(hasItem(node)));
+	}
+
+	/* What a test sets runs once the removal of a node is called, just before it takes the lock of the topology. The
+	   fake of a try stays on for the rest of the class, so it is installed once: an Invocation that proceeds from a
+	   fake that a later try applied again reaches that fake once more, without end. */
+	@BeforeContainer
+	private static void letATestActJustBeforeTheRemoval() {
+		new MockUp<ProtectedInterceptor>() {
+			@Mock
+			public Object protect(Invocation invocation, InvocationContext ctx) {
+				if ("removeConfigured".equals(ctx.getMethod().getName())) {
+					BEFORE_THE_REMOVAL.getAndSet(NOTHING).run();
+				}
+
+				return invocation.proceed();
+			}
+		};
+	}
+
+	/* The topology thread hands the client of a dial to the node as its last step, which may come after the removal
+	   looked for a connection to close and before it took the node out. No round sees the node again, and the server
+	   closes only the connections of the nodes that the topology holds, so the removal closes that client as well. */
+	@Example
+	@SneakyThrows
+	public void shouldCloseTheClientThatADialHandsOverJustBeforeTheNodeIsRemoved() {
+		final EmbeddedChannel stream = LedgerStreams.stream(true);
+		final Node node = Node.builder().address(new InetSocketAddress("45.9.9.14", 1234)).build();
+
+		postAssert("/node", node);
+
+		BEFORE_THE_REMOVAL.set(() -> topology.modifyNode(node, n -> {
+			n.setConnection(Optional.of(LedgerStreams.connection(stream)));
+			topology.getChannels().set(stream, n);
+		}));
+
+		assertThat(Status.fromStatusCode(client.delete("/node" + node.getURI()).getStatus()), equalTo(Status.OK));
+		assertThat(topology.cloneNodes(), not(hasItem(node)));
+		assertThat("the client that the dial handed over was left open", stream.isOpen(), is(false));
+		assertThat("the removed node still answers for the stream of that client", topology.getChannels().get(stream),
+			is(Optional.empty()));
 	}
 
 	@Example
