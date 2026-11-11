@@ -166,14 +166,31 @@ public final class SyntheticBlocks {
 			}
 		}
 
-		private byte[] append(int version, byte[] previousHash, int time, List<byte[]> transactions) {
-			final byte[] header = header(version, previousHash, time);
-			final byte[] payload = transactionPayload(transactions);
-			final ByteBuffer record = ByteBuffer.allocate(header.length + payload.length + 8)
-				.order(ByteOrder.LITTLE_ENDIAN);
+		/*
+		   A block on top of the main chain whose bytes after the header are written as they are given,
+		   where a block has the count of its transactions and the transactions themselves.
+		*/
+		public void tip(byte[] payload) {
+			mainChain.add(append(VERSION_WITH_ACCUMULATOR, mainChain.getLast(), timeAt(mainChain.size()),
+				payload));
+		}
 
-			record.putInt(BlockFileStore.MAGIC).putInt(header.length + payload.length).put(header).put(payload);
-			records.write(record.array(), 0, record.position());
+		/* A record that is framed as a block is, around bytes that need not be one */
+		public void record(byte[] contents) {
+			final ByteBuffer record = ByteBuffer.allocate(contents.length + 8).order(ByteOrder.LITTLE_ENDIAN);
+
+			record.putInt(BlockFileStore.MAGIC).putInt(contents.length).put(contents);
+			records.writeBytes(record.array());
+		}
+
+		private byte[] append(int version, byte[] previousHash, int time, List<byte[]> transactions) {
+			return append(version, previousHash, time, transactionPayload(transactions));
+		}
+
+		private byte[] append(int version, byte[] previousHash, int time, byte[] payload) {
+			final byte[] header = header(version, previousHash, time);
+
+			record(ByteBuffer.allocate(header.length + payload.length).put(header).put(payload).array());
 
 			return version < VERSION_WITH_ACCUMULATOR
 				? BlockParser.GENESIS_HASH : Hashing.doubleSha256(ByteBuffer.wrap(header));

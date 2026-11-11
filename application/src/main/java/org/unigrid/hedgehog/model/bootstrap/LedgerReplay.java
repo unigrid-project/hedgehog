@@ -58,11 +58,10 @@ public final class LedgerReplay {
 
 	private void walk() {
 		for (int height = 0; height <= chain.getTipHeight(); height++) {
-			final ByteBuffer block = store.read(chain.locationAt(height));
+			final List<LegacyTransaction> transactions = store.read(chain.locationAt(height),
+				LedgerReplay::transactionsOf);
 
-			BlockParser.header(block);
-
-			for (final LegacyTransaction transaction : BlockParser.transactions(block)) {
+			for (final LegacyTransaction transaction : transactions) {
 				apply(transaction, height);
 			}
 
@@ -71,6 +70,12 @@ public final class LedgerReplay {
 					height, chain.getBlockCount(), unspent.size());
 			}
 		}
+	}
+
+	/* The transactions of a block follow its header, which is read to find where they start */
+	private static List<LegacyTransaction> transactionsOf(ByteBuffer block) {
+		BlockParser.header(block);
+		return BlockParser.transactions(block);
 	}
 
 	private void apply(LegacyTransaction transaction, int height) {

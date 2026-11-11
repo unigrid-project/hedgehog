@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
+import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,7 +60,7 @@ public final class BlockParser {
 	}
 
 	public static List<LegacyTransaction> transactions(ByteBuffer block) {
-		final int count = VarInt.readCount(block);
+		final int count = readCount(block);
 		final List<LegacyTransaction> transactions = new ArrayList<>(count);
 
 		for (int i = 0; i < count; i++) {
@@ -88,13 +89,13 @@ public final class BlockParser {
 	}
 
 	private static List<TransactionInput> inputs(ByteBuffer block) {
-		final int count = VarInt.readCount(block);
+		final int count = readCount(block);
 		final List<TransactionInput> inputs = new ArrayList<>(count);
 
 		for (int i = 0; i < count; i++) {
 			final byte[] previousTransaction = readBytes(block, Hashing.HASH_SIZE);
 			final int previousIndex = block.getInt();
-			final byte[] signatureScript = readBytes(block, VarInt.readCount(block));
+			final byte[] signatureScript = readBytes(block, readCount(block));
 
 			skipSequence(block);
 			inputs.add(TransactionInput.builder().previousTransaction(previousTransaction)
@@ -106,12 +107,12 @@ public final class BlockParser {
 	}
 
 	private static List<TransactionOutput> outputs(ByteBuffer block) {
-		final int count = VarInt.readCount(block);
+		final int count = readCount(block);
 		final List<TransactionOutput> outputs = new ArrayList<>(count);
 
 		for (int i = 0; i < count; i++) {
 			final long value = block.getLong();
-			final byte[] script = readBytes(block, VarInt.readCount(block));
+			final byte[] script = readBytes(block, readCount(block));
 			final byte[] addressHash = ScriptAddressResolver.resolve(script);
 
 			outputs.add(TransactionOutput.builder().value(value).addressHash(addressHash)
@@ -168,6 +169,20 @@ public final class BlockParser {
 
 	private static void skipSequence(ByteBuffer block) {
 		block.position(block.position() + Integer.BYTES);
+	}
+
+	/*
+	   Whatever a block counts takes at least a byte each, so a count beyond the bytes that are left is
+	   damage. It ends the reading here, before room is made for as many as it says.
+	*/
+	private static int readCount(ByteBuffer block) {
+		final int count = VarInt.readCount(block);
+
+		if (count > block.remaining()) {
+			throw new BufferUnderflowException();
+		}
+
+		return count;
 	}
 
 	private static byte[] readBytes(ByteBuffer block, int length) {

@@ -74,7 +74,7 @@ public final class ChainLinker {
 
 		store.forEachBlock(location -> {
 			final int position = next[0]++;
-			final BlockHeader header = BlockParser.header(store.read(location));
+			final BlockHeader header = store.read(location, BlockParser::header);
 
 			System.arraycopy(header.getHash(), 0, hashes, position * Hashing.HASH_SIZE, Hashing.HASH_SIZE);
 			System.arraycopy(header.getPreviousHash(), 0, previousHashes,
