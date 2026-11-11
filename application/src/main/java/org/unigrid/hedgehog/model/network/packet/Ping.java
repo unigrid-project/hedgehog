@@ -43,14 +43,18 @@ public class Ping extends Packet implements Serializable {
 	public static final int MISSED_PINGS_BEFORE_CLOSE = 3;
 	public static final AttributeKey<Integer> MISSED_PINGS_KEY = AttributeKey.valueOf("MISSED_PINGS");
 
-	/* A stream that takes no more is not written to by the schedules, and its peer is taken for gone as well once the
-	   stream stayed so through this many periods in a row while less than this left it in a second: a peer that reads
-	   nothing fills its stream for good, whatever it sends meanwhile. A peer on a slow link reads no slower than this,
-	   and is kept however long something large takes to reach it. */
-	public static final int UNWRITABLE_PERIODS_BEFORE_CLOSE = 3;
-	public static final int SLOWEST_READ_BYTES_PER_SECOND = 32 * 1024;
-	public static final AttributeKey<Integer> UNWRITABLE_PERIODS_KEY = AttributeKey.valueOf("UNWRITABLE_PERIODS");
+	/* A stream that takes no more is not written to by the schedules, and its peer is taken for gone as well once less
+	   than this left the stream in each of this many periods in a row, about a minute: a peer that reads nothing fills
+	   its stream for good, whatever it sends meanwhile. A period in which this much left it starts the count again, so
+	   a peer on a slow link is kept however long something large takes to reach it. It is no rate to keep up with,
+	   as what leaves a stream is bounded by the link of this node as much as by that of the peer. */
+	public static final int LEAST_BYTES_A_PERIOD = 16 * 1024;
+	public static final int SLOW_PERIODS_BEFORE_CLOSE = 3;
+	public static final AttributeKey<Integer> SLOW_PERIODS_KEY = AttributeKey.valueOf("SLOW_PERIODS");
+
+	/* What left the stream as whole pieces, and all that had left it when the schedule last ran */
 	public static final AttributeKey<Long> TAKEN_BYTES_KEY = AttributeKey.valueOf("TAKEN_BYTES");
+	public static final AttributeKey<Long> TAKEN_BEFORE_KEY = AttributeKey.valueOf("TAKEN_BEFORE");
 
 	private boolean response;
 	@Builder.Default private long nanoTime = System.nanoTime();

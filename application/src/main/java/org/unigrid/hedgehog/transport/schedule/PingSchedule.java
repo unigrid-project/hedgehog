@@ -36,8 +36,8 @@ import org.unigrid.hedgehog.model.network.packet.Ping;
 @EqualsAndHashCode(callSuper = false)
 public class PingSchedule extends AbstractSchedule implements Schedulable {
 	private static final String UNANSWERED = "answered none of the last " + Ping.MISSED_PINGS_BEFORE_CLOSE + " pings";
-	private static final String UNREAD = "read less than " + Ping.SLOWEST_READ_BYTES_PER_SECOND
-		+ " bytes a second while its stream took no more for " + Ping.UNWRITABLE_PERIODS_BEFORE_CLOSE + " pings";
+	private static final String UNREAD = "read less than " + Ping.LEAST_BYTES_A_PERIOD + " bytes between pings "
+		+ Ping.SLOW_PERIODS_BEFORE_CLOSE + " times in a row while its stream took no more";
 
 	public PingSchedule() {
 		super(Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS, true);
@@ -52,13 +52,15 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
+			final long taken = takenSinceTheRunBefore(channel);
+
 			if (Objects.nonNull(channel.attr(Ping.PING_TIME_KEY).get())
 				&& missedOneMore(channel) >= Ping.MISSED_PINGS_BEFORE_CLOSE) {
 
 				closeTheConnectionOf(channel, UNANSWERED);
 			} else if (channel.isWritable()) {
 				send(channel);
-			} else if (readsTooSlowly(channel)) {
+			} else if (readsTooLittle(channel, taken)) {
 				closeTheConnectionOf(channel, UNREAD);
 			}
 		};
@@ -67,7 +69,7 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 	private static void send(Channel channel) {
 		final Ping ping = Ping.builder().build();
 
-		channel.attr(Ping.UNWRITABLE_PERIODS_KEY).set(null);
+		channel.attr(Ping.SLOW_PERIODS_KEY).set(null);
 		channel.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
 		channel.writeAndFlush(ping);
 	}
@@ -79,28 +81,25 @@ public class PingSchedule extends AbstractSchedule implements Schedulable {
 		return missed;
 	}
 
-	/* The periods in a row through which the stream took no more are counted from the run that first finds it so, and
-	   what left the stream meanwhile from then. After three of them the peer either read too little, or is given
-	   three more. A piece of a frame counts once the whole of it left, so the count may be a piece behind
-	   (PeerActivityHandler), which no peer that reads fast enough is closed for. */
-	private boolean readsTooSlowly(Channel channel) {
-		final Attribute<Integer> counted = channel.attr(Ping.UNWRITABLE_PERIODS_KEY);
-		final int periods = Optional.ofNullable(counted.get()).map(before -> before + 1).orElse(0);
+	/* What left the stream since the run before this one, asked by every run, so that each is told of its own period
+	   and of no other */
+	private static long takenSinceTheRunBefore(Channel channel) {
+		final long taken = PeerActivityHandler.takenOf(channel);
 
-		if (periods > 0 && periods < Ping.UNWRITABLE_PERIODS_BEFORE_CLOSE) {
-			counted.set(periods);
-			return false;
-		}
-
-		final long taken = Objects.requireNonNullElse(channel.attr(Ping.TAKEN_BYTES_KEY).getAndSet(0L), 0L);
-
-		counted.set(0);
-		return periods > 0 && taken + PeerActivityHandler.PIECE_BYTES < slowestReadIn(periods);
+		return taken - Objects.requireNonNullElse(channel.attr(Ping.TAKEN_BEFORE_KEY).getAndSet(taken), 0L);
 	}
 
-	private long slowestReadIn(int periods) {
-		return getTimeUnit().toMillis(getPeriod()) * periods * Ping.SLOWEST_READ_BYTES_PER_SECOND
-			/ TimeUnit.SECONDS.toMillis(1);
+	/* The periods in a row in which too little left the stream are counted from the run that first finds that it takes
+	   no more: the stream still took more in some of the period that this run ends, so the peer is judged by the
+	   ones after it. A period in which enough left the stream starts the count again, as a stream that takes more
+	   again does (PeerActivityHandler), so only a peer that read too little in every one of them is closed. */
+	private static boolean readsTooLittle(Channel channel, long taken) {
+		final Attribute<Integer> counted = channel.attr(Ping.SLOW_PERIODS_KEY);
+		final int periods = Optional.ofNullable(counted.get()).filter(before -> taken < Ping.LEAST_BYTES_A_PERIOD)
+			.map(before -> before + 1).orElse(0);
+
+		counted.set(periods);
+		return periods >= Ping.SLOW_PERIODS_BEFORE_CLOSE;
 	}
 
 	/* The QUIC connection that the stream runs on, as every stream of a peer that is gone is dead with it, and the

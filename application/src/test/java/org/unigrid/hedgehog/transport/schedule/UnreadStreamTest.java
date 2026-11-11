@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
+import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mock;
@@ -76,7 +77,7 @@ import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer
    schedules, and only what an example lets the peer read leaves its outbound side, as a peer's receive window that
    stays shut leaves it. The missed pings start over on every byte the peer sends, so they do not tell such a peer
    from one that is there: the stream is no longer written to once it takes no more, and is closed once too little
-   left it through three periods in a row. */
+   left it in each of three periods in a row. */
 @WeldSetup(value = { Topology.class, ChannelMap.class, ProtectedInterceptor.class }, scan = false)
 public class UnreadStreamTest extends BaseMockedWeldTest {
 	private static final int PERIODS = 100;
@@ -84,10 +85,13 @@ public class UnreadStreamTest extends BaseMockedWeldTest {
 	private static final int SLOW_PERIOD_IN_PINGS = PublishPeers.DISTRIBUTION_FREQUENCY_MINUTES * 60
 		/ Ping.HEARTBEAT_SECONDS;
 	private static final int PERIODS_AN_HOUR = 3600 / Ping.HEARTBEAT_SECONDS;
-	private static final int UNWRITABLE_PERIODS = 3;
+	private static final int SLOW_PERIODS = 3;
 	private static final int KIBIBYTE = 1024;
-	private static final int SLOWEST_BYTES_A_SECOND = 32 * KIBIBYTE;
+	private static final int LEAST_BYTES_A_PERIOD = 16 * KIBIBYTE;
 	private static final int PUSH_BYTES = 10 * KIBIBYTE * KIBIBYTE;
+
+	/* The periods in which a peer that reads the least that it is kept for has read a push */
+	private static final int MOST_PERIODS_OF_A_PUSH = PUSH_BYTES / LEAST_BYTES_A_PERIOD;
 	private static final FileSystem DATA = Jimfs.newFileSystem(Configuration.unix());
 
 	@Inject private Topology topology;
@@ -231,7 +235,7 @@ public class UnreadStreamTest extends BaseMockedWeldTest {
 
 		assertThat(message, stream.isOpen(), is(false));
 		assertThat(message, connection.isOpen(), is(false));
-		assertThat(message, closedAt - unwritableFrom, equalTo(UNWRITABLE_PERIODS));
+		assertThat(message, closedAt - unwritableFrom, equalTo(SLOW_PERIODS));
 		assertThat(message, mostHeld, lessThanOrEqualTo(stream.config().getWriteBufferHighWaterMark() + mostInARun));
 	}
 
@@ -254,54 +258,118 @@ public class UnreadStreamTest extends BaseMockedWeldTest {
 		assertThat(stream.isOpen(), is(true));
 	}
 
-	/* The periods that the stream takes no more after a push of ten mebibytes to a peer that reads this fast and sends
-	   a byte in each, until what is left of the push is little enough for the stream to take more, or it is closed,
-	   and a hundred at most */
-	private static int periodsOfAPush(Unread stream, int bytesASecond) {
+	/* The periods that the stream takes no more after a push of ten mebibytes to a peer that sends a byte in each and
+	   reads in each what is given for it, until what is left of the push is little enough for the stream to take
+	   more, or it is closed. The run of the first period is the first to find that the stream takes no more, so
+	   the peer is judged by what it reads from the second on. */
+	private static int periodsOfAPush(Unread stream, IntToLongFunction readIn) {
 		final Consumer<Channel> ping = new PingSchedule().getConsumer();
 		int periods = 0;
 
 		ping.accept(stream);
 		stream.writeAndFlush(Unpooled.wrappedBuffer(new byte[PUSH_BYTES]));
 
-		while (stream.isOpen() && !stream.isWritable() && periods < PERIODS) {
+		while (stream.isOpen() && !stream.isWritable() && periods <= MOST_PERIODS_OF_A_PUSH) {
 			periods++;
 			peerSends(stream, periods);
-			stream.peerReads((long) bytesASecond * Ping.HEARTBEAT_SECONDS);
+			stream.peerReads(readIn.applyAsLong(periods));
 			ping.accept(stream);
 		}
 
 		return periods;
 	}
 
-	/* A peer on a slow link takes minutes to read a large spork, and reads all the while */
-	@Property(tries = 25)
-	public void keepsAPeerThatReadsNoSlowerThan32KibibytesASecondHoweverLongAPushTakes(
-		@ForAll @IntRange(min = SLOWEST_BYTES_A_SECOND, max = 4 * SLOWEST_BYTES_A_SECOND) int bytesASecond) {
-
+	/* The push is done once the stream takes more again, which it does no sooner than the peer has read all but
+	   what a stream may hold and still take more */
+	private static void assertKeptUntilAPushIsDone(int bytesAPeriod) {
 		final EmbeddedChannel connection = new EmbeddedChannel();
 		final Unread stream = streamOn(connection);
-		final int periods = periodsOfAPush(stream, bytesASecond);
-		final String message = "a peer that reads " + bytesASecond + " bytes a second, after " + periods + " periods";
 
-		assertThat(message, stream.isOpen(), is(true));
-		assertThat(message, connection.isOpen(), is(true));
-		assertThat(message, stream.isWritable(), is(true));
-		assertThat(message, periods, greaterThanOrEqualTo(PUSH_BYTES / (bytesASecond * Ping.HEARTBEAT_SECONDS)));
+		try {
+			final int periods = periodsOfAPush(stream, period -> bytesAPeriod);
+			final String message = "a peer that reads " + bytesAPeriod + " bytes a period, after " + periods
+				+ " periods";
+
+			assertThat(message, stream.isOpen(), is(true));
+			assertThat(message, connection.isOpen(), is(true));
+			assertThat(message, stream.isWritable(), is(true));
+			assertThat(message, periods, greaterThanOrEqualTo(
+				(PUSH_BYTES - stream.config().getWriteBufferLowWaterMark()) / bytesAPeriod));
+		} finally {
+			stream.finishAndReleaseAll();
+			connection.finishAndReleaseAll();
+		}
 	}
 
-	@Property(tries = 25)
-	public void closesAPeerThatReadsSlowerThan32KibibytesASecondThreePeriodsAfterItsStreamTookNoMore(
-		@ForAll @IntRange(min = 0, max = SLOWEST_BYTES_A_SECOND - KIBIBYTE) int bytesASecond) {
-
+	private static void assertClosedInPeriod(int closedIn, String reads, IntToLongFunction readIn) {
 		final EmbeddedChannel connection = new EmbeddedChannel();
 		final Unread stream = streamOn(connection);
-		final int periods = periodsOfAPush(stream, bytesASecond);
-		final String message = "a peer that reads " + bytesASecond + " bytes a second, after " + periods + " periods";
 
-		/* The run of the first period is the first to find that the stream takes no more */
-		assertThat(message, stream.isOpen(), is(false));
-		assertThat(message, connection.isOpen(), is(false));
-		assertThat(message, periods, equalTo(1 + UNWRITABLE_PERIODS));
+		try {
+			final int periods = periodsOfAPush(stream, readIn);
+			final String message = "a peer that reads " + reads + ", after " + periods + " periods";
+
+			assertThat(message, stream.isOpen(), is(false));
+			assertThat(message, connection.isOpen(), is(false));
+			assertThat(message, periods, equalTo(closedIn));
+		} finally {
+			stream.finishAndReleaseAll();
+			connection.finishAndReleaseAll();
+		}
+	}
+
+	/* A peer on a slow link takes minutes to read a large spork, and reads all the while */
+	@Property(tries = 25)
+	public void keepsAPeerThatReadsNoLessThan16KibibytesAPeriodHoweverLongAPushTakes(
+		@ForAll @IntRange(min = LEAST_BYTES_A_PERIOD, max = 160 * LEAST_BYTES_A_PERIOD) int bytesAPeriod) {
+
+		assertKeptUntilAPushIsDone(bytesAPeriod);
+	}
+
+	/* The run of the first period is the first to find that the stream takes no more */
+	@Property(tries = 25)
+	public void closesAPeerThatReadsLessThan16KibibytesAPeriodThreePeriodsAfterItsStreamTookNoMore(
+		@ForAll @IntRange(min = 0, max = LEAST_BYTES_A_PERIOD - 1) int bytesAPeriod) {
+
+		assertClosedInPeriod(1 + SLOW_PERIODS, bytesAPeriod + " bytes a period", period -> bytesAPeriod);
+	}
+
+	@Example
+	public void closesAPeerThatReads15KibibytesAPeriodInTheThirdPeriod() {
+		assertClosedInPeriod(1 + SLOW_PERIODS, "15 KiB a period", period -> 15 * KIBIBYTE);
+	}
+
+	@Example
+	public void keepsAPeerThatReads17KibibytesAPeriod() {
+		assertKeptUntilAPushIsDone(17 * KIBIBYTE);
+	}
+
+	/* The two sides of the least that a peer is kept for lie a byte apart */
+	@Example
+	public void closesAPeerThatReadsAByteLessThan16KibibytesAPeriod() {
+		assertClosedInPeriod(1 + SLOW_PERIODS, "a byte less than 16 KiB a period",
+			period -> LEAST_BYTES_A_PERIOD - 1);
+	}
+
+	@Example
+	public void keepsAPeerThatReads16KibibytesAPeriod() {
+		assertKeptUntilAPushIsDone(LEAST_BYTES_A_PERIOD);
+	}
+
+	/* A sixth of what a link of 256 kbit/s carries */
+	@Example
+	public void keepsAPeerThatReads5KibibytesASecondUntilAPushOfTenMebibytesIsDone() {
+		assertKeptUntilAPushIsDone(5 * KIBIBYTE * Ping.HEARTBEAT_SECONDS);
+	}
+
+	/* Only periods in a row count, so one in which enough left the stream starts the count again: the peer reads
+	   nothing in the two periods after the first, enough in the third, at whose end it would be closed otherwise,
+	   and nothing after it */
+	@Example
+	public void closesAPeerThreePeriodsAfterTheLastInWhichItReadEnough() {
+		final int readsIn = 1 + SLOW_PERIODS;
+
+		assertClosedInPeriod(readsIn + SLOW_PERIODS, "20 KiB in period " + readsIn + " and nothing in any other",
+			period -> period == readsIn ? 20 * KIBIBYTE : 0);
 	}
 }
