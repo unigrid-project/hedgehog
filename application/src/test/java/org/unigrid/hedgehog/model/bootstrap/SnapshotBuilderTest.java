@@ -33,6 +33,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.LongStream;
 import lombok.Cleanup;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -237,6 +238,68 @@ public class SnapshotBuilderTest {
 		SnapshotBuilder.build(BlockFixture.directory(), target);
 
 		assertThat(entriesOf(target.getParent()), equalTo(List.of("bootstrap.dat")));
+	}
+
+	/*
+	   A kill or an exit skips the removal of the partial file and every build names a new one, so what
+	   earlier builds left is still beside the target when the next one comes to write. A build is no
+	   longer there when its process is gone, or when its file carries no process at all. The parent
+	   of this process stands for a build that still runs elsewhere, and a file that merely begins and
+	   ends like a partial file is not one.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldRemoveThePartialFilesThatKilledBuildsLeftBehind() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		final Path target = fs.getPath("/data/bootstrap.dat");
+		final String running = "bootstrap-build-pid" + ProcessHandle.current().parent().orElseThrow().pid()
+			+ "-3.tmp";
+
+		Files.createDirectories(target.getParent());
+		Files.write(target.resolveSibling("bootstrap-build-pid" + processThatIsGone() + "-1.tmp"), PREVIOUS);
+		Files.write(target.resolveSibling("bootstrap-build-2.tmp"), PREVIOUS);
+		Files.write(target.resolveSibling(running), PREVIOUS);
+		Files.write(target.resolveSibling("bootstrap-build-notes.tmp"), PREVIOUS);
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(entriesOf(target.getParent()), equalTo(List.of("bootstrap-build-notes.tmp", running,
+			"bootstrap.dat")));
+	}
+
+	/*
+	   Two imports of the blocks can write beside each other, to two targets in one directory. The one
+	   that comes second starts while the first checks its snapshot, which is when the partial file of
+	   the first is on disk, and the first still has to move that file into place.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldKeepThePartialFileOfABuildThatStillRuns() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		final Path target = fs.getPath("/data/bootstrap.dat");
+		final Path second = fs.getPath("/data/second.dat");
+
+		Files.createDirectories(target.getParent());
+
+		whileTheCheckRuns = () -> {
+			whileTheCheckRuns = () -> { };
+			build(second);
+		};
+
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(Files.mismatch(target, second), equalTo(-1L));
+		assertThat(entriesOf(target.getParent()), equalTo(List.of("bootstrap.dat", "second.dat")));
+	}
+
+	@SneakyThrows
+	private static void build(Path target) {
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+	}
+
+	/* No process has an id this high, and the search goes down from it in case one ever does. */
+	private static long processThatIsGone() {
+		return LongStream.iterate(999_999_999L, id -> id - 1).filter(id -> ProcessHandle.of(id).isEmpty())
+			.findFirst().orElseThrow();
 	}
 
 	@SneakyThrows

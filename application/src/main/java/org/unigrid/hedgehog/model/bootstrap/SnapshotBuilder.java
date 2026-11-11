@@ -29,8 +29,8 @@ import lombok.extern.slf4j.Slf4j;
 @NoArgsConstructor(access = AccessLevel.PRIVATE) @Slf4j
 public final class SnapshotBuilder {
 	/*
-	   Not the name a download gives its partial files: a download sweeps those out of the directory it
-	   installs into, and a build that shares the directory would lose its file halfway through.
+	   Not the name a download gives its partial files: a download and a build that share a directory
+	   each remove only what their own kind left behind in it.
 	*/
 	private static final String PARTIAL_PREFIX = "bootstrap-build-";
 	private static final String PARTIAL_SUFFIX = ".tmp";
@@ -49,9 +49,11 @@ public final class SnapshotBuilder {
 	   The snapshot is written beside its destination and only moved into place once it has been read
 	   back and checked, so a build that runs out of disk, is killed or fails its own check leaves what
 	   was there before untouched, and a reader that has the old file mapped never sees it truncated.
+	   A build that was killed left its partial file behind under a name no later build takes again,
+	   so the ones that no running build still writes are removed before this one writes its own.
 	*/
 	private static void install(Path output, Chain chain, Ledger ledger) throws IOException {
-		final Path partial = Files.createTempFile(output.toAbsolutePath().getParent(), PARTIAL_PREFIX,
+		final Path partial = PartialFiles.create(output.toAbsolutePath().getParent(), PARTIAL_PREFIX,
 			PARTIAL_SUFFIX);
 
 		try {
@@ -60,16 +62,7 @@ public final class SnapshotBuilder {
 			Files.move(partial, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 
 		} finally {
-			discard(partial);
-		}
-	}
-
-	/* Cleanup must never replace the failure that caused it with one about the leftover file. */
-	private static void discard(Path partial) {
-		try {
-			Files.deleteIfExists(partial);
-		} catch (IOException ex) {
-			log.atWarn().log("Could not remove the partial snapshot at {}: {}", partial, ex.getMessage());
+			PartialFiles.discard(partial);
 		}
 	}
 
