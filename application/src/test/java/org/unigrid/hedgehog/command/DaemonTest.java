@@ -28,9 +28,13 @@ import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystem;
+import java.nio.file.FileSystemException;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -86,6 +90,7 @@ public class DaemonTest {
 	private static volatile String refusal;
 	private static volatile String runningVersion;
 	private static volatile String lockedBy;
+	private static volatile IOException lockFailure;
 
 	/*
 	   A fake that proceeds must be the only one on its class, so these are installed once and steered by
@@ -122,6 +127,10 @@ public class DaemonTest {
 
 				LOCKED.add(dataDirectory);
 
+				if (lockFailure != null) {
+					throw lockFailure;
+				}
+
 				if (lockedBy != null) {
 					throw new FileLockedException(lockedBy);
 				}
@@ -136,6 +145,7 @@ public class DaemonTest {
 		refusal = null;
 		runningVersion = null;
 		lockedBy = null;
+		lockFailure = null;
 	}
 
 	/* A node writes its spork database over the file as it saves, so it holds a lock on it while it runs, and does not
@@ -156,6 +166,31 @@ public class DaemonTest {
 		assertThat(refused.err(), containsString("The spork database in /data is in use"));
 		refused.assertNoStackTrace();
 		assertThat(CONTAINERS.get(), equalTo(0));
+	}
+
+	/* The file system gives no sentence with a refusal such as a data directory that the user cannot write, but the
+	   file alone: the operator is told what failed and why, and not shown a path and the usage of the command */
+	@Example
+	public void shouldSayWhyItCannotLockTheSporkDatabaseWhenTheFileSystemGivesOnlyTheFile() {
+		final Path dataDirectory = ApplicationDirectory.create().getUserDataDir();
+		final String file = dataDirectory.resolve(SporkDatabaseLock.FILE).toString();
+
+		Map.<String, IOException>of("permission denied", new AccessDeniedException(file),
+			"no such file or directory", new NoSuchFileException(file),
+			"Read-only file system", new FileSystemException(file, null, "Read-only file system"),
+			"IOException", new IOException()
+		).forEach((reason, failure) -> {
+			lockFailure = failure;
+			CONTAINERS.set(0);
+
+			final HedgehogCli.Result refused = HedgehogCli.run("daemon");
+
+			assertThat(refused.exitCode(), equalTo(2));
+			assertThat(refused.err(),
+				containsString("Cannot lock the spork database in " + dataDirectory + ": " + reason));
+			refused.assertNoStackTrace();
+			assertThat(CONTAINERS.get(), equalTo(0));
+		});
 	}
 
 	@Provide

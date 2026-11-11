@@ -32,6 +32,7 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.AccessLevel;
@@ -204,7 +205,7 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		} else if (ex instanceof FileSystemException other) {
 			reason = Optional.ofNullable(other.getReason()).orElse(other.getClass().getSimpleName());
 		} else {
-			reason = String.valueOf(ex.getMessage());
+			reason = Objects.toString(ex.getMessage(), ex.getClass().getSimpleName());
 		}
 
 		return TerminalText.printable(operation + " " + path + ": " + reason);

@@ -23,10 +23,12 @@ import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Path;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
+import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.option.GridnodeOptions;
 import org.unigrid.hedgehog.model.option.LedgerOptions;
 import org.unigrid.hedgehog.model.option.NetOptions;
@@ -36,6 +38,7 @@ import org.unigrid.hedgehog.model.option.S3Options;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.ledger.ExclusiveLock;
+import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.model.PreviewSetup;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.option.SocksOptions;
@@ -78,11 +81,16 @@ public class Daemon extends CDIContext implements Runnable {
 			throw new ParameterException(spec.commandLine(), ex.getMessage(), ex);
 		}
 
+		final Path dataDirectory = ApplicationDirectory.create().getUserDataDir();
+
 		try {
-			SporkDatabaseLock.holdWhileRunning(ApplicationDirectory.create().getUserDataDir(),
-				ExclusiveLock.SYSTEM);
-		} catch (IOException ex) {
+			SporkDatabaseLock.holdWhileRunning(dataDirectory, ExclusiveLock.SYSTEM);
+		} catch (FileLockedException ex) {
 			throw new ParameterException(spec.commandLine(), StringUtils.capitalize(ex.getMessage()), ex);
+		} catch (IOException ex) {
+			/* The file system names the file, not the reason, or nothing at all */
+			throw new ParameterException(spec.commandLine(),
+				RestClientCommand.describe("Cannot lock the spork database in", dataDirectory, ex), ex);
 		}
 
 		super.run();
