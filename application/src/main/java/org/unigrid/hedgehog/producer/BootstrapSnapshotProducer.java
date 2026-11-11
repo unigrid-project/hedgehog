@@ -33,7 +33,7 @@ public class BootstrapSnapshotProducer {
 	private AtomicReference<BootstrapSnapshot> snapshot = new AtomicReference<>(null);
 
 	@Produces
-	private BootstrapSnapshot produce() {
+	private synchronized BootstrapSnapshot produce() {
 		if (Objects.isNull(snapshot.get())) {
 			snapshot.set(new BootstrapSnapshot(applicationDirectory.getUserDataDir()
 				.resolve(SnapshotOptions.SNAPSHOT_FILE)));
