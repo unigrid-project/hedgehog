@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -56,9 +57,12 @@ public class PendingSporksTest {
 		};
 	}
 
-	@SneakyThrows
 	private static MintSupply proposal(Duration age, Signature signer) {
-		final MintSupply spork = new MintSupply();
+		return proposal(new MintSupply(), age, signer);
+	}
+
+	@SneakyThrows
+	private static MintSupply proposal(MintSupply spork, Duration age, Signature signer) {
 		final MintSupply.SporkData data = new MintSupply.SporkData();
 
 		data.setMaxSupply(BigDecimal.TEN);
@@ -203,5 +207,30 @@ public class PendingSporksTest {
 		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
 
 		assertThat(pendingSporks.list(), empty());
+	}
+
+	/* The digest of a proposal is worked out over all of its content, encoded and hashed, and the intake of a proposal
+	   from a peer waits for the lock of the proposals on an event loop, so the digests are not worked out under it */
+	@Example
+	public void shouldFindAProposalByItsDigestWithoutHoldingTheLockOfTheProposals() {
+		final AtomicBoolean isFinding = new AtomicBoolean();
+		final AtomicBoolean isLocked = new AtomicBoolean();
+		final MintSupply spork = proposal(new MintSupply() {
+			@Override
+			public byte[] getSignable() {
+				if (isFinding.get() && Thread.holdsLock(pendingSporks)) {
+					isLocked.set(true);
+				}
+
+				return super.getSignable();
+			}
+		}, Duration.ZERO, proposer);
+
+		assertThat(pendingSporks.offer(spork, null), is(true));
+
+		isFinding.set(true);
+		assertThat(pendingSporks.find(PendingSporks.digestOf(spork)), is(Optional.of(spork)));
+		assertThat(pendingSporks.find("no digest of a proposal held"), is(Optional.empty()));
+		assertThat(isLocked.get(), is(false));
 	}
 }

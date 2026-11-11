@@ -190,7 +190,9 @@ public class PendingSporks {
 		return new ArrayList<>(proposals.values());
 	}
 
-	public synchronized Optional<GridSpork> find(String digest) {
+	/* The digests are worked out on the proposals held when the list was taken, with no lock held that the intake of a
+	   proposal from a peer waits for */
+	public Optional<GridSpork> find(String digest) {
 		return list().stream().filter(spork -> digestOf(spork).equals(digest)).findFirst();
 	}
 
