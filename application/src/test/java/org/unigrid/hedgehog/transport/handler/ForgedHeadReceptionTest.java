@@ -296,6 +296,26 @@ public class ForgedHeadReceptionTest {
 		assertThat(new Node(older).receive(muchLater), is(true));
 	}
 
+	/* A renewal moves the stored head to a new time, a next version changes it, and two board members can co-sign one
+	   each over the head that their nodes hold. Both are made from the same retired head, which the log of each
+	   tells, so whichever is newer within the lifetime of a proposal is the one that every node takes. */
+	@Example
+	public void shouldSettleARenewalAndANextVersionOverOneVersionByTheirTimeStamps() {
+		final GridSpork head = secondVersionHoursAgo();
+		final GridSpork change = cosigned(proposalOver(head, 30, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork laterRenewal = renewalOf(head, change.getTimeStamp().plusMillis(1));
+		final GridSpork renewal = renewalOf(head, head.getTimeStamp().plusSeconds(1));
+		final GridSpork laterChange = cosigned(proposalOver(head, 30, renewal.getTimeStamp().plusMillis(1)));
+
+		for (GridSpork sibling : List.of(change, laterRenewal, renewal, laterChange)) {
+			assertThat(new Node(head).receive(sibling), is(true));
+		}
+
+		assertThat(List.of(new Node(change).receive(laterRenewal), new Node(laterRenewal).receive(change),
+			new Node(renewal).receive(laterChange), new Node(laterChange).receive(renewal)),
+			equalTo(List.of(true, false, true, false)));
+	}
+
 	/* The board signs the data of a database again as first versions, which two board members can make on two
 	   machines hours apart. There is no version before them that the later one could undo, so the newer wins. */
 	@Example

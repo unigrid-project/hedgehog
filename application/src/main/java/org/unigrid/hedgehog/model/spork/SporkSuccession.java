@@ -204,11 +204,19 @@ final class SporkSuccession {
 			return true;
 		}
 
-		final boolean isOverTheSameVersion = Objects.equals(spork.getPreviousData(), stored.getPreviousData())
-			&& Objects.equals(spork.getPreviousTimeStamp(), stored.getPreviousTimeStamp());
+		return isOverTheSameVersionAs(spork, stored) && (Objects.equals(spork.getData(), stored.getData())
+			|| isFirstVersion(spork) || isWithinAProposalsLifetimeOf(spork, stored));
+	}
 
-		return isOverTheSameVersion && (Objects.equals(spork.getData(), stored.getData()) || isFirstVersion(spork)
-			|| isWithinAProposalsLifetimeOf(spork, stored));
+	/* A stored log with entries ends with the head that the stored spork was made from, and a sibling has that very
+	   log, which is judged right after this, so the log tells that both were made from one version. The previous data
+	   and time stamp do not: a renewal keeps those of the head it was made from, while a next version takes the data
+	   and time stamp of that head, so the two differ in them over one version. With no log, as a first version has
+	   and a version from before there was one, they are all that tells. */
+	private static boolean isOverTheSameVersionAs(final GridSpork spork, final GridSpork stored) {
+		return !stored.getSignatureLog().isEmpty()
+			|| Objects.equals(spork.getPreviousData(), stored.getPreviousData())
+			&& Objects.equals(spork.getPreviousTimeStamp(), stored.getPreviousTimeStamp());
 	}
 
 	/* A sibling has the log of the stored spork, so this one being a first version makes both one */
