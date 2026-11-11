@@ -22,6 +22,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import jakarta.inject.Provider;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Path;
@@ -46,6 +47,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.option.SocksOptions;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
@@ -70,6 +72,7 @@ public class Daemon extends CDIContext implements Runnable {
 	@Inject private P2PServer p2pServer;
 	@Inject private RestServer restServer;
 	@Inject private SnapshotInstaller snapshotInstaller;
+	@Inject private Provider<SporkDatabase> sporkDatabase;
 
 	@Spec private CommandSpec spec;
 
@@ -100,11 +103,18 @@ public class Daemon extends CDIContext implements Runnable {
 		super.run();
 	}
 
-	/* The node serves everything else while the snapshot downloads, so startup never waits for it. */
+	/*
+	   The node serves everything else while the snapshot downloads, so startup never waits for it. It does wait
+	   for the spork database, which the first lookup reads: the install judges a snapshot by the board keys that
+	   the node holds, and the changes to them that the release ships and that the database stores count from that
+	   read on. A database that cannot be read is moved aside by the lookup, and the node starts with an empty one.
+	*/
 	@Override
 	@SneakyThrows
 	protected void start(@Observes ContainerInitialized event) {
 		final URL source = BootstrapFetch.defaultUrl(Version.getVersionNumber());
+
+		sporkDatabase.get();
 
 		snapshotInstall = Thread.ofVirtual().name("snapshot-install")
 			.start(() -> snapshotInstaller.installUntilInstalled(source));

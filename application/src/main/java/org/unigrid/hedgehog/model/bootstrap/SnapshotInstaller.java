@@ -71,8 +71,9 @@ public class SnapshotInstaller {
 
 		failed = false;
 
-		if (Files.exists(snapshot.getPath())) {
-			/* The snapshot came another way since a download failed, as `bootstrap fetch` brings it */
+		if (isInstalled()) {
+			/* The snapshot came another way since a download failed, as `bootstrap fetch` brings it, or the node
+			   learned of the board key that signed the one it refused */
 			if (failedBefore) {
 				status.running();
 			}
@@ -95,6 +96,27 @@ public class SnapshotInstaller {
 			status.running();
 			throw ex;
 		}
+	}
+
+	/*
+	   A file that the node refuses to open is no snapshot to it: one that is cut off, of an older format, or signed
+	   by no board key that the node holds. The snapshot of the release is fetched over such a file, which stays
+	   where it is until a download is verified. A snapshot that opens without a signature, as one that the operator
+	   built, is kept. The file is looked for first, as a snapshot that was opened before is still answered for a
+	   file that is gone.
+	*/
+	private boolean isInstalled() {
+		if (!Files.exists(snapshot.getPath())) {
+			return false;
+		}
+
+		if (snapshot.getReader().isPresent()) {
+			return true;
+		}
+
+		log.atWarn().log("Replacing the legacy chain snapshot at {}, which this node does not use, with the one of"
+			+ " its release: {}", snapshot.getPath(), snapshot.getRefusal().orElse("it does not open"));
+		return false;
 	}
 
 	/* Whether the pause ran to its end, which it does not on a thread that is interrupted: the interrupt is kept */

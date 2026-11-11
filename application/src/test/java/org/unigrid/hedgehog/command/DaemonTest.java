@@ -19,18 +19,22 @@
 package org.unigrid.hedgehog.command;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import jakarta.inject.Provider;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystemException;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -66,6 +70,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.apache.commons.lang3.reflect.FieldUtils;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.model.option.OptionsCli;
@@ -79,7 +84,10 @@ import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
+import org.unigrid.hedgehog.model.util.Reflection;
+import org.unigrid.hedgehog.producer.SporkDatabaseProducer;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
@@ -251,14 +259,27 @@ public class DaemonTest {
 			.as((major, minor, patch, suffix) -> major + "." + minor + "." + patch + suffix);
 	}
 
-	@SneakyThrows
 	private static Daemon daemonInstallingWith(SnapshotInstaller installer) {
+		return daemonInstallingWith(installer, () -> SporkDatabase.builder().build());
+	}
+
+	/* A daemon as its container sets it up: with the installer and with the lookup of the spork database, which reads
+	   the database of the node the first time it is made */
+	@SneakyThrows
+	private static Daemon daemonInstallingWith(SnapshotInstaller installer, Provider<SporkDatabase> sporkDatabase) {
 		final Daemon daemon = new Daemon();
-		final Field field = Daemon.class.getDeclaredField("snapshotInstaller");
+
+		field("snapshotInstaller").set(daemon, installer);
+		field("sporkDatabase").set(daemon, sporkDatabase);
+		return daemon;
+	}
+
+	@SneakyThrows
+	private static Field field(String name) {
+		final Field field = Daemon.class.getDeclaredField(name);
 
 		field.setAccessible(true);
-		field.set(daemon, installer);
-		return daemon;
+		return field;
 	}
 
 	@Property(tries = 30)
@@ -519,6 +540,98 @@ public class DaemonTest {
 		assertThat(source.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS), equalTo(BootstrapFetch.defaultUrl(version)));
 		assertThat(worker.get().isVirtual(), equalTo(true));
 		assertThat(worker.get().getName(), equalTo("snapshot-install"));
+	}
+
+	/*
+	   The install judges a snapshot by the board keys the node holds, and the node holds the changes to them that its
+	   release ships, and those that its spork database stores, only once it read the database. So it reads the
+	   database as it starts, on the thread that starts it, and starts the install after that.
+
+	   A thread that is started runs when it gets to, which may be after whatever follows its start, so the lookup
+	   also tells whether the daemon holds an install by then.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldReadTheSporkDatabaseAsItStartsBeforeItStartsTheInstallOfTheSnapshot() {
+		final List<String> sequence = new CopyOnWriteArrayList<>();
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+		final String starter = Thread.currentThread().getName();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				sequence.add("install on " + Thread.currentThread().getName());
+				worker.complete(Thread.currentThread());
+			}
+		};
+
+		final Daemon daemon = daemonInstallingWith(new SnapshotInstaller());
+
+		field("sporkDatabase").set(daemon, (Provider<SporkDatabase>) () -> {
+			sequence.add(hasStartedTheInstall(daemon) ? "database after the install was started"
+				: "database on " + Thread.currentThread().getName());
+			return SporkDatabase.builder().build();
+		});
+
+		daemon.start(null);
+		worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+		assertThat(sequence, equalTo(List.of("database on " + starter, "install on snapshot-install")));
+	}
+
+	@SneakyThrows
+	private static boolean hasStartedTheInstall(Daemon daemon) {
+		return field("snapshotInstall").get(daemon) != null;
+	}
+
+	/* A spork database that cannot be read is moved aside by the lookup that reads it, which hands out an empty one
+	   in its place: the node starts all the same, and so does the install */
+	@Example
+	@SneakyThrows
+	public void shouldStartTheInstallOfTheSnapshotWhenTheSporkDatabaseCannotBeRead() {
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				worker.complete(Thread.currentThread());
+			}
+		};
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final SporkDatabaseProducer producer = new SporkDatabaseProducer();
+
+			Files.write(data.resolve(SporkDatabase.SPORK_DB_FILE), new byte[] {1, 2, 3});
+
+			FieldUtils.writeField(producer, "applicationDirectory", new ApplicationDirectory("test", "test") {
+				@Override
+				public Path getUserDataDir() {
+					return data;
+				}
+			}, true);
+
+			try {
+				daemonInstallingWith(new SnapshotInstaller(), () -> produced(producer)).start(null);
+				worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+				assertThat(namesIn(data),
+					contains(startsWith(SporkDatabase.SPORK_DB_FILE + ".unreadable-")));
+			} finally {
+				Reflection.invoke(producer, "destroy");
+			}
+		}
+	}
+
+	/* What the container hands out as the spork database: the producer reads the file at the first lookup */
+	@SneakyThrows
+	private static SporkDatabase produced(SporkDatabaseProducer producer) {
+		return Reflection.invoke(producer, "produce");
+	}
+
+	@SneakyThrows
+	private static List<String> namesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.map(file -> file.getFileName().toString()).toList();
+		}
 	}
 
 	/* A download, or the pause before the next one, would go on in a process that outlives the node, as the one of

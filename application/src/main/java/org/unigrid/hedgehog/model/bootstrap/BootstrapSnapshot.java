@@ -31,8 +31,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
 /*
-   Most daemons will never be asked about the legacy chain, and a snapshot costs several hundred
-   megabytes of mapped pages, so the file is only opened the first time somebody asks for it.
+   A snapshot costs several hundred megabytes of mapped pages, so the file is only opened the first
+   time somebody asks for it. In a daemon that is the install of the snapshot as the node starts, which
+   has to tell a file that the node uses from one to fetch again.
 */
 @Slf4j
 @RequiredArgsConstructor
@@ -48,6 +49,11 @@ public final class BootstrapSnapshot {
 		}
 
 		return Optional.ofNullable(reader.get());
+	}
+
+	/* Why the node does not use the file, as it said when it last refused to open it, if it did */
+	public Optional<String> getRefusal() {
+		return Optional.ofNullable(refusal.get()).map(Refusal::getReason);
 	}
 
 	private boolean needsOpen() {
@@ -86,7 +92,7 @@ public final class BootstrapSnapshot {
 			}
 		} catch (IOException ex) {
 			reader.set(null);
-			refusal.set(new Refusal(before, generation));
+			refusal.set(new Refusal(before, generation, ex.getMessage()));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}
 	}
@@ -113,11 +119,13 @@ public final class BootstrapSnapshot {
 
 	/*
 	   Whether a signature verifies depends on the board keys the node holds, which grow as it learns of the changes
-	   to them, so a refusal also stands only for the keys it was judged against.
+	   to them, so a refusal also stands only for the keys it was judged against. The reason is kept, as the log
+	   tells it only once for a file and the keys.
 	*/
 	@Value
 	private static final class Refusal {
 		private FileIdentity file;
 		private long generation;
+		private String reason;
 	}
 }
