@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -337,6 +338,29 @@ public class SnapshotDownloadTest {
 		}
 
 		assertThat(Files.exists(target), equalTo(false));
+	}
+
+	/*
+	   The fetch command takes the target from the operator, and a bare file name has no parent directory
+	   of its own: the snapshot goes to the working directory.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldInstallToABareFileNameInTheWorkingDirectory() {
+		final byte[] snapshot = Files.readAllBytes(signedSnapshot());
+		final FileSystem files = Jimfs.newFileSystem(Configuration.unix().toBuilder()
+			.setWorkingDirectory("/work").build());
+
+		Files.createDirectories(files.getPath("/work"));
+
+		try (LoopbackHost host = new LoopbackHost()) {
+			host.serve(PLAIN, snapshot);
+			publish(host, PLAIN, hashLine(PLAIN, snapshot));
+			SnapshotDownload.install(host.url(PLAIN), files.getPath("bootstrap.dat"));
+		}
+
+		assertThat(Files.readAllBytes(files.getPath("/work/bootstrap.dat")), equalTo(snapshot));
+		assertThat(leftoverCount(files.getPath("/work")), equalTo(0L));
 	}
 
 	@SneakyThrows
