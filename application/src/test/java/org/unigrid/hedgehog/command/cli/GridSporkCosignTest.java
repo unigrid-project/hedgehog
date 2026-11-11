@@ -44,6 +44,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
@@ -287,6 +288,21 @@ public class GridSporkCosignTest {
 		}));
 
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* Board keys that do not decode are no ground to co-sign on, whatever stands at the address of the node */
+	@Example
+	public void refusesInOneLineWhenTheBoardKeysOfTheNodeDoNotDecode() {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-cosign", "-k", COSIGNER.getPrivateKey(),
+			"ab".repeat(DIGEST_LENGTH / 2))), request -> Response.ok(new byte[] { 1, 2, 3 }).build());
+
+		cli.get().assertNoStackTrace();
+		assertThat(cli.get().out(), equalTo(""));
+		assertThat(cli.get().err().lines().toList().size(), equalTo(1));
+		assertThat(cli.get().err(), startsWith("Nothing was co-signed: "));
+		assertThat(cli.get().exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	/* The node says why it turned a co-signature down in the body of its answer, which the status line does not say */

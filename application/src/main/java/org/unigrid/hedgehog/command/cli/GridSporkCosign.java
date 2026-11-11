@@ -103,8 +103,9 @@ public class GridSporkCosign implements Runnable, IExitCodeGenerator {
 		} catch (ResponseOddityException | IOException | ProcessingException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 			exitCode = ExitCode.FAILED;
-		} catch (UntrustedSporkException ex) {
-			System.err.println("Nothing was co-signed: " + TerminalText.printable(ex.getMessage()));
+		} catch (UntrustedSporkException | IllegalArgumentException ex) {
+			System.err.println("Nothing was co-signed: "
+				+ TerminalText.printable(String.valueOf(ex.getMessage())));
 			exitCode = ExitCode.FAILED;
 		}
 	}
