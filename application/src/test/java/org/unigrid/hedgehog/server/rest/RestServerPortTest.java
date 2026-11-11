@@ -39,6 +39,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.model.option.OptionsCli;
 
@@ -151,6 +152,18 @@ public class RestServerPortTest {
 
 			assertThrows(BindException.class, server::init);
 			assertThat(server.getChannel(), is(nullValue()));
+		}
+	}
+
+	/* What the system says of a port that is taken names neither the port nor the server that asked for it, and a node
+	   listens on two, so the failure names the address and the options that set it */
+	@Example
+	public void shouldNameTheAddressAndItsOptionsWhenSomethingElseListensOnThePort() throws IOException {
+		try (ServerSocket other = new ServerSocket(0, 1, InetAddress.getByName("localhost"))) {
+			final RestServer server = serverOn(other.getLocalPort());
+
+			assertThat(assertThrows(BindException.class, server::init).getMessage(), startsWith("Cannot listen on "
+				+ "localhost:" + other.getLocalPort() + " for REST (--resthost, --restport): "));
 		}
 	}
 

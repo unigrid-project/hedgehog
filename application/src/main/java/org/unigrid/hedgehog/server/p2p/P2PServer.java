@@ -109,11 +109,11 @@ public class P2PServer extends AbstractServer {
 				() -> schedulers(ledger, preview), RegisterQuicChannelInitializer.Type.SERVER),
 				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
 
-		channel = new Bootstrap().group(group)
+		final Bootstrap bootstrap = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
-			.handler(codec)
-			.bind(NetOptions.getHost(), NetOptions.getPort())
-			.sync().channel();
+			.handler(codec);
+
+		channel = listen(bootstrap, NetOptions.getHost(), NetOptions.getPort(), "P2P", "--nethost, --netport");
 		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();

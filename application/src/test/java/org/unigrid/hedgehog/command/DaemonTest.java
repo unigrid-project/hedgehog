@@ -21,14 +21,19 @@ package org.unigrid.hedgehog.command;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
+import ch.qos.logback.classic.spi.IThrowableProxy;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import jakarta.inject.Provider;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.file.AccessDeniedException;
@@ -91,6 +96,7 @@ import org.unigrid.hedgehog.producer.SporkDatabaseProducer;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
+import picocli.CommandLine.Command;
 import picocli.CommandLine.Model.OptionSpec;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -137,6 +143,7 @@ public class DaemonTest {
 	private static volatile String runningVersion;
 	private static volatile String lockedBy;
 	private static volatile IOException lockFailure;
+	private static volatile RuntimeException startFailure;
 
 	/*
 	   A fake that proceeds must be the only one on its class, so these are installed once and steered by
@@ -147,6 +154,10 @@ public class DaemonTest {
 		new MockUp<CDIContext>() {
 			@Mock public void run() {
 				CONTAINERS.incrementAndGet();
+
+				if (startFailure != null) {
+					throw startFailure;
+				}
 			}
 		};
 
@@ -192,6 +203,76 @@ public class DaemonTest {
 		runningVersion = null;
 		lockedBy = null;
 		lockFailure = null;
+		startFailure = null;
+	}
+
+	/* The container wraps what a part of the node throws as it starts in exceptions of its own, hundreds of lines of
+	   trace in all. The operator is told what failed first, in one line, and the trace goes to the log, which the
+	   first -v shows. */
+	@Example
+	public void shouldTellWhatFailedTheStartInOneLineAndLogTheTrace() {
+		startFailure = new IllegalStateException("Unable to invoke init()",
+			new UncheckedIOException(new IOException("No space left on device")));
+
+		try (ErrorLog log = new ErrorLog()) {
+			final HedgehogCli.Result result = HedgehogCli.run("daemon", "-v");
+
+			assertThat(result.err(), equalTo("IOException: No space left on device" + System.lineSeparator()));
+			assertThat(result.exitCode(), equalTo(1));
+			assertThat(result.out(), not(containsString("\tat ")));
+			assertThat(CONTAINERS.get(), equalTo(1));
+
+			assertThat(log.traces().stream().map(trace -> trace.stream().map(IThrowableProxy::getClassName).toList())
+				.toList(), equalTo(List.of(List.of(IllegalStateException.class.getName(),
+				UncheckedIOException.class.getName(), IOException.class.getName()))));
+		}
+	}
+
+	/* The container tells what is wrong with a bean over several lines, the first of which says the least */
+	@Example
+	public void shouldTellAFailureWhoseMessageSpansLinesInOneLine() {
+		startFailure = new IllegalStateException("WELD-001408: Unsatisfied dependencies for type Topology\n"
+			+ "  at injection point [BackedAnnotatedField] @Inject private P2PServer.topology\n"
+			+ "\tat P2PServer.topology(P2PServer.java:0)\n");
+
+		final HedgehogCli.Result result = HedgehogCli.run("daemon");
+
+		assertThat(result.err(), equalTo("IllegalStateException: WELD-001408: Unsatisfied dependencies for type "
+			+ "Topology at injection point [BackedAnnotatedField] @Inject private P2PServer.topology "
+			+ "at P2PServer.topology(P2PServer.java:0)" + System.lineSeparator()));
+
+		assertThat(result.exitCode(), equalTo(1));
+	}
+
+	/* A node that starts has no failure to tell of, on the terminal or in the log */
+	@Example
+	public void shouldTellOfNoFailureWhenTheNodeStarts() {
+		try (ErrorLog log = new ErrorLog()) {
+			final HedgehogCli.Result result = HedgehogCli.run("daemon", "-v");
+
+			assertThat(result.err(), is(emptyString()));
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(log.events(), is(empty()));
+		}
+	}
+
+	@Command(name = "failing")
+	public static class Failing implements Runnable {
+		@Override
+		public void run() {
+			throw new IllegalStateException("Not the start of a node");
+		}
+	}
+
+	/* Only the start of a node is told in one line: what any other command lets out is shown with its trace */
+	@Example
+	public void shouldShowWhatAnyOtherCommandThrowsWithItsTrace() {
+		final HedgehogCli.Result result = HedgehogCli.run(() -> Hedgehog.commandLine().addSubcommand(new Failing()),
+			"failing");
+
+		assertThat(result.err(), startsWith("java.lang.IllegalStateException: Not the start of a node"));
+		assertThat(result.err(), containsString("\tat "));
+		assertThat(result.exitCode(), equalTo(1));
 	}
 
 	/* A node writes its spork database over the file as it saves, so it holds a lock on it while it runs, and does not

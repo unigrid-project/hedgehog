@@ -37,7 +37,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Application;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
@@ -177,10 +176,11 @@ public class RestServer extends AbstractServer {
 		container = getContainerInstance();
 		final ChannelHandler initializer = limited(getJerseyInitializerInstance(container), authentication);
 
-		channel = new ServerBootstrap().group(group)
+		final ServerBootstrap bootstrap = new ServerBootstrap().group(group)
 			.channel(NioServerSocketChannel.class)
-			.childHandler(initializer)
-			.bind(new InetSocketAddress(RestOptions.getHost(), RestOptions.getPort())).sync().channel();
+			.childHandler(initializer);
+
+		channel = listen(bootstrap, RestOptions.getHost(), RestOptions.getPort(), "REST", "--resthost, --restport");
 	}
 
 	@PreDestroy

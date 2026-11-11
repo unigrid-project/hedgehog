@@ -28,7 +28,9 @@ import java.net.URL;
 import java.nio.file.Path;
 import java.util.Optional;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
@@ -49,15 +51,20 @@ import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
+import org.unigrid.hedgehog.model.util.TerminalText;
+import org.unigrid.hedgehog.server.ListenException;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 import org.unigrid.hedgehog.service.ledger.LedgerSetup;
+import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.ParameterException;
+import picocli.CommandLine.ParseResult;
 import picocli.CommandLine.Spec;
 
+@Slf4j
 @ApplicationScoped
 @Command(name = "daemon")
 public class Daemon extends CDIContext implements Runnable {
@@ -101,6 +108,31 @@ public class Daemon extends CDIContext implements Runnable {
 		}
 
 		super.run();
+	}
+
+	/*
+	   Handles what a command lets out as it runs. The container wraps what a part of the node throws as it starts in
+	   exceptions of its own, hundreds of lines of trace in all, so the operator is shown one line: the server that
+	   cannot listen where it was told to, or else what failed first. The trace goes to the log, which the first -v
+	   shows. What any other command lets out is thrown on, and so shown with its trace.
+	*/
+	public static int reportFailedStart(Exception ex, CommandLine command, ParseResult parsed) throws Exception {
+		if (!(command.getCommand() instanceof Daemon)) {
+			throw ex;
+		}
+
+		command.getErr().println(command.getColorScheme().errorText(describe(ex)));
+		log.atError().setCause(ex).log("The node failed to start");
+
+		return command.getCommandSpec().exitCodeOnExecutionException();
+	}
+
+	/* A message of the container spans lines, and the line shown is one */
+	private static String describe(Exception ex) {
+		final String failure = ExceptionUtils.getThrowableList(ex).stream().filter(ListenException.class::isInstance)
+			.findFirst().map(Throwable::getMessage).orElseGet(() -> ExceptionUtils.getRootCauseMessage(ex));
+
+		return StringUtils.normalizeSpace(TerminalText.printable(failure));
 	}
 
 	/*

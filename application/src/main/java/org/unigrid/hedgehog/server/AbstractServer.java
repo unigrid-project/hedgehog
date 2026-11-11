@@ -18,12 +18,27 @@
 
 package org.unigrid.hedgehog.server;
 
+import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelId;
 import java.net.InetSocketAddress;
 
 public abstract class AbstractServer {
 	public abstract Channel getChannel();
+
+	/* Netty hands out what failed a bind as it is, whatever its class and without declaring it. The server and the
+	   options are those that an operator knows the address by, as in "REST" and "--resthost, --restport". */
+	protected static Channel listen(final AbstractBootstrap<?, ?> bootstrap, final String host, final int port,
+		final String server, final String options) throws InterruptedException, ListenException {
+
+		try {
+			return bootstrap.bind(new InetSocketAddress(host, port)).sync().channel();
+		} catch (InterruptedException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw new ListenException(host, port, server, options, ex);
+		}
+	}
 
 	public String getHostName() {
 		return ((InetSocketAddress) getChannel().localAddress()).getHostName();
