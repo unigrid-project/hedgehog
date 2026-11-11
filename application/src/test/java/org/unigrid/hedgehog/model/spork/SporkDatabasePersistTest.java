@@ -23,14 +23,17 @@ import com.google.common.jimfs.Jimfs;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.math.BigDecimal;
+import java.nio.channels.FileChannel;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import net.jqwik.api.Example;
 import static com.shazam.shazamcrest.matcher.Matchers.sameBeanAs;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
 public class SporkDatabasePersistTest {
@@ -128,6 +131,59 @@ public class SporkDatabasePersistTest {
 
 			assertThat(SporkDatabase.load(path), sameBeanAs(database));
 			assertOnlyDatabaseIn(path);
+		}
+	}
+
+	/* A save that fails leaves no file of it open, which a file system that keeps open files from being replaced or
+	   removed would hold against the next save */
+	@Example
+	public void shouldCloseTheFileOfASaveThatFails() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path path = databaseIn(fileSystem);
+			final AtomicReference<FileChannel> written = new AtomicReference<>();
+
+			SporkDatabase.persist(path, databaseWith(BigDecimal.TEN));
+			assertThrows(IOException.class, () -> SporkDatabase.replace(path, channel -> {
+				written.set(channel);
+				SporkDatabase.write(channel, new RefusingSporkDatabase());
+			}));
+
+			assertThat(written.get().isOpen(), is(false));
+			assertOnlyDatabaseIn(path);
+		}
+	}
+
+	/* A command given a bare file name writes the file in the working directory, as it does for ./name */
+	@Example
+	public void shouldWriteADatabaseNamedByABareFileNameInTheWorkingDirectory() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path bare = fileSystem.getPath(SporkDatabase.SPORK_DB_FILE);
+			final Path inWorkingDirectory = bare.toAbsolutePath();
+			final SporkDatabase database = databaseWith(BigDecimal.TEN);
+
+			SporkDatabase.persist(bare, database);
+			assertThat(SporkDatabase.load(inWorkingDirectory), sameBeanAs(database));
+			assertOnlyDatabaseIn(inWorkingDirectory);
+
+			SporkDatabase.persist(bare, SporkDatabase.serialize(databaseWith(BigDecimal.ONE)));
+			assertThat(SporkDatabase.load(bare).getMintSupply().<MintSupply.SporkData>getData().getMaxSupply(),
+				equalTo(BigDecimal.ONE));
+			assertOnlyDatabaseIn(inWorkingDirectory);
+		}
+	}
+
+	@Example
+	public void shouldRemoveTheFilesOfAnUnfinishedSaveBesideADatabaseNamedByABareFileName() throws IOException {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path bare = fileSystem.getPath(SporkDatabase.SPORK_DB_FILE);
+			final Path abandoned = bare.toAbsolutePath().resolveSibling(SporkDatabase.SPORK_DB_FILE + ".42.tmp");
+
+			SporkDatabase.persist(bare, databaseWith(BigDecimal.TEN));
+			Files.writeString(abandoned, "half a database");
+			SporkDatabase.removeAbandonedFiles(bare);
+
+			assertThat(Files.exists(abandoned), is(false));
+			assertOnlyDatabaseIn(bare.toAbsolutePath());
 		}
 	}
 }
