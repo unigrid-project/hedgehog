@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.stream.LongStream;
 import lombok.Cleanup;
@@ -212,6 +213,65 @@ public class SnapshotBuilderTest {
 	}
 
 	/*
+	   The node can run under another account than the one that builds the snapshot, and reads the file
+	   through the permissions the operator gave it. The move into place carries the permissions of the
+	   partial file onto the snapshot, so they have to be those of the snapshot it replaces by then.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheModeOfTheSnapshotItReplaces() {
+		@Cleanup final FileSystem fs = ownerOnlyUnlessAsked();
+		final Path target = previousSnapshot(fs);
+
+		Files.setPosixFilePermissions(target, PosixFilePermissions.fromString("rw-rw----"));
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(modeOf(target), equalTo("rw-rw----"));
+	}
+
+	/*
+	   A snapshot that replaces none is asked for as any new file is, with every permission to read and
+	   to write, from which the mask of the process takes its share on the file system of the machine.
+	   Nothing takes a share here.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldLeaveTheModeOfANewSnapshotToTheProcess() {
+		@Cleanup final FileSystem fs = ownerOnlyUnlessAsked();
+		final Path target = fs.getPath("/data/bootstrap.dat");
+
+		Files.createDirectories(target.getParent());
+		SnapshotBuilder.build(BlockFixture.directory(), target);
+
+		assertThat(modeOf(target), equalTo("rw-rw-rw-"));
+	}
+
+	/*
+	   A snapshot can be a link to a file that several nodes share. A move onto the link replaces the
+	   link and leaves the file it names as it was, so the snapshot is built beside that file.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldBuildTheFileThatALinkNames() {
+		@Cleanup final FileSystem fs = Jimfs.newFileSystem(Configuration.unix());
+		final Path link = fs.getPath("/data/bootstrap.dat");
+		final Path shared = fs.getPath("/shared/snapshot.dat");
+		final Path fresh = fs.getPath("/fresh.dat");
+
+		Files.createDirectories(link.getParent());
+		Files.createDirectories(shared.getParent());
+		Files.write(shared, PREVIOUS);
+		Files.createSymbolicLink(link, fs.getPath("../shared/snapshot.dat"));
+		SnapshotBuilder.build(BlockFixture.directory(), fresh);
+		SnapshotBuilder.build(BlockFixture.directory(), link);
+
+		assertThat(Files.isSymbolicLink(link), equalTo(true));
+		assertThat(Files.mismatch(fresh, shared), equalTo(-1L));
+		assertThat(entriesOf(link.getParent()), equalTo(List.of("bootstrap.dat")));
+		assertThat(entriesOf(shared.getParent()), equalTo(List.of("snapshot.dat")));
+	}
+
+	/*
 	   A download clears the partial files of an earlier download out of the directory it installs into,
 	   and an import of the blocks can run in that directory while the node fetches or starts. A download
 	   that is refused after that sweep runs while the build checks its snapshot, which is when the
@@ -334,6 +394,22 @@ public class SnapshotBuilderTest {
 
 	private static Configuration.Builder configuration() {
 		return Configuration.unix().toBuilder().setBlockSize(BLOCK_SIZE);
+	}
+
+	/*
+	   The file system of the machine makes a temporary file for its owner alone when it is asked for
+	   no permissions. This one does so for every file, the temporary ones among them.
+	*/
+	private static FileSystem ownerOnlyUnlessAsked() {
+		return Jimfs.newFileSystem(Configuration.unix().toBuilder()
+			.setAttributeViews("basic", "owner", "posix", "unix")
+			.setDefaultAttributeValue("posix:permissions", PosixFilePermissions.fromString("rw-------"))
+			.build());
+	}
+
+	@SneakyThrows
+	private static String modeOf(Path file) {
+		return PosixFilePermissions.toString(Files.getPosixFilePermissions(file));
 	}
 
 	@SneakyThrows

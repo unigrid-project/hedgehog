@@ -24,6 +24,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileAttribute;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -64,14 +65,18 @@ final class PartialFiles {
 
 	/*
 	   The directory is cleared and the file is made and noted in one step, so no other caller in this
-	   process clears the directory between the making of a file and its noting.
+	   process clears the directory between the making of a file and its noting. A file that is asked
+	   for with no attributes is made for its owner alone.
 	*/
-	static synchronized Path create(Path directory, String prefix, String suffix) throws IOException {
+	static synchronized Path create(Path directory, String prefix, String suffix, FileAttribute<?>... attributes)
+		throws IOException {
+
 		final Pattern made = Pattern.compile(Pattern.quote(prefix) + OWNER_AND_NUMBER + Pattern.quote(suffix));
 
 		removeLeftBehind(directory, made);
 
-		final Path partial = Files.createTempFile(directory, prefix + OWNER + THIS_PROCESS + "-", suffix);
+		final Path partial = Files.createTempFile(directory, prefix + OWNER + THIS_PROCESS + "-", suffix,
+			attributes);
 
 		WRITTEN_HERE.add(partial);
 		return partial;

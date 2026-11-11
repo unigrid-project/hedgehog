@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermissions;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,8 @@ public final class SnapshotBuilder {
 	*/
 	private static final String PARTIAL_PREFIX = "bootstrap-build-";
 	private static final String PARTIAL_SUFFIX = ".tmp";
+	private static final String PERMISSIONS = "posix";
+	private static final String ANY_NEW_FILE = "rw-rw-rw-";
 
 	public static BuildReport build(Path blocksDirectory, Path output) throws IOException {
 		final BlockFileStore store = BlockFileStore.open(blocksDirectory);
@@ -51,19 +55,63 @@ public final class SnapshotBuilder {
 	   was there before untouched, and a reader that has the old file mapped never sees it truncated.
 	   A build that was killed left its partial file behind under a name no later build takes again,
 	   so the ones that no running build still writes are removed before this one writes its own.
+
+	   The move puts the partial file itself where the snapshot was, with the permissions it has by
+	   then. The node can run under another account than the one that builds, and reads the snapshot
+	   through the permissions the operator left on it, so the partial file takes those of the snapshot
+	   it replaces before it is moved.
 	*/
 	private static void install(Path output, Chain chain, Ledger ledger) throws IOException {
-		final Path partial = PartialFiles.create(output.toAbsolutePath().getParent(), PARTIAL_PREFIX,
-			PARTIAL_SUFFIX);
+		final Path destination = destinationOf(output);
+		final Path directory = destination.getParent();
+		final Path partial = PartialFiles.create(directory, PARTIAL_PREFIX, PARTIAL_SUFFIX,
+			asAnyNewFileIn(directory));
 
 		try {
 			SnapshotWriter.write(partial, chain, ledger);
 			verifyWritten(partial, ledger);
-			Files.move(partial, output, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			keepPermissions(destination, partial);
+			Files.move(partial, destination, StandardCopyOption.REPLACE_EXISTING,
+				StandardCopyOption.ATOMIC_MOVE);
 
 		} finally {
 			PartialFiles.discard(partial);
 		}
+	}
+
+	/*
+	   A move onto a link replaces the link and leaves the file it names as it was, which other nodes
+	   can share. So the file that the link names is the one that is built, beside where it is. A link
+	   that names no file has none to build, and the snapshot takes the place of the link.
+	*/
+	private static Path destinationOf(Path output) throws IOException {
+		return Files.isSymbolicLink(output) && Files.exists(output) ? output.toRealPath() : output.toAbsolutePath();
+	}
+
+	/*
+	   A snapshot that replaces none is asked for as any new file is, with every permission to read and
+	   to write, and the mask of the process takes its share of them. Asked for with none, the partial
+	   file would be made for its owner alone, and so would the snapshot be.
+	*/
+	private static FileAttribute<?>[] asAnyNewFileIn(Path directory) {
+		if (hasPermissions(directory)) {
+			return new FileAttribute<?>[] { PosixFilePermissions.asFileAttribute(
+				PosixFilePermissions.fromString(ANY_NEW_FILE))
+			};
+		}
+
+		return new FileAttribute<?>[0];
+	}
+
+	private static void keepPermissions(Path destination, Path partial) throws IOException {
+		if (hasPermissions(destination) && Files.isRegularFile(destination)) {
+			Files.setPosixFilePermissions(partial, Files.getPosixFilePermissions(destination));
+		}
+	}
+
+	/* On a file system without POSIX permissions there is nothing to ask for and nothing to keep */
+	private static boolean hasPermissions(Path path) {
+		return path.getFileSystem().supportedFileAttributeViews().contains(PERMISSIONS);
 	}
 
 	private static BuildReport report(Chain chain, Ledger ledger) {
