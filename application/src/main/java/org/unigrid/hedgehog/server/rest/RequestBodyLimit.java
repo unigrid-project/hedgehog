@@ -236,6 +236,18 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		ctx.write(message, promise);
 	}
 
+	/* The container closes the connection of a request that it failed, and it fails one whose body was cut short. The
+	   sender of a refused request is still to read its answer and may still be sending, so the connection closes when
+	   the wait is over and no sooner. The close that ends the wait is made from here and does not pass this way. */
+	@Override
+	public void close(final ChannelHandlerContext ctx, final ChannelPromise promise) {
+		if (refused) {
+			ctx.channel().closeFuture().addListener(closed -> promise.trySuccess());
+		} else {
+			ctx.close(promise);
+		}
+	}
+
 	/* A request that its connection cut short has no end for the decoder, which reports none for a request, so a
 	   resource that is reading its body would wait for ever. It is given an end, as a refused request is. */
 	@Override

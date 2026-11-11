@@ -20,9 +20,12 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.ChannelOutboundHandlerAdapter;
+import io.netty.channel.ChannelPromise;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.DefaultHttpContent;
@@ -50,6 +53,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
@@ -106,6 +110,11 @@ public class RequestBodyLimitTest {
 
 		private void answer(final HttpResponseStatus status) {
 			context.writeAndFlush(new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, status));
+		}
+
+		/* As the container closes the connection of a request that it failed */
+		private ChannelFuture close() {
+			return context.close();
 		}
 	}
 
@@ -324,6 +333,33 @@ public class RequestBodyLimitTest {
 		assertThat(channel.isActive(), is(false));
 	}
 
+	/* The container fails a request whose body was cut short, and closes the connection of a request that it failed.
+	   The sender is then still to read why it was refused, and may still be sending, so the connection stays until
+	   the wait is over, and whoever closed it is told only then that it is closed. */
+	@Example
+	public void shouldCloseARefusedConnectionOnlyOnceTheWaitIsOverThoughTheContainerClosesItAtOnce() {
+		channel.writeInbound(chunked(SUBMIT), chunk(Math.toIntExact(LIMIT) + 1));
+
+		final ChannelFuture closed = container.close();
+
+		assertThat(channel.isActive(), is(true));
+		passTime(LINGER.minusMillis(1));
+		assertThat(channel.isActive(), is(true));
+		assertThat(closed.isDone(), is(false));
+		passTime(Duration.ofMillis(1));
+		assertThat(channel.isActive(), is(false));
+		assertThat(closed.isSuccess(), is(true));
+		assertThat(written().get(0).status(), equalTo(HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE));
+	}
+
+	@Example
+	public void shouldCloseAConnectionThatWasNotRefusedAsSoonAsTheContainerClosesIt() {
+		channel.writeInbound(chunked(SUBMIT), chunk(10));
+
+		assertThat(container.close().isSuccess(), is(true));
+		assertThat(channel.isActive(), is(false));
+	}
+
 	@Example
 	public void shouldAnswerABodyThatStaysUnfinishedAndEndItForTheContainer() {
 		channel.writeInbound(chunked(SUBMIT), chunk(10));
@@ -499,6 +535,18 @@ public class RequestBodyLimitTest {
 		}
 	}
 
+	/* Stands between the limit and the container and counts the times that the container closed the connection, each
+	   one once the close has gone as far as it goes */
+	private static final class Closes extends ChannelOutboundHandlerAdapter {
+		private final AtomicInteger made = new AtomicInteger();
+
+		@Override
+		public void close(final ChannelHandlerContext ctx, final ChannelPromise promise) throws Exception {
+			super.close(ctx, promise);
+			made.incrementAndGet();
+		}
+	}
+
 	/* The container of the server, built the way the server builds it and standing behind the limit, so that what a
 	   body cut short does to a resource is what the library does with it. The decoder of the codec stands in front. */
 	private static final class Served implements AutoCloseable {
@@ -507,6 +555,7 @@ public class RequestBodyLimitTest {
 
 		private final List<String> taken = new CopyOnWriteArrayList<>();
 		private final BlockedReaders readers = new BlockedReaders();
+		private final Closes closes = new Closes();
 		private final org.glassfish.jersey.server.spi.Container jersey;
 		private final EmbeddedChannel channel;
 
@@ -519,7 +568,7 @@ public class RequestBodyLimitTest {
 				Application.class).newInstance(config);
 
 			channel = new EmbeddedChannel(new HttpServerCodec(),
-				new RequestBodyLimit(new BearerTokenFilter(TOKEN), LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER),
+				new RequestBodyLimit(new BearerTokenFilter(TOKEN), LIMIT, UPLOAD_LIMIT, BODY_TIME, LINGER), closes,
 				(ChannelHandler) Reflection.getConstructor(HANDLER, URI.class, jersey.getClass(),
 					ResourceConfig.class).newInstance(URI.create("https://localhost/"), jersey, config));
 
@@ -604,6 +653,22 @@ public class RequestBodyLimitTest {
 			await().during(Duration.ofMillis(500)).atMost(PATIENCE)
 				.untilAsserted(() -> assertThat(served.taken, empty()));
 			assertThat(served.refusal(), startsWith("HTTP/1.1 413"));
+		}
+	}
+
+	/* The container fails the request whose body the stream reports as cut short, and closes its connection with the
+	   failure, while the sender is still sending the rest of the body: a connection closed then is reset, which takes
+	   the refusal with it. No time has passed here, so the wait before the close is not over. */
+	@Example
+	public void shouldNotLetTheContainerCloseTheConnectionOfABodyCutAtTheLimitBeforeTheWaitIsOver() {
+		try (Served served = new Served()) {
+			served.send(Served.head("Transfer-Encoding: chunked") + "a\r\n10.0.0.1:5\r\n");
+			served.awaitReader();
+			served.send(Long.toHexString(LIMIT) + "\r\n" + "x".repeat(Math.toIntExact(LIMIT)) + "\r\n");
+
+			await().atMost(PATIENCE).until(() -> served.closes.made.get() > 0);
+			assertThat(served.refusal(), startsWith("HTTP/1.1 413"));
+			assertThat(served.channel.isActive(), is(true));
 		}
 	}
 }
