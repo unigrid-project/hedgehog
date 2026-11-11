@@ -46,7 +46,6 @@ import org.unigrid.hedgehog.jqwik.ThreadSet;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.model.network.Topology;
-import org.unigrid.hedgehog.model.network.packet.Hello;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.server.BaseDefaultNodeTest;
 import org.unigrid.hedgehog.transport.schedule.PublishPeersSchedule;
@@ -59,7 +58,6 @@ import org.unigrid.hedgehog.transport.schedule.PublishSporkSchedule;
 public class P2PServerChurnTest extends BaseDefaultNodeTest {
 	private static final int CYCLES = 16;
 	private static final int CONCURRENT = 8;
-	private static final int FIRST_PEER_PORT = 20000;
 
 	/* The connection of a peer is closed twenty seconds after its last stream is, and the topology lets go of what
 	   it knew of the peer in its next round, which comes at most about a minute and a half later. A peer whose close
@@ -138,7 +136,7 @@ public class P2PServerChurnTest extends BaseDefaultNodeTest {
 		final P2PClient peer = new P2PClient(p2p.getHostName(), p2p.getPort());
 
 		try {
-			exchange(peer.getChannel(), FIRST_PEER_PORT + number);
+			exchange(peer.getChannel());
 		} finally {
 			if (number % 2 == 0) {
 				peer.close();
@@ -148,13 +146,13 @@ public class P2PServerChurnTest extends BaseDefaultNodeTest {
 		}
 	}
 
-	/* A peer on another host says the port that it listens on. Every client here comes from the host and with the port
-	   of the node, which the topology refuses as the node itself, so each says one more hello, with a port of its own.
-	   The answer of the ping is awaited, as the node has taken in what came before it by then. */
-	private void exchange(final Channel stream, final int port) throws Exception {
+	/* Every client here comes from the host and with the port of the node, so the hello that it says as it connects
+	   names the node itself, which the topology refuses, and a connection names no node after its first hello: the
+	   peers here leave no node behind, and what the topology holds is compared all the same. The answer of the ping
+	   is awaited, as the node has taken in what came before it by then. */
+	private void exchange(final Channel stream) throws Exception {
 		final Ping ping = Ping.builder().build();
 
-		stream.writeAndFlush(Hello.builder().port(port).build()).sync();
 		stream.attr(Ping.PING_TIME_KEY).set(ping.getNanoTime());
 		stream.writeAndFlush(ping).sync();
 
@@ -164,11 +162,6 @@ public class P2PServerChurnTest extends BaseDefaultNodeTest {
 		}).sync();
 
 		await().atMost(EXCHANGED).until(() -> Objects.isNull(stream.attr(Ping.PING_TIME_KEY).get()));
-		await().atMost(EXCHANGED).until(() -> knows(port));
-	}
-
-	private boolean knows(final int port) {
-		return topology.cloneNodes().stream().anyMatch(node -> node.getAddress().getPort() == port);
 	}
 
 	private Held held() throws ReflectiveOperationException {
