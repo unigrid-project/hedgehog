@@ -33,12 +33,16 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -77,6 +81,7 @@ import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
+import picocli.CommandLine.Model.OptionSpec;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -84,8 +89,39 @@ public class DaemonTest {
 	private static final long INSTALL_TIMEOUT_SECONDS = 10;
 	private static final int DIGEST_SIZE = 64;
 	private static final AtomicInteger CONTAINERS = new AtomicInteger();
+	private static final int TAKEN = 17;
 
 	private static final List<Path> LOCKED = new CopyOnWriteArrayList<>();
+
+	/* The hidden options of the parts that this release leaves off, each by its longest name and with the arguments
+	   that give it: those that tell the node to run a part */
+	private static final List<Tuple2<String, List<String>>> REFUSED_WITHOUT_THE_PREVIEW = List.of(
+		Tuple.of("--ledger", List.of("--ledger")),
+		Tuple.of("--gridnode", List.of("-G", "/keys/gridnode.key")),
+		Tuple.of("--socks-port", List.of("--socks-port", "1080"))
+	);
+
+	/* And those that only say how a part runs, with a file that is not there or a value that fails if anything uses
+	   it */
+	private static final List<Tuple2<String, List<String>>> TAKEN_WITHOUT_THE_PREVIEW = List.of(
+		Tuple.of("--ledger-key", List.of("--ledger-key", KEY_FILE)),
+		Tuple.of("--ledger-genesis", List.of("--ledger-genesis", "/genesis.json")),
+		Tuple.of("--ledger-trusted", List.of("--ledger-trusted=garbage")),
+		Tuple.of("--announce-address", List.of("--announce-address", "garbage")),
+		Tuple.of("--socks-host", List.of("--socks-host", "0.0.0.0")),
+		Tuple.of("--socks-country", List.of("--socks-country", "SE")),
+		Tuple.of("--socks-geoip", List.of("--socks-geoip", "/geoip/country.mmdb")),
+		Tuple.of("--no-s3", List.of("--no-s3")),
+		Tuple.of("--s3host", List.of("--s3host", "s3.example.org")),
+		Tuple.of("--s3port", List.of("--s3port", "1")),
+		Tuple.of("--s3domain", List.of("--s3domain", "s3.example.org")),
+		Tuple.of("--s3cachedir", List.of("--s3cachedir", "/cache")),
+		Tuple.of("--s3cachesize", List.of("--s3cachesize", "1")),
+		Tuple.of("--s3cachehalflife", List.of("--s3cachehalflife", "PT1H")),
+		Tuple.of("--s3lifecycleinterval", List.of("--s3lifecycleinterval", "PT0S")),
+		Tuple.of("--s3root", List.of("--s3root", "root")),
+		Tuple.of("--s3plain", List.of("--s3plain"))
+	);
 
 	private static volatile String refusal;
 	private static volatile String runningVersion;
@@ -260,10 +296,16 @@ public class DaemonTest {
 
 	@Provide
 	public Arbitrary<Tuple2<String, List<String>>> provideOptionOfAPartThisReleaseLeavesOff() {
-		return Arbitraries.of(Tuple.of("--ledger", List.of("--ledger")),
-			Tuple.of("--gridnode", List.of("-G", "/keys/gridnode.key")),
-			Tuple.of("--socks-port", List.of("--socks-port", "1080"))
-		);
+		return Arbitraries.of(REFUSED_WITHOUT_THE_PREVIEW);
+	}
+
+	@Provide
+	public Arbitrary<Tuple2<String, List<String>>> provideOptionTakenWithoutThePreview() {
+		return Arbitraries.of(TAKEN_WITHOUT_THE_PREVIEW);
+	}
+
+	private static String[] daemonGiven(List<String> option) {
+		return Stream.concat(Stream.of("daemon"), option.stream()).toArray(String[]::new);
 	}
 
 	/* A node that is told to run a part this release leaves off is refused, rather than started without it */
@@ -271,9 +313,45 @@ public class DaemonTest {
 	public void shouldRefuseAnOptionOfThePartsThisReleaseLeavesOffWithoutThePreview(
 		@ForAll("provideOptionOfAPartThisReleaseLeavesOff") Tuple2<String, List<String>> option) {
 
-		final String[] args = Stream.concat(Stream.of("daemon"), option.get2().stream()).toArray(String[]::new);
+		assertRefusedWithout(HedgehogCli.run(daemonGiven(option.get2())),
+			option.get1() + " is not part of this release");
+	}
 
-		assertRefusedWithout(HedgehogCli.run(args), option.get1() + " is not part of this release");
+	/* The hidden options of the daemon by their longest name, bar the switch that turns the parts on */
+	private static Set<String> hiddenOptionsOfTheDaemon() {
+		final CommandLine daemon = new CommandLine(Hedgehog.class).getSubcommands().get("daemon");
+
+		return daemon.getCommandSpec().options().stream().filter(OptionSpec::hidden)
+			.map(option -> Stream.of(option.names()).max(Comparator.comparingInt(String::length)).orElseThrow())
+			.filter(name -> !"--preview".equals(name)).collect(Collectors.toCollection(TreeSet::new));
+	}
+
+	/* An option added to the daemon in secret has to be sorted into the ones it refuses and the ones it takes, and one
+	   it takes has to be given to the node of DaemonHiddenOptionStartTest, which shows that it starts nothing */
+	@Example
+	public void shouldHaveSortedEveryHiddenOptionIntoRefusedOrTaken() {
+		final Set<String> sorted = Stream.concat(REFUSED_WITHOUT_THE_PREVIEW.stream(),
+			TAKEN_WITHOUT_THE_PREVIEW.stream()).map(Tuple2::get1).collect(Collectors.toCollection(TreeSet::new));
+
+		assertThat(sorted, equalTo(hiddenOptionsOfTheDaemon()));
+		assertThat(TAKEN_WITHOUT_THE_PREVIEW.size(), equalTo(TAKEN));
+	}
+
+	/* The daemon reads none of them while the part is off, so it starts as it does without them, whatever file is not
+	   there and whatever value no part can use */
+	@Property(tries = TAKEN)
+	@SneakyThrows
+	public void shouldTakeAnyOtherHiddenOptionOnItsOwnAndStartTheNode(
+		@ForAll("provideOptionTakenWithoutThePreview") Tuple2<String, List<String>> option) {
+
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final HedgehogCli.Result result = runOn(fs, daemonGiven(option.get2()));
+
+			assertThat(option.get1() + ": " + result.err(), result.exitCode(), equalTo(0));
+			assertThat(result.err(), not(containsString("is not part of this release")));
+			result.assertNoStackTrace();
+			assertThat(CONTAINERS.get(), equalTo(1));
+		}
 	}
 
 	@Example
