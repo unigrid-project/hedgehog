@@ -221,7 +221,7 @@ public class PendingSporks {
 		if (Objects.nonNull(held) && !held.isProposalOver(over)) {
 			synchronized (this) {
 				if (stored.get() == over) {
-					proposals.remove(type, held);
+					dropIfHeld(held);
 				}
 			}
 		}
@@ -229,7 +229,7 @@ public class PendingSporks {
 
 	/* A proposal that a key signed which the board switched off can no longer be co-signed into a spork that counts */
 	public void retainProposalsOfActiveKeys() {
-		heldProposals().stream().filter(spork -> !spork.isValidSignature()).forEach(this::drop);
+		heldProposals().stream().filter(spork -> !spork.isValidSignature()).forEach(this::dropIfHeld);
 	}
 
 	private synchronized GridSpork heldOf(Type type) {
@@ -240,8 +240,12 @@ public class PendingSporks {
 		return new ArrayList<>(proposals.values());
 	}
 
-	private synchronized void drop(GridSpork held) {
-		proposals.remove(held.getType(), held);
+	/* By identity, as sporks of a type are equal to each other: another proposal that took the place of the one judged
+	   is not the one to drop */
+	private synchronized void dropIfHeld(GridSpork held) {
+		if (proposals.get(held.getType()) == held) {
+			proposals.remove(held.getType());
+		}
 	}
 
 	/* A change of the board keys waits for its co-signature, and one stolen key would push it out with a renewal of the
