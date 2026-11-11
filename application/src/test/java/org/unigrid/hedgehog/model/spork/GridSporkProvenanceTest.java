@@ -33,6 +33,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -376,6 +377,11 @@ public class GridSporkProvenanceTest {
 	public void shouldRefuseALogThatGoesOnWithAnotherHeadWithoutHashingALog() {
 		final GridSpork first = stored(null, 10);
 		final GridSpork stored = stored(first, 20);
+
+		/* The clock stamps a version when it is made, and two that are made within one millisecond would bear the
+		   same time stamp, so the sibling is made once the clock has moved on */
+		await().until(() -> Instant.now().toEpochMilli() > stored.getTimeStamp().toEpochMilli());
+
 		final GridSpork overSibling = stored(stored(first, 30), 40);
 
 		assertThat(stored.isAnchoring(), is(true));
