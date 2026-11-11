@@ -371,6 +371,31 @@ public class GridSporkProvenanceTest {
 		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
 	}
 
+	/* A next version wins over a renewal of the version before it though it is not newer, so a version that is sent
+	   again is looked at for being one beside the other. The stored spork is a renewal here, and the copy of it is no
+	   next version, which its time stamps tell: no log is hashed for it, and the stored data is not read. */
+	@SneakyThrows
+	@Example
+	public void shouldRefuseAStoredRenewalSentAgainWithoutHashingALogOrReadingTheStoredData() {
+		final GridSpork stored = renewalOf(stored(stored(null, 10), 20));
+
+		stored.cosign(FIRST.getPrivateKey());
+
+		final GridSpork again = SerializationUtils.clone(stored);
+		final ReadData read = counted(stored);
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+		read.reads = 0;
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(again);
+
+		assertThat(again.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
+		assertThat(read.reads, is(0));
+	}
+
 	/* A version made over a sibling of the stored spork carries on the stored log with the head of the sibling, which
 	   was made at another time than the stored one: its time stamp tells that, before either log is hashed */
 	@Example

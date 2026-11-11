@@ -87,7 +87,8 @@ public class PendingSporks {
 
 	/**
 	* Holds the proposal when it may replace the stored spork once co-signed and is newer than the one held
-	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
+	* for its type, or changes the stored spork where the one held renews it. A renewal is not held in the place of a
+	* change. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
 	public boolean offer(GridSpork spork, GridSpork stored) {
 		return offer(spork, () -> stored, () -> true);
@@ -182,7 +183,16 @@ public class PendingSporks {
 	private synchronized boolean mayTakeThePlaceOfTheHeld(GridSpork spork) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		return spork.isNewerThan(held) && !holdsLessThan(spork, held);
+		return settlesOver(spork, held) && !holdsLessThan(spork, held);
+	}
+
+	/* The newer proposal wins, but for a change and a renewal of the stored spork, which settle as the versions that
+	   they make do (SporkSuccession): a renewal would have the board co-sign the stored data again in the place of a
+	   change that waits, so it does not push that out, and a change takes the place of a renewal though that is
+	   newer. A proposal that outlived its time waits for nothing and holds its place against no newer one. */
+	private boolean settlesOver(GridSpork spork, GridSpork held) {
+		return Objects.isNull(held) || !isAlive(held) ? spork.isNewerThan(held)
+			: SporkSuccession.settlesOver(spork, held);
 	}
 
 	public synchronized List<GridSpork> list() {

@@ -187,18 +187,52 @@ final class SporkSuccession {
 		   the data tell comes first: every peer sends the version that a node holds again and again, and it is
 		   not newer */
 		return log.size() > storedLog.size() ? goesOnWithTheHeadOf(spork, stored, storedLog)
-			: spork.isNewerThan(stored) && mayTakeThePlaceOf(spork, stored) && storedLog.isPrefixOf(log);
+			: settlesOver(spork, stored) && mayTakeThePlaceOf(spork, stored) && storedLog.isPrefixOf(log);
+	}
+
+	/* Which of two versions made from one head wins: the newer one, but for a next version and a renewal. A renewal
+	   has the data of the head it was made from, and a board member who renews the sporks of a node that has not
+	   heard of a change yet makes one of the version before that change. A node that took it in the place of the
+	   change would undo the change, and would refuse the version after it for good, as the log of that one names
+	   the change. So a renewal never wins over a next version, and a next version wins over a renewal that is
+	   newer than it, if that was made within the lifetime of a proposal after it. The proposals that a node holds
+	   settle the same way (PendingSporks). The time stamps tell all of it, so a version that a node holds and is
+	   sent again still costs nothing more than them. */
+	static boolean settlesOver(final GridSpork spork, final GridSpork other) {
+		return spork.isNewerThan(other) ? !(isRenewal(spork) && isNextVersion(other))
+			: isNextVersion(spork) && isRenewal(other) && isWithinAProposalsLifetimeOf(other, spork);
+	}
+
+	/* A next version takes the time stamp of the head it was made from for its previous one (archive()), and that
+	   head is what its log ends with. A renewal keeps the previous time stamp of the head that it renews (renew()),
+	   which is that of an earlier version. With no log a version is neither: the first one, and one from before
+	   there was a log. */
+	private static boolean isNextVersion(final GridSpork spork) {
+		return hasARetiredHead(spork) && endsItsLogWithItsPreviousVersion(spork);
+	}
+
+	private static boolean isRenewal(final GridSpork spork) {
+		return hasARetiredHead(spork) && !endsItsLogWithItsPreviousVersion(spork);
+	}
+
+	private static boolean hasARetiredHead(final GridSpork spork) {
+		return Objects.nonNull(spork) && !spork.getSignatureLog().isEmpty();
+	}
+
+	private static boolean endsItsLogWithItsPreviousVersion(final GridSpork spork) {
+		return millisOf(spork.getPreviousTimeStamp()) == millisOf(spork.getSignatureLog().last().getTimeStamp());
 	}
 
 	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
 	   change unseen: a node that hands out the version before the stored one has a board member sign over it a
 	   sibling that every node takes. Two co-signers racing over one version make siblings only while a proposal
 	   lives, so one with other data is taken within that time after the stored spork: the network still settles on
-	   the newer of them, and a rollback is held to the hour after a change. Two versions that make the same change,
-	   as two renewals do, settle by time, and so does the first version, which follows nothing. So do two first
-	   versions, with no previous time stamp and no log, however far apart they were made, as board members may sign
-	   the data of a database again hours apart: an older one never wins back its place, a new one takes two board
-	   keys, and the command line makes one only on the word of the operator, as a node can hide what it holds. */
+	   one of them, the newer or the one that settlesOver() has win, and a rollback is held to the hour after a
+	   change. Two versions that make the same change, as two renewals do, settle by time, and so does the first
+	   version, which follows nothing. So do two first versions, with no previous time stamp and no log, however far
+	   apart they were made, as board members may sign the data of a database again hours apart: an older one never
+	   wins back its place, a new one takes two board keys, and the command line makes one only on the word of the
+	   operator, as a node can hide what it holds. */
 	private static boolean mayTakeThePlaceOf(final GridSpork spork, final GridSpork stored) {
 		if (Objects.isNull(stored)) {
 			return true;

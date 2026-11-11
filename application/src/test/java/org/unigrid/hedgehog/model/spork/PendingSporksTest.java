@@ -28,6 +28,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeProperty;
+import org.apache.commons.lang3.SerializationUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -189,6 +190,92 @@ public class PendingSporksTest {
 		pendingSporks.offer(proposal(Duration.ofMinutes(1)), null);
 		pendingSporks.retainProposalsOver(stored);
 		assertThat(pendingSporks.list(), empty());
+	}
+
+	/* What a node stores, made half an hour ago: signed by both keys */
+	@SneakyThrows
+	private static MintSupply stored() {
+		final MintSupply stored = proposal(Duration.ofMinutes(30));
+
+		stored.cosign(cosigner.getPrivateKey());
+		return stored;
+	}
+
+	/* The next version of the stored spork, as a board member proposes a change of it */
+	@SneakyThrows
+	private static GridSpork changeOf(GridSpork stored, Duration age) {
+		final GridSpork change = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, stored, Optional.empty());
+
+		change.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.ONE);
+		change.setTimeStamp(NOW.minus(age));
+		change.sign(proposer.getPrivateKey());
+		return change;
+	}
+
+	/* The stored spork moved to a new time, as a board member proposes it again with its data unchanged */
+	@SneakyThrows
+	private static GridSpork renewalOf(GridSpork stored, Duration age) {
+		final GridSpork renewal = SerializationUtils.clone(stored);
+
+		renewal.renew();
+		renewal.setTimeStamp(NOW.minus(age));
+		renewal.sign(proposer.getPrivateKey());
+		return renewal;
+	}
+
+	/* A renewal has the data of the stored spork. One that pushed out a change that waits for its co-signature would
+	   have the board co-sign the stored data again in its place, so the change stays, whichever of them is newer. */
+	@Example
+	public void shouldKeepAChangeThatWaitsOverANewerRenewal() {
+		final MintSupply stored = stored();
+		final GridSpork change = changeOf(stored, Duration.ofMinutes(2));
+
+		assertThat(pendingSporks.offer(change, stored), is(true));
+		assertThat(pendingSporks.offer(renewalOf(stored, Duration.ofMinutes(1)), stored), is(false));
+		assertThat(pendingSporks.list(), contains(change));
+	}
+
+	@Example
+	public void shouldHoldAChangeInThePlaceOfANewerRenewalThatWaits() {
+		final MintSupply stored = stored();
+		final GridSpork renewal = renewalOf(stored, Duration.ofMinutes(1));
+		final GridSpork change = changeOf(stored, Duration.ofMinutes(2));
+
+		assertThat(pendingSporks.offer(renewal, stored), is(true));
+		assertThat(pendingSporks.offer(change, stored), is(true));
+		assertThat(pendingSporks.offer(renewal, stored), is(false));
+		assertThat(pendingSporks.list(), contains(change));
+	}
+
+	/* Between two changes, and between two renewals, the newer one is held, as before */
+	@Example
+	public void shouldKeepTheNewerOfTwoChangesAndOfTwoRenewals() {
+		final MintSupply stored = stored();
+		final GridSpork change = changeOf(stored, Duration.ofMinutes(1));
+		final GridSpork renewal = renewalOf(stored, Duration.ZERO);
+
+		assertThat(pendingSporks.offer(change, stored), is(true));
+		assertThat(pendingSporks.offer(changeOf(stored, Duration.ofMinutes(3)), stored), is(false));
+		assertThat(pendingSporks.list(), contains(change));
+
+		pendingSporks.remove(GridSpork.Type.MINT_SUPPLY);
+		assertThat(pendingSporks.offer(renewal, stored), is(true));
+		assertThat(pendingSporks.offer(renewalOf(stored, Duration.ofMinutes(3)), stored), is(false));
+		assertThat(pendingSporks.list(), contains(renewal));
+	}
+
+	/* A change that no one co-signed within its lifetime waits for nothing, and holds no place against the renewal
+	   that a board member proposes then, though the two were made within an hour of each other */
+	@Example
+	public void shouldHoldARenewalOnceTheChangeThatWaitedIsOutOfItsLifetime() {
+		final MintSupply stored = stored();
+		final GridSpork renewal = renewalOf(stored, Duration.ofMinutes(-30));
+
+		assertThat(pendingSporks.offer(changeOf(stored, Duration.ofMinutes(20)), stored), is(true));
+		now = NOW.plus(Duration.ofMinutes(41));
+
+		assertThat(pendingSporks.offer(renewal, stored), is(true));
+		assertThat(pendingSporks.list(), contains(renewal));
 	}
 
 	@Example

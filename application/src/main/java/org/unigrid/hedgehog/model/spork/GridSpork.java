@@ -383,8 +383,10 @@ public class GridSpork implements Serializable, Signable {
 	* by two different current network keys, carry the stored log unchanged, add only entries signed by
 	* current keys, and either extend the log, with the stored spork as the first entry it adds, or win against
 	* a sibling made over the same version by being newer, when it makes the same change or comes within the
-	* lifetime of a proposal after it. A stored spork that no active key signed ({@link #isAnchoring()}) is taken over
-	* by any version newer than it and than every version in its log.
+	* lifetime of a proposal after it. A renewal never wins against a next version made over the same version, and a
+	* next version wins against a renewal that is newer than it, made within the lifetime of a proposal after it. A
+	* stored spork that no active key signed ({@link #isAnchoring()}) is taken over by any version newer than it and
+	* than every version in its log.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
