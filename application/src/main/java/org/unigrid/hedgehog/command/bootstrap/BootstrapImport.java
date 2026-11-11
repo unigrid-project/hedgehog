@@ -44,7 +44,7 @@ public class BootstrapImport implements Callable<Integer> {
 	private boolean force;
 
 	@Override
-	public Integer call() throws IOException {
+	public Integer call() {
 		final Path target = output != null ? output : SnapshotOptions.defaultSnapshot();
 
 		if (Files.exists(target) && !force) {
@@ -52,8 +52,14 @@ public class BootstrapImport implements Callable<Integer> {
 			return ExitCode.FAILED;
 		}
 
-		Files.createDirectories(target.toAbsolutePath().getParent());
-		System.out.println(SnapshotBuilder.build(blocks, target));
+		try {
+			Files.createDirectories(target.toAbsolutePath().getParent());
+			System.out.println(SnapshotBuilder.build(blocks, target));
+		} catch (IOException | IllegalStateException ex) {
+			System.err.println(ex.getMessage());
+			return ExitCode.FAILED;
+		}
+
 		System.out.println("Snapshot:           " + target);
 		return ExitCode.OK;
 	}

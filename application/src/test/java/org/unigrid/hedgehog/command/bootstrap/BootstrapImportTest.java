@@ -22,11 +22,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.Lombok;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -40,6 +42,7 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.Hedgehog;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.BuildReport;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotBuilder;
@@ -63,6 +66,15 @@ public class BootstrapImportTest {
 			@Mock public /* static */ BuildReport build(Path blocksDirectory, Path output) {
 				builds.add(List.of(blocksDirectory, output));
 				return report;
+			}
+		};
+	}
+
+	private void builderFails(Throwable failure) {
+		new MockUp<SnapshotBuilder>() {
+			@Mock public /* static */ BuildReport build(Path blocksDirectory, Path output) {
+				builds.add(List.of(blocksDirectory, output));
+				throw Lombok.sneakyThrow(failure);
 			}
 		};
 	}
@@ -106,6 +118,23 @@ public class BootstrapImportTest {
 		assertThat(builds, equalTo(List.of(List.of(fs.getPath(BLOCKS.toString()), output))));
 		assertThat(Files.isDirectory(output.getParent()), equalTo(true));
 		assertThat(Files.exists(snapshot.getParent()), equalTo(false));
+	}
+
+	/* What is wrong with the block files, or with the disk the snapshot goes to, is told in a line, as the other
+	   bootstrap commands tell it, and not shown as the trace of an exception that came out of the command */
+	@Property(tries = 20)
+	public void shouldTellInOneLineWhyTheSnapshotCouldNotBeBuilt(@ForAll boolean unwritable,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 40) String reason) {
+
+		builderFails(unwritable ? new IOException(reason) : new IllegalStateException(reason));
+
+		final HedgehogCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
+
+		result.assertNoStackTrace();
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of(reason)));
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
+		assertThat(builds, equalTo(List.of(List.of(BLOCKS, snapshot))));
 	}
 
 	@Example
