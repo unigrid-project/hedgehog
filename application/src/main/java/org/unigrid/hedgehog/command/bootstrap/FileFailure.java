@@ -27,10 +27,17 @@ import org.unigrid.hedgehog.command.util.RestClientCommand;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 final class FileFailure {
 	private static final String OPERATION = "Cannot access";
+	private static final String MOVE = "Cannot write";
 
 	/* The file system names a file that is missing, or that the user may not use, by its path alone. Any other failure
-	   has a message of its own. */
+	   has a message of its own. A failure that names two files is that of the move that puts a snapshot in place: the
+	   first is the partial file, which the user never gave and which is gone by the time the line is read, and the
+	   second is where the snapshot was to go. */
 	static String describe(Exception ex) {
+		if (ex instanceof FileSystemException failed && failed.getOtherFile() != null) {
+			return RestClientCommand.describe(MOVE, Path.of(failed.getOtherFile()), failed);
+		}
+
 		if (ex instanceof FileSystemException failed && failed.getFile() != null) {
 			return RestClientCommand.describe(OPERATION, Path.of(failed.getFile()), failed);
 		}

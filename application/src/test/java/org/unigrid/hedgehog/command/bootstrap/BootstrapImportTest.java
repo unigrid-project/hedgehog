@@ -25,6 +25,7 @@ import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystem;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -166,6 +167,21 @@ public class BootstrapImportTest {
 		result.assertNoStackTrace();
 		assertThat(result.out(), equalTo(""));
 		assertThat(result.err().lines().toList(), equalTo(List.of("Cannot access /blocks: permission denied")));
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* A move that fails names two files: first the partial file, which the user never gave and which is gone by the
+	   time the line is read, and then the place the snapshot was to go to. That place is what the line has to name */
+	@Example
+	public void shouldNameThePlaceTheSnapshotCouldNotBeMovedTo() {
+		builderFails(new FileSystemException(snapshot.resolveSibling("bootstrap-build-pid7-1.tmp").toString(),
+			snapshot.toString(), "Is a directory"));
+
+		final HedgehogCli.Result result = BootstrapCli.run("import", "-b", BLOCKS.toString());
+
+		result.assertNoStackTrace();
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("Cannot write " + snapshot + ": Is a directory")));
 		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 	}
 
