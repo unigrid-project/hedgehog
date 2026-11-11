@@ -155,6 +155,16 @@ public class CommunicationSporkCommandTest {
 		result.assertNoStackTrace();
 	}
 
+	/* The JSON null reads as no parameters at all, which is none that the spork can take */
+	@Example
+	public void namesNullAsNoParameters() {
+		final HedgehogCli.Result result = setThroughTheTree("null");
+
+		assertThat(result.exitCode(), equalTo(2));
+		assertThat(result.err(), containsString("The communication parameters are not accepted"));
+		result.assertNoStackTrace();
+	}
+
 	@Example
 	public void namesAnUnknownParameter() {
 		final HedgehogCli.Result result = setThroughTheTree("{\"groupsize\":3}");

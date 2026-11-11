@@ -126,7 +126,7 @@ public final class SporkDatabaseFile {
 		}
 	}
 
-	private static void removeUnfinished(Path output) {
+	static void removeUnfinished(Path output) {
 		try {
 			Files.deleteIfExists(output);
 		} catch (IOException ex) {

@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -71,7 +72,8 @@ public final class ChangeFile {
 
 			final ProposedKeyChange proposed = JSON.readValue(bytes, ProposedKeyChange.class);
 
-			Validate.isTrue(Objects.nonNull(proposed.getChange()), "it holds no change of the board keys");
+			Validate.isTrue(Objects.nonNull(proposed) && Objects.nonNull(proposed.getChange()),
+				"it holds no change of the board keys");
 			requireKeys(proposed.getBefore(), "the keys before the change");
 			requireKeys(proposed.getChange().getActive(), "the keys after the change");
 			requireApprovals(proposed.getChange().getApprovals());
@@ -166,17 +168,28 @@ public final class ChangeFile {
 		return keys.stream().map(ChangeFile::shortly).collect(Collectors.joining(", "));
 	}
 
-	/* Made new and never through a link, as a spork database that util spork-db sign writes is */
+	/* Made new and never through a link, as a spork database that util spork-db sign writes is, and removed again when
+	   it is not written whole: a file that stays is one that the next run refuses to write over */
 	static void writeNew(CommandSpec spec, Path file, ProposedKeyChange proposed) {
+		final OutputStream created = created(spec, file);
+
+		try (created) {
+			created.write(PRETTY.writeValueAsBytes(proposed));
+		} catch (IOException ex) {
+			SporkDatabaseFile.removeUnfinished(file);
+			throw cannotWrite(spec, file, ex);
+		}
+	}
+
+	private static OutputStream created(CommandSpec spec, Path file) {
 		try {
-			Files.write(file, PRETTY.writeValueAsBytes(proposed), StandardOpenOption.CREATE_NEW,
-				StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
+			return Files.newOutputStream(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE,
+				LinkOption.NOFOLLOW_LINKS);
 		} catch (FileAlreadyExistsException ex) {
 			throw new ParameterException(spec.commandLine(), "--output " + file
 				+ " exists and is not overwritten");
 		} catch (IOException ex) {
-			throw new ParameterException(spec.commandLine(), "Cannot write the change " + file + ": "
-				+ ex.getMessage(), ex);
+			throw cannotWrite(spec, file, ex);
 		}
 	}
 
@@ -185,15 +198,29 @@ public final class ChangeFile {
 		final Path absolute = file.toAbsolutePath();
 
 		try {
-			final Path temporary = Files.createTempFile(absolute.getParent(), absolute.getFileName() + ".",
-				".tmp");
+			final byte[] bytes = PRETTY.writeValueAsBytes(proposed);
 
-			Files.write(temporary, PRETTY.writeValueAsBytes(proposed));
-			Files.move(temporary, absolute, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+			moveOver(Files.createTempFile(absolute.getParent(), absolute.getFileName() + ".", ".tmp"), absolute,
+				bytes);
 		} catch (IOException ex) {
-			throw new ParameterException(spec.commandLine(), "Cannot write the change " + file + ": "
-				+ ex.getMessage(), ex);
+			throw cannotWrite(spec, file, ex);
 		}
+	}
+
+	/* The file beside is removed again when it cannot be moved into place */
+	private static void moveOver(Path temporary, Path file, byte[] bytes) throws IOException {
+		try {
+			Files.write(temporary, bytes);
+			Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+		} catch (IOException | RuntimeException ex) {
+			SporkDatabaseFile.removeUnfinished(temporary);
+			throw ex;
+		}
+	}
+
+	private static ParameterException cannotWrite(CommandSpec spec, Path file, IOException cause) {
+		return new ParameterException(spec.commandLine(), "Cannot write the change " + file + ": "
+			+ cause.getMessage(), cause);
 	}
 
 	static String shortly(String key) {

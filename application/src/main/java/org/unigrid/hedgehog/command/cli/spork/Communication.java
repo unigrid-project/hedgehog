@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.command.cli.spork;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Objects;
+import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.model.JsonConfiguration;
 import org.unigrid.hedgehog.model.spork.CommunicationSpork.SporkData;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -46,6 +48,7 @@ public class Communication extends SporkCommand<SporkData> {
 		try {
 			final SporkData parameters = JSON.readValue(data, SporkData.class);
 
+			Validate.isTrue(Objects.nonNull(parameters), "the data holds no parameters");
 			parameters.validate();
 			return parameters;
 		} catch (JsonProcessingException | IllegalArgumentException ex) {

@@ -281,6 +281,24 @@ public class BoardKeysCommandTest {
 		}
 	}
 
+	/* A parser answers the JSON null with nothing, which is a file that holds no change and not one that fails */
+	@Example
+	@SneakyThrows
+	public void readsNoChangeFileThatHoldsJsonNull() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			withSupply(fs, key(0), key(1));
+			Files.writeString(fs.getPath("/change.json"), "null");
+
+			final HedgehogCli.Result result = approve(fs, key(1));
+
+			assertThat(result.exitCode(), equalTo(2));
+			assertThat(result.err(), containsString("Cannot read the change of the board keys /change.json: it holds"
+				+ " no change of the board keys"));
+			result.assertNoStackTrace();
+			assertThat(Files.readString(fs.getPath("/change.json")), equalTo("null"));
+		}
+	}
+
 	@Example
 	@SneakyThrows
 	public void takesAnApprovalOnlyOfAKeyThatIsActiveBeforeTheChangeOrThatItAdds() {
