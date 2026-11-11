@@ -386,7 +386,9 @@ public class GridSpork implements Serializable, Signable {
 	* lifetime of a proposal after it. A renewal never wins against a next version made over the same version, and a
 	* next version wins against a renewal that is newer than it, made within the lifetime of a proposal after it. A
 	* stored spork that no active key signed ({@link #isAnchoring()}) is taken over by any version newer than it and
-	* than every version in its log.
+	* than every version in its log. A stored spork that does not count ({@link #isCounting()}) is replaced as well
+	* by a copy of its own version, of the same time stamp and digest, that two different current network keys signed.
+	* The board keys take no such copy.
 	*/
 	@JsonIgnore
 	public boolean canReplace(GridSpork stored) {
@@ -438,7 +440,8 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Decides as {@link #isTakenByTheNetwork()} does, but takes two keys that were ever active for the head: a spork
 	* that keys signed which the board switched off since is still one the network carried. A node keeps it where it
-	* is, and it counts for nothing ({@link #isCounting()}) until the board signs it again.
+	* is, and it counts for nothing ({@link #isCounting()}) until the board signs it again, or a copy of it comes that
+	* two active keys signed.
 	*/
 	@JsonIgnore
 	public boolean wasTakenByTheNetwork() {
@@ -464,7 +467,7 @@ public class GridSpork implements Serializable, Signable {
 	/**
 	* Whether the policy of this spork holds: two different keys that are active now signed it. A spork whose signer
 	* the board switched off since stays where it is, but decides nothing and is not sent on until the board signs it
-	* again.
+	* again, or a copy of it that two active keys signed takes its place ({@link #canReplace(GridSpork)}).
 	*/
 	@JsonProperty(access = JsonProperty.Access.READ_ONLY)
 	public boolean isCounting() {

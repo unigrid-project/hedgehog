@@ -35,7 +35,38 @@ import org.apache.commons.codec.digest.DigestUtils;
 final class SporkSuccession {
 	/* As GridSpork.canReplace(GridSpork, BooleanSupplier) decides */
 	static boolean canReplace(final GridSpork spork, final GridSpork stored, final BooleanSupplier mayVerify) {
-		return succeeds(spork, stored, mayVerify, spork::isDoublySigned);
+		return succeeds(spork, stored, mayVerify, spork::isDoublySigned)
+			|| isTheCopyThatCountsOf(spork, stored, mayVerify);
+	}
+
+	/* The signatures are no part of a version, so two board members who co-sign one proposal make two copies of it,
+	   and a node keeps the copy that it took first. Once the board switches off a key that signed the copy a node
+	   holds, that copy counts for nothing there, while the copy that its peers send is no newer, so the node would
+	   have no policy of the type until the next version. Whoever holds a key that the board switched off brings a
+	   node there that has not heard of the change yet, with its own signature of the head in the place of one of
+	   the two. So a copy of the stored version that two different active keys signed takes the place of a stored
+	   copy that does not count. It is the same version, by its time stamp and by the digest of what it signs, so no
+	   data changes, and its log is the stored one, which was checked when the stored copy was taken. A stored copy
+	   that counts keeps its place, so two copies that count never take the place of each other. */
+	private static boolean isTheCopyThatCountsOf(final GridSpork spork, final GridSpork stored,
+		final BooleanSupplier mayVerify) {
+
+		return mayStandInFor(spork, stored) && hasTheDigestOf(spork, stored) && mayVerify.getAsBoolean()
+			&& spork.isDoublySigned();
+	}
+
+	/* Every peer sends the head that it holds again and again, which on a node that keeps up is a copy of the stored
+	   version, so what costs nothing is judged first. Whether the stored copy counts is worked out once for the keys
+	   that the node goes by, and only for one that does not is the digest judged, which takes the stored data encoded
+	   and its log hashed. The board keys follow their chain alone (BoardKeys.isSuccessorOf). */
+	private static boolean mayStandInFor(final GridSpork spork, final GridSpork stored) {
+		return Objects.nonNull(stored) && spork.getType() == stored.getType()
+			&& spork.getType() != GridSpork.Type.BOARD_KEYS
+			&& millisOf(spork.getTimeStamp()) == millisOf(stored.getTimeStamp()) && !stored.isCounting();
+	}
+
+	private static boolean hasTheDigestOf(final GridSpork spork, final GridSpork stored) {
+		return Arrays.equals(DigestUtils.sha512(spork.getSignable()), DigestUtils.sha512(stored.getSignable()));
 	}
 
 	/* As GridSpork.canBeProposedOver(GridSpork, BooleanSupplier) decides */
@@ -100,11 +131,11 @@ final class SporkSuccession {
 
 	/* The signatures are no part of what a head signs, so one version is had as heads that differ in them: a board
 	   member co-signs a proposal twice, or whoever holds a head writes a signature of it in its other form. Neither
-	   is newer, so a node keeps the one it has, and it tells its head by the digest: what is made over any head of the
-	   version that it holds is made over its own. What an entry shows of the head costs nothing and is judged before
-	   the digest: the time stamp, and a co-signature where the head has one, as an entry without it logs a version
-	   that one key made. A head that one key signed, as builds from before co-signatures made, is still told by the
-	   bytes of its signature. */
+	   is newer, so a node keeps the one it has for as long as that one counts (isTheCopyThatCountsOf), and it tells
+	   its head by the digest: what is made over any head of the version that it holds is made over its own. What an
+	   entry shows of the head costs nothing and is judged before the digest: the time stamp, and a co-signature
+	   where the head has one, as an entry without it logs a version that one key made. A head that one key signed,
+	   as builds from before co-signatures made, is still told by the bytes of its signature. */
 	private static boolean mayLogTheHeadOf(final SignatureLogEntry entry, final GridSpork stored) {
 		return millisOf(entry.getTimeStamp()) == millisOf(stored.getTimeStamp())
 			&& (stored.isPending() ? hasTheSignaturesOf(entry, stored) : entry.isCosigned());
