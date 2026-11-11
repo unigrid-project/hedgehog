@@ -19,18 +19,14 @@
 package org.unigrid.hedgehog.command.bootstrap;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Objects;
 import java.util.concurrent.Callable;
-import lombok.Cleanup;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.command.util.SporkDatabaseFile;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -90,8 +86,7 @@ public class BootstrapSign implements Callable<Integer> {
 			return ExitCode.FAILED;
 		}
 
-		truncateToContent(snapshot);
-		SnapshotSignature.signAndAppend(snapshot, key);
+		SnapshotSignature.signAndReplace(snapshot, key);
 		System.out.println("Signed " + snapshot);
 		return ExitCode.OK;
 	}
@@ -124,16 +119,5 @@ public class BootstrapSign implements Callable<Integer> {
 
 		return status == SignatureStatus.INVALID ? snapshot + " already carries a signature that"
 			+ " does not verify, so its contents cannot be trusted enough to sign" : null;
-	}
-
-	private static void truncateToContent(Path snapshot) throws IOException {
-		final long content = SnapshotDigest.contentLengthOf(snapshot);
-
-		if (Files.size(snapshot) > content) {
-			@Cleanup final FileChannel channel = FileChannel.open(snapshot,
-				StandardOpenOption.WRITE);
-
-			channel.truncate(content);
-		}
 	}
 }

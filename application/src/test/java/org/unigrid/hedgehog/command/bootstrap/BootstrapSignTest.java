@@ -23,6 +23,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
@@ -41,7 +42,6 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -53,16 +53,19 @@ public class BootstrapSignTest {
 
 	private final List<List<Object>> signings = new ArrayList<>();
 	private Path snapshot;
+	private byte[] handedOver;
+	private IOException writeFailure;
 
 	@BeforeTry
 	public void beforeTry() {
 		signings.clear();
+		handedOver = null;
+		writeFailure = null;
 		snapshot = BootstrapCli.snapshotInMemory();
 		BoardKeysRecordFixture.inMemory();
 		keyIsTrusted(true);
 		signatureIsPresent(false);
 		inspectorFinds(SignatureStatus.UNSIGNED, null);
-		contentIs(CONTENT.length);
 	}
 
 	private void keyIsTrusted(boolean trusted) {
@@ -85,14 +88,6 @@ public class BootstrapSignTest {
 		};
 	}
 
-	private void contentIs(long length) {
-		new MockUp<SnapshotDigest>() {
-			@Mock public /* static */ long contentLengthOf(Path path) {
-				return length;
-			}
-		};
-	}
-
 	private void signatureIsPresent(boolean present) {
 		final SnapshotSignature signature = BootstrapCli.withoutConstructor(SnapshotSignature.class);
 
@@ -105,7 +100,15 @@ public class BootstrapSignTest {
 				return present;
 			}
 
-			@Mock public /* static */ void signAndAppend(Path path, String privateKeyHex) {
+			/* The one step that signs, cuts the old signature off and writes the new one: the command is to hand
+			   it the snapshot as it found it */
+			@Mock public /* static */ void signAndReplace(Path path, String privateKeyHex) throws IOException {
+				handedOver = Files.readAllBytes(path);
+
+				if (writeFailure != null) {
+					throw writeFailure;
+				}
+
 				signings.add(List.of(path, privateKeyHex));
 			}
 		};
@@ -216,21 +219,39 @@ public class BootstrapSignTest {
 		assertNothingSigned();
 	}
 
-	/* A replaced signature must not stay behind the content, or the new one would be appended after it */
+	/* A replaced signature must not stay behind the content, or the new one would be appended after it. It is cut
+	   off by the step that writes the new one, once there is a new one, so the command cuts nothing itself: it hands
+	   the snapshot over with the old signature in place, once. */
 	@SneakyThrows
 	@Property(tries = 30)
-	public void shouldCutTheOldSignatureBeforeSigningAgain(@ForAll @Size(max = 512) byte[] content,
+	public void shouldLeaveTheOldSignatureToTheStepThatWritesTheNewOne(@ForAll @Size(max = 512) byte[] content,
 		@ForAll @Size(max = 256) byte[] oldSignature) {
 
 		final byte[] contents = Arrays.copyOf(content, content.length + oldSignature.length);
 
 		System.arraycopy(oldSignature, 0, contents, content.length, oldSignature.length);
 		existingSnapshot(contents);
-		contentIs(content.length);
 		signatureIsPresent(true);
 
 		assertThat(sign("--force").exitCode(), equalTo(0));
-		assertThat(Files.readAllBytes(snapshot), equalTo(content));
+		assertThat(handedOver, equalTo(contents));
+		assertThat(Files.readAllBytes(snapshot), equalTo(contents));
 		assertThat(signings, hasSize(1));
+	}
+
+	/* A signing that cannot be finished must leave the snapshot with the signature it already has */
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheOldSignatureWhenTheNewOneCannotBeWritten() {
+		final byte[] contents = { 1, 2, 3, 4, 9, 9, 9, 9, 9, 9 };
+
+		existingSnapshot(contents);
+		signatureIsPresent(true);
+		writeFailure = new IOException("No space left on device");
+
+		final HedgehogCli.Result result = sign("--force");
+
+		assertThat(result.exitCode(), not(equalTo(0)));
+		assertThat(Files.readAllBytes(snapshot), equalTo(contents));
 	}
 }
