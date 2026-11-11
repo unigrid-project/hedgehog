@@ -24,6 +24,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import io.netty.channel.Channel;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
+import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +43,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -50,6 +52,7 @@ import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.QuicLoopback;
+import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.transport.schedule.AbstractSchedule;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 
@@ -65,6 +68,7 @@ public class RegisterQuicChannelInitializerTest {
 	private static final int AFTERWARDS_MILLIS = 4 * PERIOD_MILLIS;
 	private static final Duration PATIENCE = Duration.ofSeconds(10);
 	private static final String FAILURE = "A run of the schedule failed";
+	private static final InetSocketAddress PEER = new InetSocketAddress("203.0.113.7", 52883);
 
 	@SneakyThrows
 	private static void standStill(int millis) {
@@ -136,6 +140,37 @@ public class RegisterQuicChannelInitializerTest {
 
 			await().atMost(PATIENCE).alias("Warnings that carry the failure of a run")
 				.until(() -> failuresLogged(appender), hasSize(greaterThanOrEqualTo(1)));
+		} finally {
+			logger.detachAppender(appender);
+		}
+	}
+
+	/* A stream names itself by its number alone, which is the same for the main stream of every peer, so a warning
+	   that named the stream would read alike whichever peer the run failed for. It names the peer by the address that
+	   the connection of the stream holds for it. */
+	@Example
+	public void namesThePeerInTheWarningOfARunThatThrew() throws Exception {
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		final Logger logger = (Logger) LoggerFactory.getLogger(RegisterQuicChannelInitializer.class);
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try (QuicLoopback loopback = QuicLoopback.between(QuicLoopback.PREVIOUS_RELEASE,
+			QuicLoopback.PREVIOUS_RELEASE)) {
+
+			final QuicStreamChannel stream = loopback.stream();
+
+			stream.parent().attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(PEER);
+
+			initializerOf(every(PERIOD_MILLIS, true, channel -> {
+				throw new IllegalStateException(FAILURE);
+			})).initChannel(stream);
+
+			await().atMost(PATIENCE).alias("Warnings that carry the failure of a run")
+				.until(() -> failuresLogged(appender), hasSize(greaterThanOrEqualTo(1)));
+
+			assertThat(failuresLogged(appender).get(0).getFormattedMessage(), containsString(PEER.toString()));
 		} finally {
 			logger.detachAppender(appender);
 		}

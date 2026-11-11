@@ -26,12 +26,14 @@ import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Future;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.Hello;
+import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.transport.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -107,8 +109,15 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 		try {
 			s.getConsumer().accept(channel);
 		} catch (Throwable ex) {
-			log.atWarn().setCause(ex).addArgument(channel.remoteAddress())
+			log.atWarn().setCause(ex).addArgument(() -> peerOf(channel))
 				.log("A scheduled run on the stream to {} failed, the next is still made");
 		}
+	}
+
+	/* A stream names itself by its number alone, which is the same for the main stream of every peer, so the peer is
+	   named by the address that the connection of the stream holds for it */
+	private static Object peerOf(QuicStreamChannel channel) {
+		return Optional.<Object>ofNullable(channel.parent().attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get())
+			.orElse(channel.remoteAddress());
 	}
 }
