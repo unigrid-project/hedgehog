@@ -49,34 +49,37 @@ public class P2PServerPreviewFramesTest extends BaseDefaultNodeTest {
 	private static final Set<Packet.Type> TYPES_OF_THE_PREVIEW = EnumSet.range(Packet.Type.GRIDNODE,
 		Packet.Type.CHAIN_STEM);
 
-	/* The streams of a test, on as many connections as they need: a connection takes Network.MAX_STREAMS streams from
-	   a peer, and a stream the peer closed gives no place back (QuicPeer.open). The connection before is closed once
-	   the next one is dialed. */
+	/* The streams of a test, each the main stream of a connection of its own, as the node serves a connection one main
+	   stream and closes a further one unread. Sixteen connections are open together, and are closed once the next
+	   one after them is dialed. */
 	private static final class Streams implements AutoCloseable {
-		private QuicPeer peer;
-		private int opened = Network.MAX_STREAMS;
+		private static final int TOGETHER = 16;
+
+		private final List<QuicPeer> peers = new ArrayList<>();
 
 		QuicPeer.Stream open() throws InterruptedException {
 			if (!hasRoom()) {
 				close();
-				peer = QuicPeer.dial(NetOptions.getHost(), NetOptions.getPort(), Network.getProtocols());
-				opened = 0;
 			}
 
-			opened++;
+			final QuicPeer peer = QuicPeer.dial(NetOptions.getHost(), NetOptions.getPort(), Network.getProtocols());
+
+			peers.add(peer);
 			return peer.open();
 		}
 
-		/* Whether the connection of the last stream takes another one */
+		/* Whether another connection may be open beside the ones that are */
 		boolean hasRoom() {
-			return opened < Network.MAX_STREAMS;
+			return peers.size() < TOGETHER;
 		}
 
 		@Override
 		public void close() throws InterruptedException {
-			if (peer != null) {
+			for (QuicPeer peer : peers) {
 				peer.close();
 			}
+
+			peers.clear();
 		}
 	}
 
@@ -105,8 +108,8 @@ public class P2PServerPreviewFramesTest extends BaseDefaultNodeTest {
 	}
 
 	/* Each stream carries a ping behind its frames: the answer says that the node has read everything before it, and
-	   a node that closes the stream instead says it by the closing. The streams of a connection are in flight
-	   together, as an answer takes a moment and a stream that is refused is gone, and its place is not given back. */
+	   a node that closes the stream instead says it by the closing. Several streams are in flight together, as an
+	   answer takes a moment. */
 	private static void sendTimes(final Streams streams, final ByteBuf frame, final int times, final int perStream)
 		throws InterruptedException {
 
@@ -181,8 +184,9 @@ public class P2PServerPreviewFramesTest extends BaseDefaultNodeTest {
 	}
 
 	/* The main stream refuses a chain frame that holds anything, and the node closes the stream that carries it, so
-	   each of those needs a stream of its own, and the node takes some tens of milliseconds to set one up. The rest of
-	   the frames of a type are bare headers, which the stream lets through, and go on one stream. */
+	   each of those needs a stream of its own, on a connection of its own, and the node takes some tens of
+	   milliseconds to set one up. The rest of the frames of a type are bare headers, which the stream lets through,
+	   and go on one stream. */
 	@Example
 	public void shouldTakeTheFramesOfTheChainAndStayADefaultNode() throws InterruptedException {
 		assertTakesFrames(LedgerAndChainFrames.ofTheChain(), (streams, frame) -> {

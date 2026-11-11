@@ -28,8 +28,8 @@ import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import static org.unigrid.hedgehog.model.network.QuicLoopback.PREVIOUS_RELEASE;
@@ -42,8 +42,9 @@ import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer
 /* A peer run with --preview offers the proxy protocol, and one that runs a ledger offers the ledger protocol ahead of
    it, besides what a node without them offers. The node of this release without --preview knows neither name, so
    whatever such a peer offers, they settle on the protocol of the release, and the peer is taken for one that takes no
-   chain traffic. The second stream it opens, which a node with the proxy would take for the chain stream, is a
-   main stream like the first. */
+   chain traffic. The second stream it opens, which a node with the proxy would take for the chain stream, is no
+   chain stream to this node: it would be a main stream like the first, of which a connection has one, so the node
+   closes it. */
 public class PeerProtocolDefaultNodeTest extends BaseDefaultNodeTest {
 	private static final String[] OF_THE_RELEASE = { Network.SPORK_PROTOCOL, PREVIOUS_RELEASE[0], PREVIOUS_RELEASE[1] };
 
@@ -109,9 +110,10 @@ public class PeerProtocolDefaultNodeTest extends BaseDefaultNodeTest {
 		assertThat(Network.getProtocols(), is(OF_THE_RELEASE));
 	}
 
-	/* A chain pipeline would refuse the frame of a part, as the stream is a chain stream's, and so close it */
+	/* The node sets the second stream up neither as a chain stream nor as a main stream beside the first: it closes it
+	   unread, with the frames of the parts on it, and the first goes on */
 	@Example
-	public void shouldGiveTheSecondStreamOfSuchAPeerTheMainPipeline() throws InterruptedException {
+	public void shouldGiveTheSecondStreamOfSuchAPeerNoPipelineAtAll() throws InterruptedException {
 		try (QuicPeer peer = dial(withTheProxyAndTheLedger())) {
 			final QuicPeer.Stream main = peer.open();
 
@@ -121,11 +123,13 @@ public class PeerProtocolDefaultNodeTest extends BaseDefaultNodeTest {
 
 			assertThat(second.streamId(), is(Network.CHAIN_STREAM_ID));
 			PreviewFrames.ofTheParts().forEach(second::send);
-			second.awaitAnswer(second.ping());
+			second.awaitAnswerOrClose(second.ping());
 
-			assertThat(second.isOpen(), is(true));
-			assertThat(mainStreams, hasItem(Network.CHAIN_STREAM_ID));
+			assertThat(second.isOpen(), is(false));
+			assertThat(second.frames(), is(empty()));
+			assertThat(mainStreams, contains(main.streamId()));
 			assertThat(chainStreams, is(empty()));
+			main.awaitAnswer(main.ping());
 			assertThat(createdOfThePreview(), is(empty()));
 			assertThat(threadsOfThePreview(), is(empty()));
 		}
