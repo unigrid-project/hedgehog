@@ -18,7 +18,6 @@
 
 package org.unigrid.hedgehog.command.util;
 
-import com.fasterxml.jackson.core.JacksonException;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
@@ -118,9 +117,18 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		}
 	}
 
-	/* A status that is no success is a refusal, whatever the command made of the answer */
+	/* A status that is no success is a refusal, whatever the command made of the answer. A node that answered was
+	   reached, so what fails while the command reads the answer is an answer that cannot be read, also where the
+	   client reports it around an error of the connection, as it does for a body that breaks off. */
 	private void conclude(Response response) {
-		execute(response);
+		try {
+			execute(response);
+		} catch (ProcessingException ex) {
+			System.err.println(TerminalText.printable("The node answered something this command cannot read: "
+				+ ExceptionUtils.getRootCauseMessage(ex)));
+
+			exitCode = ExitCode.FAILED;
+		}
 
 		if (exitCodeOf(response) != ExitCode.OK) {
 			exitCode = ExitCode.FAILED;
@@ -191,20 +199,12 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		return TerminalText.printable(String.valueOf(ex.getMessage()));
 	}
 
-	/* The client reports a node that does not answer as an exception of its own, around the socket error. It reports a
-	   node that did answer with something it cannot read the same way, around the error of the reading, which for a
-	   body of JSON is an IOException of Jackson as well. Only a failure of the connection itself is a node that cannot
-	   be reached. */
+	/* The client reports a node that does not answer as an exception of its own, around the socket error, and an
+	   address that no request can be made of the same way, around what is wrong with the address. No node answered
+	   in either case. An answer that cannot be read fails where a command reads it, and is told apart there. */
 	private static String describeProcessing(ProcessingException ex) {
-		final Throwable root = ExceptionUtils.getThrowableList(ex).getLast();
-		final String cause = ExceptionUtils.getRootCauseMessage(ex);
-
-		if (root instanceof IOException && !(root instanceof JacksonException)) {
-			return TerminalText.printable("Could not reach the node at %s:%d: %s"
-				.formatted(RestOptions.getHost(), RestOptions.getPort(), cause));
-		}
-
-		return TerminalText.printable("The node answered something this command cannot read: " + cause);
+		return TerminalText.printable("Could not reach the node at %s:%d: %s".formatted(RestOptions.getHost(),
+			RestOptions.getPort(), ExceptionUtils.getRootCauseMessage(ex)));
 	}
 
 	/* What failed with a file on this machine, named as the user gave it, as the exception names a file of its own */

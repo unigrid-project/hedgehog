@@ -60,6 +60,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -72,6 +73,8 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
+import org.unigrid.hedgehog.model.option.RestOptions;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class RestClientCommandTest {
@@ -80,6 +83,9 @@ public class RestClientCommandTest {
 
 	/* How long the node waits for the command to ask, which it does within a moment */
 	private static final int PATIENCE_MILLIS = 20_000;
+
+	/* What a node announces of a body and does not send */
+	private static final String MISSING = " ".repeat(64);
 
 	private static final Entity<String> BODY = Entity.text("body");
 	private static final String HEADER = "X-Header";
@@ -289,6 +295,13 @@ public class RestClientCommandTest {
 		}
 	}
 
+	/* The answer of a node whose connection ends before the body that it announced is whole */
+	private static String answerThatBreaksOffAfter(String sent) {
+		final String whole = answerWith("application/json", sent + MISSING);
+
+		return whole.substring(0, whole.length() - MISSING.length());
+	}
+
 	/* The node answered, so it was reached: what it sent is what the command cannot make anything of, whether the
 	   body is no list of nodes or no one here knows how to read its type */
 	@Example
@@ -305,6 +318,59 @@ public class RestClientCommandTest {
 			result.assertNoStackTrace();
 			assertThat(shown, result.out(), equalTo(""));
 			assertThat(shown, result.err(), startsWith("The node answered something this command cannot read: "));
+			assertThat(shown, result.exitCode(), equalTo(ExitCode.FAILED));
+		}
+	}
+
+	/* Nor was a node out of reach whose connection ended inside the body that it announced, in the middle of a node of
+	   the list or between two of them, though the client reports that around the error of the socket, as it reports a
+	   node that does not answer */
+	@Example
+	public void saysThatTheAnswerCannotBeReadWhenItBreaksOffInsideTheBody() {
+		for (String sent : List.of("[{", "[    ")) {
+			final HedgehogCli.Result result = askANodeThatSends(answerThatBreaksOffAfter(sent), "cli", "node-list");
+			final String shown = "A body that breaks off after " + sent + " was shown as " + result.err();
+
+			result.assertNoStackTrace();
+			assertThat(shown, result.out(), equalTo(""));
+			assertThat(shown, result.err().lines().toList(), hasSize(1));
+			assertThat(shown, result.err(), startsWith("The node answered something this command cannot read: "));
+			assertThat(shown, result.exitCode(), equalTo(ExitCode.FAILED));
+		}
+	}
+
+	/* The node at the address that the command line names, asked by the client itself: the fakes of the other examples
+	   are cleared and none takes their place, and the token is given, so that none is read from a file. No request
+	   leaves this machine for an address that none can be made of. */
+	private static HedgehogCli.Result askTheNodeAt(String host, int port) {
+		TestRunnerDecorator.cleanUpAllMocks();
+
+		/* The first client in a run starts the logging of Netty, which says so on standard output */
+		new RestClient(RestCommandFixture.HOST, RestCommandFixture.PORT, false, RestCommandFixture.TOKEN).close();
+
+		return HedgehogCli.run("cli", "--resthost", host, "--restport", String.valueOf(port), "--resttoken",
+			RestCommandFixture.TOKEN, "node-list");
+	}
+
+	/* An address that no request can be made of names no node, so none was asked and none answered: a host that is a
+	   bare IPv6 address, whose last group the client takes for the port, and a port that no host has. The client
+	   reports both as it reports a node that does not answer, around an error that is none of a socket. */
+	@Example
+	@AddLifecycleHook(RestoreOptionsHook.class)
+	public void saysThatTheNodeCannotBeReachedWhenNoRequestCanBeMadeOfItsAddress() {
+		final List<Map.Entry<String, Integer>> unusable = List.of(Map.entry("::1", RestOptions.DEFAULT_PORT),
+			Map.entry(RestCommandFixture.HOST, 70_000));
+
+		for (Map.Entry<String, Integer> address : unusable) {
+			final HedgehogCli.Result result = askTheNodeAt(address.getKey(), address.getValue());
+			final String shown = address + " was shown as " + result.err();
+
+			result.assertNoStackTrace();
+			assertThat(shown, result.out(), equalTo(""));
+			assertThat(shown, result.err().lines().toList(), hasSize(1));
+			assertThat(shown, result.err(), startsWith("Could not reach the node at " + address.getKey() + ":"
+				+ address.getValue() + ": "));
+
 			assertThat(shown, result.exitCode(), equalTo(ExitCode.FAILED));
 		}
 	}
