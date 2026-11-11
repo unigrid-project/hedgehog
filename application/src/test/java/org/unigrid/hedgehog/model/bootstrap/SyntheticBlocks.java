@@ -25,6 +25,7 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
@@ -76,6 +77,13 @@ public final class SyntheticBlocks {
 		return Hashing.doubleSha256(ByteBuffer.wrap(transaction));
 	}
 
+	private static byte[] filled(byte value) {
+		final byte[] bytes = new byte[Hashing.HASH_SIZE];
+
+		Arrays.fill(bytes, value);
+		return bytes;
+	}
+
 	private static byte[] transaction(List<byte[]> inputs, List<byte[]> outputs) {
 		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 		final ByteBuffer version = ByteBuffer.allocate(Integer.BYTES)
@@ -119,6 +127,7 @@ public final class SyntheticBlocks {
 		private static final int MERKLE_OFFSET = 36;
 		private static final int TIME_OFFSET = 68;
 		private static final int VERSION_WITH_ACCUMULATOR = 4;
+		private static final byte[] UNSTORED_PARENT = filled((byte) 0x11);
 
 		private final ByteArrayOutputStream records = new ByteArrayOutputStream();
 		private final List<byte[]> mainChain = new ArrayList<>();
@@ -142,6 +151,18 @@ public final class SyntheticBlocks {
 
 			for (int i = 1; i <= length; i++) {
 				previous = append(VERSION_WITH_ACCUMULATOR, previous, timeAt(fromHeight + i), List.of());
+			}
+		}
+
+		/*
+		   A run of blocks whose first block names a parent that is not stored, as found when the first
+		   block files of a chain are missing or belong to another chain.
+		*/
+		public void detachedChain(int blocksAfterFirst) {
+			byte[] previous = append(VERSION_WITH_ACCUMULATOR, UNSTORED_PARENT, timeAt(0), List.of());
+
+			for (int height = 1; height <= blocksAfterFirst; height++) {
+				previous = append(VERSION_WITH_ACCUMULATOR, previous, timeAt(height), List.of());
 			}
 		}
 
