@@ -19,13 +19,18 @@
 package org.unigrid.hedgehog.model.network;
 
 import java.net.InetAddress;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
+import org.unigrid.hedgehog.model.network.ConnectionLimiter.Admission;
 
 public class ConnectionLimiterTest {
 	private static final InetAddress PEER = InetAddress.ofLiteral("192.0.2.7");
@@ -44,6 +49,15 @@ public class ConnectionLimiterTest {
 	/* As many hosts as hold all that the node admits when each holds its share */
 	private static final int HOSTS_THAT_FILL_THE_NODE = ConnectionLimiter.MAX_IN_ALL
 		/ ConnectionLimiter.MAX_PER_ADDRESS;
+
+	/* A ceiling that an operator gave, and no multiple of what one address may hold: the addresses that hold their
+	   share leave a few connections below it, fewer than the share of one more */
+	private static final int CEILING = 50;
+	private static final int HOSTS_WITH_A_SHARE_BELOW_THE_CEILING = CEILING / ConnectionLimiter.MAX_PER_ADDRESS;
+	private static final int LEFT_BELOW_THE_CEILING = CEILING % ConnectionLimiter.MAX_PER_ADDRESS;
+
+	private static final long MINUTE = Duration.ofMinutes(1).toNanos();
+	private static final int MINUTES_OF_QUIET = 90;
 
 	private static void admitAll(ConnectionLimiter limiter, InetAddress address) {
 		IntStream.range(0, ConnectionLimiter.MAX_PER_ADDRESS).forEach(n -> assertThat(limiter.admit(address), is(true)));
@@ -200,5 +214,110 @@ public class ConnectionLimiterTest {
 		assertThat(inTheSite(0).equals(inTheSite(1)), is(false));
 		assertThat(unrelatedHost(0).equals(unrelatedHost(1)), is(false));
 		assertThat(unrelatedHost(UNRELATED_HOSTS - 1).isLoopbackAddress(), is(false));
+	}
+
+	/* A node that was given a ceiling admits that many in all, whatever the addresses ask for */
+	@Example
+	public void shouldAdmitNoMoreConnectionsInAllThanTheCeilingItIsGiven() {
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING);
+		final int admitted = IntStream.range(0, UNRELATED_HOSTS)
+			.map(n -> admittedFrom(limiter, unrelatedHost(n))).sum();
+
+		assertThat(limiter.getCeiling(), equalTo(CEILING));
+		assertThat("connections admitted from " + UNRELATED_HOSTS + " unrelated hosts, each asking for "
+			+ (ConnectionLimiter.MAX_PER_ADDRESS + 1), admitted, equalTo(CEILING));
+	}
+
+	@Example
+	public void shouldAdmitTheConnectionsOfAFullTopologyWhenItIsGivenNoCeiling() {
+		assertThat(new ConnectionLimiter().getCeiling(), equalTo(CONNECTIONS_OF_A_FULL_TOPOLOGY));
+	}
+
+	/* The addresses that hold their share fill the node but for a few connections, which the next address takes. That
+	   one is refused below its share, which only the ceiling explains, as is an address that holds nothing. An address
+	   that holds its share is refused for that, before the node is full and after: no ceiling would let it in. */
+	@Example
+	public void shouldTellAnAddressThatHoldsItsShareFromANodeThatHoldsAllItAdmits() {
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING);
+		final InetAddress last = unrelatedHost(HOSTS_WITH_A_SHARE_BELOW_THE_CEILING);
+
+		IntStream.range(0, HOSTS_WITH_A_SHARE_BELOW_THE_CEILING).forEach(n -> admitAll(limiter, unrelatedHost(n)));
+		assertThat(limiter.decide(unrelatedHost(0)), is(Admission.ADDRESS_FULL));
+
+		IntStream.range(0, LEFT_BELOW_THE_CEILING)
+			.forEach(n -> assertThat(limiter.decide(last), is(Admission.ADMITTED)));
+		assertThat(limiter.decide(last), is(Admission.NODE_FULL));
+		assertThat(limiter.held(last), equalTo(LEFT_BELOW_THE_CEILING));
+		assertThat(limiter.decide(unrelatedHost(HOSTS_WITH_A_SHARE_BELOW_THE_CEILING + 1)), is(Admission.NODE_FULL));
+		assertThat(limiter.decide(unrelatedHost(0)), is(Admission.ADDRESS_FULL));
+		assertThat(limiter.decide(InetAddress.getLoopbackAddress()), is(Admission.ADMITTED));
+	}
+
+	/* What the caller that only asks whether a connection is let in is told, whatever the reason */
+	@Example
+	public void shouldLetNoConnectionInThatItRefusesForEitherReason() {
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING);
+
+		IntStream.range(0, HOSTS_WITH_A_SHARE_BELOW_THE_CEILING).forEach(n -> admitAll(limiter, unrelatedHost(n)));
+		assertThat(limiter.admit(unrelatedHost(0)), is(false));
+
+		IntStream.range(0, LEFT_BELOW_THE_CEILING).forEach(n -> assertThat(limiter.admit(PEER), is(true)));
+		assertThat(limiter.admit(PEER), is(false));
+		assertThat(limiter.held(PEER), equalTo(LEFT_BELOW_THE_CEILING));
+	}
+
+	/* The least ceiling there is, which one address fills alone. Both reasons hold for one connection more of that
+	   address, and the one given is its share; any other address is refused for the ceiling until a connection goes. */
+	@Example
+	public void shouldRefuseAnAddressForItsShareWhenItAloneHoldsAllTheNodeAdmits() {
+		final ConnectionLimiter limiter = new ConnectionLimiter(ConnectionLimiter.MAX_PER_ADDRESS);
+
+		admitAll(limiter, PEER);
+
+		assertThat(limiter.decide(PEER), is(Admission.ADDRESS_FULL));
+		assertThat(limiter.decide(OTHER), is(Admission.NODE_FULL));
+
+		limiter.release(PEER);
+		assertThat(limiter.decide(OTHER), is(Admission.ADMITTED));
+	}
+
+	/* The clock of the node tells only how long ago something was: it starts anywhere, below zero too, and wraps. The
+	   first warning is due at once, and the next a minute after the last that was given. */
+	@Property(tries = 100)
+	public void shouldHaveAWarningToGiveOnceAMinuteWhereverTheClockStarts(@ForAll long start) {
+		final AtomicLong clock = new AtomicLong(start);
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING, clock::get);
+
+		assertThat(limiter.takeWarning(), is(true));
+		assertThat(limiter.takeWarning(), is(false));
+
+		clock.addAndGet(MINUTE - 1);
+		assertThat(limiter.takeWarning(), is(false));
+
+		clock.addAndGet(1);
+		assertThat(limiter.takeWarning(), is(true));
+		assertThat(limiter.takeWarning(), is(false));
+	}
+
+	/* A node that refused nothing for a long while has one warning to give, not one for each minute that passed */
+	@Example
+	public void shouldHaveOneWarningToGiveAfterMinutesInWhichNoneWasAskedFor() {
+		final AtomicLong clock = new AtomicLong();
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING, clock::get);
+
+		assertThat(limiter.takeWarning(), is(true));
+		clock.addAndGet(MINUTES_OF_QUIET * MINUTE);
+
+		assertThat(limiter.takeWarning(), is(true));
+		assertThat(limiter.takeWarning(), is(false));
+	}
+
+	/* With the clock that a node runs on, which no example here waits a minute of */
+	@Example
+	public void shouldHaveOneWarningToGiveAtOnceOnTheClockOfTheNode() {
+		final ConnectionLimiter limiter = new ConnectionLimiter(CEILING);
+
+		assertThat(limiter.takeWarning(), is(true));
+		assertThat(limiter.takeWarning(), is(false));
 	}
 }

@@ -67,7 +67,7 @@ public class P2PServer extends AbstractServer {
 	private static final long CLOSE_WAIT_MILLIS = 2_000;
 
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	private final ConnectionLimiter limiter = new ConnectionLimiter();
+	private final ConnectionLimiter limiter = new ConnectionLimiter(NetOptions.getMaxInbound());
 	private final ChannelGroup connections = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 	private TopologyThread topologyThread;
 	@Getter(onMethod_ = @Override) private Channel channel;

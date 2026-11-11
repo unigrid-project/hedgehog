@@ -58,7 +58,7 @@ public class HelpTest {
 		"util", List.of("key-generate", "key-sign", "key-validate", "spork-db", "board-keys"),
 		"cli gridspork-set", List.of("mint-supply", "board-keys"),
 		"cli gridspork-get", List.of("mint-supply", "mint-storage", "board-keys"),
-		"daemon", List.of("--restport", "--resttoken")
+		"daemon", List.of("--restport", "--resttoken", "--netmaxinbound")
 	);
 
 	private static String usageOf(String group) {

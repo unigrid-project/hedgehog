@@ -44,6 +44,9 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 	public static final AttributeKey<InetSocketAddress> SOCKET_ADDRESS_KEY = AttributeKey.valueOf("SOCKET_ADDRESS");
 	private static final AttributeKey<InetAddress> ADMITTED_KEY = AttributeKey.valueOf("ADMITTED");
 
+	private static final String CEILING_REACHED = "The ceiling of {} inbound connections is reached, new peers are "
+		+ "refused; a seed may need more: option {}";
+
 	private final ConnectionLimiter limiter;
 
 	private int getPort(ChannelHandlerContext ctx) {
@@ -71,15 +74,33 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 			return true;
 		}
 
-		if (limiter.admit(address)) {
+		final ConnectionLimiter.Admission admission = limiter.decide(address);
+
+		if (admission == ConnectionLimiter.Admission.ADMITTED) {
 			ctx.channel().attr(ADMITTED_KEY).set(address);
 			ctx.channel().closeFuture().addListener(closed -> release(ctx.channel()));
 			return true;
 		}
 
-		log.atDebug().addArgument(address).log("Too many connections from {}, one more is closed");
+		tellOfRefusal(admission, address);
 		ctx.close();
 		return false;
+	}
+
+	/* An address that holds its share is refused alone, which is its own doing. A node that holds all it admits
+	   refuses every peer that is new to it, which its operator can change by admitting more, and so is told of. */
+	private void tellOfRefusal(ConnectionLimiter.Admission admission, InetAddress address) {
+		if (admission == ConnectionLimiter.Admission.ADDRESS_FULL) {
+			log.atDebug().addArgument(address).log("Too many connections from {}, one more is closed");
+			return;
+		}
+
+		if (limiter.takeWarning()) {
+			log.atWarn().addArgument(limiter.getCeiling()).addArgument(NetOptions.MAX_INBOUND)
+				.log(CEILING_REACHED);
+		}
+
+		log.atDebug().addArgument(address).log("Too many connections in all, one more from {} is closed");
 	}
 
 	private void release(Channel connection) {
