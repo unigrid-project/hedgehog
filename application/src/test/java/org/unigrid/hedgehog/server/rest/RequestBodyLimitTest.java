@@ -72,6 +72,7 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.sameInstance;
+import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.util.Reflection;
 
@@ -572,6 +573,37 @@ public class RequestBodyLimitTest {
 			await().atMost(PATIENCE).untilAsserted(() -> assertThat(served.readers.started(), empty()));
 			await().during(Duration.ofMillis(500)).atMost(PATIENCE)
 				.untilAsserted(() -> assertThat(served.taken, empty()));
+		}
+	}
+
+	/* The sender was told that the time is up, so what it had sent is no request that the resource may act on */
+	@Example
+	public void shouldNotLetAResourceTakeABodyThatStoppedShortForAWholeOne() {
+		try (Served served = new Served()) {
+			served.send(Served.head("Content-Length: 14") + "10.0.0.1:5");
+			served.awaitReader();
+			served.passTime(BODY_TIME);
+
+			await().atMost(PATIENCE).untilAsserted(() -> assertThat(served.readers.started(), empty()));
+			await().during(Duration.ofMillis(500)).atMost(PATIENCE)
+				.untilAsserted(() -> assertThat(served.taken, empty()));
+			assertThat(served.refusal(), startsWith("HTTP/1.1 408"));
+		}
+	}
+
+	/* The body is cut where it crosses the limit, and what comes before the cut is a part of it, however whole it
+	   looks */
+	@Example
+	public void shouldNotLetAResourceTakeABodyThatWasCutOffAtTheLimitForAWholeOne() {
+		try (Served served = new Served()) {
+			served.send(Served.head("Transfer-Encoding: chunked") + "a\r\n10.0.0.1:5\r\n");
+			served.awaitReader();
+			served.send(Long.toHexString(LIMIT) + "\r\n" + "x".repeat(Math.toIntExact(LIMIT)) + "\r\n");
+
+			await().atMost(PATIENCE).untilAsserted(() -> assertThat(served.readers.started(), empty()));
+			await().during(Duration.ofMillis(500)).atMost(PATIENCE)
+				.untilAsserted(() -> assertThat(served.taken, empty()));
+			assertThat(served.refusal(), startsWith("HTTP/1.1 413"));
 		}
 	}
 }

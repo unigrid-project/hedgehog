@@ -183,8 +183,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		if (unfinished) {
-			unfinished = false;
-			ctx.fireChannelRead(LastHttpContent.EMPTY_LAST_CONTENT);
+			endBody(ctx);
 		}
 
 		ctx.executor().schedule((Runnable) ctx::close, linger.toMillis(), TimeUnit.MILLISECONDS);
