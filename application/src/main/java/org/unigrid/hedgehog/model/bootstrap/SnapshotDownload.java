@@ -27,8 +27,6 @@ import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryIteratorException;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -92,9 +90,8 @@ public final class SnapshotDownload {
 		final Path directory = target.toAbsolutePath().getParent();
 
 		Files.createDirectories(directory);
-		sweepStale(directory);
 
-		final Path partial = Files.createTempFile(directory, PARTIAL_PREFIX, PARTIAL_SUFFIX);
+		final Path partial = PartialFiles.create(directory, PARTIAL_PREFIX, PARTIAL_SUFFIX);
 
 		try {
 			if (!MessageDigest.isEqual(copy(source, partial, maximumSize, progress), publishedHash)) {
@@ -108,7 +105,7 @@ public final class SnapshotDownload {
 			log.atInfo().log("Installed the legacy chain snapshot at {}", target);
 
 		} finally {
-			discard(partial);
+			PartialFiles.discard(partial);
 		}
 	}
 
@@ -251,34 +248,6 @@ public final class SnapshotDownload {
 			return MessageDigest.getInstance(HASH_ALGORITHM);
 		} catch (NoSuchAlgorithmException ex) {
 			throw new IllegalStateException(ex);
-		}
-	}
-
-	/*
-	   A kill or an exit skips the clean-up of a download, so the partial file of an earlier start can
-	   still be here, as large as the ceiling allows, and nothing else would ever remove it. Only the
-	   name a download gives its files is swept: the partial file of a snapshot build in the same
-	   directory has a name of its own and stays. Another download into the directory at the same time
-	   would lose its partial file, so a directory is assumed to have one download at a time.
-	*/
-	private static void sweepStale(Path directory) {
-		try (DirectoryStream<Path> stale = Files.newDirectoryStream(directory,
-			PARTIAL_PREFIX + "*" + PARTIAL_SUFFIX)) {
-
-			stale.forEach(SnapshotDownload::discard);
-
-		} catch (IOException | DirectoryIteratorException ex) {
-			log.atWarn().log("Could not look for partial downloads in {}: {}", directory, ex.getMessage());
-		}
-	}
-
-	/* Cleanup must never replace the failure that caused it with one about the leftover file. */
-	private static void discard(Path partial) {
-		try {
-			Files.deleteIfExists(partial);
-		} catch (IOException ex) {
-			log.atWarn().log("Could not remove the partial download at {}: {}", partial,
-				ex.getMessage());
 		}
 	}
 
