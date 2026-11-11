@@ -94,6 +94,7 @@ public class RestServer extends AbstractServer {
 		config.register(ValidationFeature.class);
 		config.register(authentication);
 		config.register(CutBodyFilter.class);
+		config.register(UnreadBodyFilter.class);
 		config.register(PreviewPartFilter.class);
 
 		return config;
