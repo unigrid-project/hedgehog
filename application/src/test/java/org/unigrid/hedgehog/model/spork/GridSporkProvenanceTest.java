@@ -255,4 +255,75 @@ public class GridSporkProvenanceTest {
 		assertThat(overNothing.isProposalOver(stored), is(false));
 		assertThat(proposal(stored, 20, FIRST).isProposalOver(null), is(false));
 	}
+
+	/* The data of a spork that counts how often it is read, which encoding it does once, as does hashing the spork it
+	   is part of */
+	private static final class ReadData extends MintSupply.SporkData {
+		private static final long serialVersionUID = 1L;
+		private int reads;
+
+		@Override
+		public BigDecimal getMaxSupply() {
+			reads++;
+			return super.getMaxSupply();
+		}
+	}
+
+	/* The spork with the same data in a form that counts its reads, so that its signatures still hold */
+	private static ReadData counted(GridSpork spork) {
+		final ReadData data = new ReadData();
+
+		data.setMaxSupply(spork.<MintSupply.SporkData>getData().getMaxSupply());
+		spork.setData(data);
+		return data;
+	}
+
+	/* A node is sent proposals by anyone, and every one of them that no board key made has to be told from the next
+	   version and the renewal of the stored spork. That takes the log of the proposal and its time stamps, and nothing
+	   of the stored data, which is encoded in full each time it is looked at and a proposal that names none of what
+	   the stored spork is known by is no reason for it. */
+	@Example
+	public void shouldRefuseAProposalWhoseLogHasNoHeadWithoutEncodingTheStoredData() {
+		final GridSpork stored = stored(null, 10);
+		final ReadData read = counted(stored);
+
+		assertThat(proposal(null, 20, FIRST).isProposalOver(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
+
+	@Example
+	public void shouldRefuseAProposalMadeFromAnotherTimeWithoutEncodingTheStoredData() {
+		final GridSpork stored = stored(null, 10);
+		final ReadData read = counted(stored);
+		final GridSpork proposal = proposal(stored, 20, FIRST);
+
+		proposal.setPreviousTimeStamp(stored.getTimeStamp().minusSeconds(5));
+
+		assertThat(proposal.isProposalOver(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
+
+	/* The head of the stored spork is hashed to tell whether a version logs it, which takes its data encoded and its
+	   log hashed, so a version whose log does not even carry on the stored one is refused before. The signatures of
+	   the stored head are public, so a version can copy them. */
+	@Example
+	public void shouldRefuseALogThatDoesNotCarryOnTheStoredLogWithoutHashingTheStoredHead() {
+		final GridSpork stored = stored(stored(null, 10), 20);
+		final ReadData read = counted(stored);
+		final GridSpork forged = SerializationUtils.clone(stored);
+		final SignatureLogEntry unrelated = stored.getSignatureLog().last().toBuilder()
+			.digest(new byte[SignatureLogEntry.DIGEST_SIZE]).build();
+		final SignatureLogEntry copy = unrelated.toBuilder().timeStamp(stored.getTimeStamp()).signature(
+			stored.getSignature()).cosignature(stored.getCosignature()).build();
+
+		forged.setSignatureLog(new SignatureLog(List.of(unrelated, copy)));
+		forged.setTimeStamp(stored.getTimeStamp().plusSeconds(1));
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+		read.reads = 0;
+
+		assertThat(forged.canReplace(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
 }

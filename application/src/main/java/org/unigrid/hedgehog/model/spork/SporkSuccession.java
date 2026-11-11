@@ -68,23 +68,35 @@ final class SporkSuccession {
 			return isFirstVersion(spork);
 		}
 
-		final boolean isNextVersion = isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(),
-			stored.getTimeStamp(), stored.getData());
-
-		return (isNextVersion || isRenewalOver(spork, stored)) && endsWithTheHeadOf(spork, stored);
+		/* Anyone can send a proposal, and refusing one must not take the stored data encoded or its head hashed,
+		   which cost far more than the frame does. What the frame holds is judged first, then the data, and the head
+		   last. */
+		return endsWithTheSignaturesOf(spork, stored) && isOverTheVersionOf(spork, stored)
+			&& hasTheDigestOf(spork.getSignatureLog().last(), stored);
 	}
 
+	private static boolean isOverTheVersionOf(final GridSpork spork, final GridSpork stored) {
+		return isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(), stored.getTimeStamp(),
+			stored.getData()) || isRenewalOver(spork, stored);
+	}
+
+	/* The time stamps are judged before the data that they stand for is encoded */
 	private static boolean isRenewalOver(final GridSpork spork, final GridSpork stored) {
-		return Arrays.equals(encoded(spork, spork.getData()), encoded(spork, stored.getData()))
-			&& isSameVersion(spork, spork.getPreviousTimeStamp(), spork.getPreviousData(),
-				stored.getPreviousTimeStamp(), stored.getPreviousData());
+		return millisOf(spork.getPreviousTimeStamp()) == millisOf(stored.getPreviousTimeStamp())
+			&& isSameData(spork, spork.getData(), stored.getData())
+			&& isSameData(spork, spork.getPreviousData(), stored.getPreviousData());
 	}
 
 	private static boolean endsWithTheHeadOf(final GridSpork spork, final GridSpork stored) {
+		return endsWithTheSignaturesOf(spork, stored) && hasTheDigestOf(spork.getSignatureLog().last(), stored);
+	}
+
+	/* What is public of the stored head, which a log entry can copy without the stored data */
+	private static boolean endsWithTheSignaturesOf(final GridSpork spork, final GridSpork stored) {
 		final SignatureLog log = spork.getSignatureLog();
 
 		return !log.isEmpty() && millisOf(log.last().getTimeStamp()) == millisOf(stored.getTimeStamp())
-			&& goesOnWithTheHeadOf(spork, stored, log.size() - 1);
+			&& hasTheSignaturesOf(log.last(), stored);
 	}
 
 	/* As every node reads and signs a version: the stored spork of a node may come from a file, where an amount keeps
@@ -92,8 +104,11 @@ final class SporkSuccession {
 	private static boolean isSameVersion(final GridSpork spork, final Instant stamp, final ChunkData chunk,
 		final Instant otherStamp, final ChunkData otherChunk) {
 
-		return millisOf(stamp) == millisOf(otherStamp)
-			&& Arrays.equals(encoded(spork, chunk), encoded(spork, otherChunk));
+		return millisOf(stamp) == millisOf(otherStamp) && isSameData(spork, chunk, otherChunk);
+	}
+
+	private static boolean isSameData(final GridSpork spork, final ChunkData chunk, final ChunkData otherChunk) {
+		return Arrays.equals(encoded(spork, chunk), encoded(spork, otherChunk));
 	}
 
 	private static long millisOf(final Instant stamp) {
@@ -156,12 +171,15 @@ final class SporkSuccession {
 	/* As GridSpork.isSuccessorOf() decides for a type with no rule of its own */
 	static boolean isSuccessorByLogOf(final GridSpork spork, final GridSpork stored, final SignatureLog storedLog) {
 		final SignatureLog log = spork.getSignatureLog();
-		final boolean isNewerSibling = log.size() == storedLog.size() && spork.isNewerThan(stored)
-			&& mayTakeThePlaceOf(spork, stored);
-		final boolean isLater = log.size() > storedLog.size()
-			&& goesOnWithTheHeadOf(spork, stored, storedLog.size());
 
-		return (isLater || isNewerSibling) && storedLog.isPrefixOf(log);
+		/* A log that does not carry on the stored one is refused before the stored head is hashed, as the signatures
+		   that a log entry copies are public and the hash costs the stored data encoded and the stored log hashed */
+		if (!storedLog.isPrefixOf(log)) {
+			return false;
+		}
+
+		return log.size() > storedLog.size() ? goesOnWithTheHeadOf(spork, stored, storedLog.size())
+			: spork.isNewerThan(stored) && mayTakeThePlaceOf(spork, stored);
 	}
 
 	/* A sibling takes the place of the stored spork without carrying it in its log, so one with other data undoes its
@@ -205,8 +223,15 @@ final class SporkSuccession {
 
 		final SignatureLogEntry next = spork.getSignatureLog().getEntries().get(index);
 
+		return hasTheSignaturesOf(next, stored) && hasTheDigestOf(next, stored);
+	}
+
+	private static boolean hasTheSignaturesOf(final SignatureLogEntry next, final GridSpork stored) {
 		return Arrays.equals(next.getSignature(), stored.getSignature())
-			&& Arrays.equals(next.getCosignature(), stored.getCosignature())
-			&& Arrays.equals(next.getDigest(), DigestUtils.sha512(stored.getSignable()));
+			&& Arrays.equals(next.getCosignature(), stored.getCosignature());
+	}
+
+	private static boolean hasTheDigestOf(final SignatureLogEntry next, final GridSpork stored) {
+		return Arrays.equals(next.getDigest(), DigestUtils.sha512(stored.getSignable()));
 	}
 }
