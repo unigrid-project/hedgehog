@@ -23,6 +23,7 @@ import ch.qos.logback.classic.Logger;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.core.UriBuilder;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.util.ArrayList;
@@ -45,12 +46,14 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Expectations;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import net.jqwik.api.Example;
 import net.jqwik.api.Property;
+import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -64,6 +67,7 @@ import org.unigrid.hedgehog.model.cdi.ProtectedInterceptor;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.gridnode.Gridnode;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSignature;
+import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.packet.PublishGridnode;
 import org.unigrid.hedgehog.server.TestServer;
 import org.unigrid.hedgehog.service.ledger.LedgerStreams;
@@ -467,6 +471,79 @@ public class TopologyTest extends BaseMockedWeldTest {
 			streams.forEach(stream -> assertThat(stream.<Packet>readOutbound(), sameInstance(packet)));
 		} finally {
 			nodes.forEach(topology::removeNode);
+		}
+	}
+
+	private static Node peer(int index) {
+		return Node.builder().address(new InetSocketAddress("10.2." + (index / 250) + "." + (index % 250 + 1), 52883))
+			.build();
+	}
+
+	private static final AtomicInteger URIS_BUILT = new AtomicInteger();
+
+	/* The fake of a try stays on for the rest of the class, so one fake counts for every try: an Invocation that
+	   proceeds from a fake that a later try applied again reaches that fake once more, without end */
+	@BeforeContainer
+	private static void countTheUrisBuilt() {
+		new MockUp<UriBuilder>() {
+			@Mock
+			public /* static */ UriBuilder fromPath(Invocation invocation, String path) {
+				URIS_BUILT.incrementAndGet();
+				return invocation.proceed();
+			}
+		};
+	}
+
+	/* The URIs that are made while the action runs: a node is hashed and compared by its address, which a URI has been
+	   made of each time */
+	private static int urisBuiltWhile(Runnable action) {
+		final int before = URIS_BUILT.get();
+
+		action.run();
+		return URIS_BUILT.get() - before;
+	}
+
+	/* A peer sends up to a thousand nodes at a time, and each is added to the topology by the event loop of the stream
+	   it came on, under the write lock of the topology. The list is read off the wire, so its nodes are not the ones that
+	   the topology holds: all but a few of them are known already, and the topology is a node short of full. */
+	@Example
+	public void shouldNotBuildAUriToAddAFullListOfPeersToAFullTopology() {
+		final List<Node> held = IntStream.range(0, Topology.MAX_NODES - 1 - topology.cloneNodes().size())
+			.mapToObj(i -> peer(i)).toList();
+		final List<Node> listed = IntStream.range(0, PublishPeersDecoder.MAX_PEERS).mapToObj(i -> peer(i)).toList();
+
+		try {
+			held.forEach(topology::addNode);
+			assertThat(topology.cloneNodes().size(), is(Topology.MAX_NODES - 1));
+
+			final int built = urisBuiltWhile(() -> listed.forEach(topology::addNode));
+
+			assertThat("URIs were built to add " + listed.size() + " peers to " + Topology.MAX_NODES + " nodes", built,
+				is(0));
+			assertThat(topology.cloneNodes().size(), is(Topology.MAX_NODES));
+		} finally {
+			listed.forEach(topology::removeNode);
+		}
+	}
+
+	/* Finding a node to change, as the dialing does for each node of the topology, compares it with every node held */
+	@Example
+	public void shouldNotBuildAUriToFindANodeInAFullTopology() {
+		final List<Node> peers = IntStream.range(0, Topology.MAX_NODES - topology.cloneNodes().size())
+			.mapToObj(i -> peer(i)).toList();
+		final AtomicInteger found = new AtomicInteger();
+
+		try {
+			peers.forEach(topology::addNode);
+			assertThat(topology.cloneNodes().size(), is(Topology.MAX_NODES));
+
+			final int built = urisBuiltWhile(() -> topology.modifyNode(peer(peers.size() - 1),
+				node -> found.incrementAndGet()));
+
+			assertThat("URIs were built to find a node among " + Topology.MAX_NODES, built, is(0));
+			assertThat(found.get(), is(1));
+		} finally {
+			peers.forEach(topology::removeNode);
 		}
 	}
 }

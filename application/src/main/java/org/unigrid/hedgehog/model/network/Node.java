@@ -34,6 +34,7 @@ import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
@@ -205,23 +206,27 @@ public class Node {
 	/* The address it resolves to, or its host name while it cannot be resolved, so that a node read from JSON during a
 	   failed lookup can still be hashed, compared and listed */
 	public URI getURI() {
-		final String host = address.isUnresolved() ? address.getHostString() : address.getAddress().getHostAddress();
-
-		return UriBuilder.fromPath("/{host}:{port}").build(host, address.getPort());
+		return UriBuilder.fromPath("/{host}:{port}").build(host(), address.getPort());
 	}
 
+	private String host() {
+		return address.isUnresolved() ? address.getHostString() : address.getAddress().getHostAddress();
+	}
+
+	/* A node is the host and the port of its address, which is all that its URI is made of. Making one for each
+	   comparison, as the topology compares a node with the nodes it holds and hashes it to find its place, costs more
+	   than the comparison itself on the event loops that handle a list of peers. */
 	@Override
 	public boolean equals(Object o) {
-		final URI me = getURI();
-		final URI other = ((Node) o).getURI();
-		final boolean isEqual = me.equals(other);
+		final Node other = (Node) o;
+		final boolean isEqual = address.getPort() == other.address.getPort() && host().equals(other.host());
 
-		log.atTrace().log("Comparing {} with {} = {}", me, other, isEqual);
+		log.atTrace().log("Comparing {} with {} = {}", address, other.address, isEqual);
 		return isEqual;
 	}
 
 	@Override
 	public int hashCode() {
-		return getURI().hashCode();
+		return Objects.hash(host(), address.getPort());
 	}
 }

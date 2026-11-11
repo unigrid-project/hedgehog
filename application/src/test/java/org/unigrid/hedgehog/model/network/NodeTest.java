@@ -22,6 +22,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -113,6 +115,51 @@ public class NodeTest extends BaseMockedWeldTest {
 		assertThat(node.hashCode(), is(unresolved("no-such-host.invalid").hashCode()));
 		assertThat(node, equalTo(unresolved("no-such-host.invalid")));
 		assertThat(node, not(equalTo(unresolved("another-host.invalid"))));
+	}
+
+	private static void assertComparedAsItsUriIs(Node first, Node second) {
+		assertThat(first.equals(second), is(first.getURI().equals(second.getURI())));
+
+		if (first.equals(second)) {
+			assertThat(first.hashCode(), is(second.hashCode()));
+		}
+	}
+
+	/* A node is the same as another when their URIs are, as nodes were compared when a URI was made for each, and the
+	   same node hashes alike */
+	@Property(tries = 100)
+	public void shouldCompareNodesAsTheirUrisDo(@ForAll("provideNode") Node node,
+		@ForAll @IntRange(min = 1024, max = 65535) int port) {
+
+		final InetAddress host = node.getAddress().getAddress();
+		final Node same = Node.builder().address(new InetSocketAddress(host, node.getAddress().getPort())).build();
+		final Node moved = Node.builder().address(new InetSocketAddress(host, port)).build();
+
+		assertThat(node, equalTo(same));
+		assertComparedAsItsUriIs(node, same);
+		assertComparedAsItsUriIs(node, moved);
+		assertComparedAsItsUriIs(moved, node);
+	}
+
+	/* A host name written as the address of a node that resolves names that node, while the two scopes of a link local
+	   address name two: the host is written the way the URI has been made of it */
+	@Example
+	@SneakyThrows
+	public void shouldCompareAHostNameAndTheScopesOfAnAddressAsTheirUrisDo() {
+		final byte[] linkLocal = { (byte) 0xfe, (byte) 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+		final Node resolved = Node.builder().address(new InetSocketAddress("127.0.0.1", 52883)).build();
+		final Node scoped = Node.builder()
+			.address(new InetSocketAddress(Inet6Address.getByAddress(null, linkLocal, 1), 52883)).build();
+		final Node rescoped = Node.builder()
+			.address(new InetSocketAddress(Inet6Address.getByAddress(null, linkLocal, 2), 52883)).build();
+
+		assertThat(resolved, equalTo(unresolved("127.0.0.1")));
+		assertComparedAsItsUriIs(resolved, unresolved("127.0.0.1"));
+		assertComparedAsItsUriIs(unresolved("127.0.0.1"), resolved);
+		assertComparedAsItsUriIs(resolved, unresolved("localhost"));
+		assertThat(scoped, not(equalTo(rescoped)));
+		assertComparedAsItsUriIs(scoped, rescoped);
+		assertComparedAsItsUriIs(scoped, scoped);
 	}
 
 	/* Listing a node that does not resolve is allowed, keeping one is not: a peer could fill the topology with names */
