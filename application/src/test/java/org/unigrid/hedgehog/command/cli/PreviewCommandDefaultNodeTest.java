@@ -40,10 +40,12 @@ import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
@@ -322,6 +324,25 @@ public class PreviewCommandDefaultNodeTest extends BaseDefaultNodeTest {
 
 			assertThat(hidden + " exited with " + result.exitCode() + " and said: " + result.err(), result.err(),
 				containsString("This release does not include the ledger part"));
+		}
+
+		assertThat(createdOfThePreview(), is(empty()));
+		assertThat(threadsOfThePreview(), is(empty()));
+	}
+
+	/* A node that takes no spork of the type holds none of it, so the command would otherwise ask for the option that
+	   has the board key sign a first version, which the node then refuses */
+	@Example
+	public void shouldSayThatTheNodeTakesNoSuchSporkRatherThanAskForAFirstVersion() {
+		for (Hidden hidden : sayingNoReason("gridspork-set")) {
+			final HedgehogCli.Result result = run(hidden);
+			final String type = hidden.command().split(" ")[1].toUpperCase(Locale.ROOT).replace('-', '_');
+			final String said = hidden + " exited with " + result.exitCode() + " and said: "
+				+ result.err().lines().findFirst().orElse("");
+
+			assertThat(said, result.err(), not(containsString("give " + FIRST_VERSION)));
+			assertThat(said, result.err(), anyOf(containsString("This release does not take the " + type + " spork"),
+				containsString("This node takes no " + type + " spork")));
 		}
 
 		assertThat(createdOfThePreview(), is(empty()));

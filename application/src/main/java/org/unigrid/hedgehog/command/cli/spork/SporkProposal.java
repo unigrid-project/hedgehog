@@ -24,6 +24,7 @@ import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -61,6 +62,8 @@ public final class SporkProposal {
 	static final String FIRST_VERSION = "Make the first version of the spork when the node holds none. A first version"
 		+ " takes the place of the one the network holds, so give this only for a spork the network has none of.";
 
+	private static final String SHOWN = "/gridspork/";
+
 	/* What a command judges with the node before anything is signed; an IllegalArgumentException says what is wrong */
 	@FunctionalInterface
 	public interface Check {
@@ -94,7 +97,7 @@ public final class SporkProposal {
 			final Optional<GridSpork> stored = sporks.stored(type);
 
 			if (stored.isEmpty()) {
-				requireFirstVersion(commandLine, type, firstVersion);
+				requireFirstVersion(commandLine, type, firstVersion, rest);
 			}
 
 			final GridSpork spork = GridSpork.nextVersion(type, stored.orElse(null),
@@ -118,13 +121,35 @@ public final class SporkProposal {
 		return ExitCode.FAILED;
 	}
 
-	private static void requireFirstVersion(CommandLine commandLine, GridSpork.Type type, boolean firstVersion) {
+	private static void requireFirstVersion(CommandLine commandLine, GridSpork.Type type, boolean firstVersion,
+		RestClient rest) throws ResponseOddityException {
+
 		if (!firstVersion) {
+			requireTaken(type, rest);
+
 			throw new ParameterException(commandLine, "The node holds no " + type + " spork, so nothing was"
 				+ " signed; give --first-version to make the first version of it");
 		}
 
 		System.out.println("Making the first version of the " + type + " spork, as the node holds none");
+	}
+
+	/* A node that takes no spork of a type holds none of it either, and refuses a first version once the board key has
+	   signed it. Where it shows the spork, under the name of the type, it says that it takes none, which is then told
+	   in place of the option that makes a first version. Whatever else it answers there, and a node that does not
+	   answer, leaves the option to be told. */
+	private static void requireTaken(GridSpork.Type type, RestClient rest) throws ResponseOddityException {
+		try {
+			rest.get(SHOWN + type.name().toLowerCase(Locale.ROOT).replace('_', '-')).close();
+		} catch (ResponseOddityException ex) {
+			final boolean isUnavailable = ex.getStatusCode() == Status.SERVICE_UNAVAILABLE.getStatusCode();
+
+			if (isUnavailable && StringUtils.isNotBlank(ex.getBody())) {
+				throw ex;
+			}
+		} catch (ProcessingException ex) {
+			/* Nothing is known of the type then, as nothing was before the node was asked */
+		}
 	}
 
 	/* The data of a spork as a whole, so that whoever signs sees every change, those carried over among them */
