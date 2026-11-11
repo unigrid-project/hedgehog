@@ -378,6 +378,37 @@ public class TopologyTest extends BaseMockedWeldTest {
 		assertThat(topology.findGridnode(fresh.getId()).isPresent(), is(true));
 	}
 
+	/* A purge that ends in an exception must not leave the lock of the gridnodes held: the next offer, or the next copy
+	   for the REST answer, on another thread would then wait for ever */
+	@Example
+	public void shouldReleaseTheLockOfTheGridnodesWhenAPurgeThrows() throws Exception {
+		final Gridnode stale = signed(new Signature(), Gridnode.Status.ACTIVE, "10.0.0.2:1", NOW);
+		final ExecutorService threads = Executors.newSingleThreadExecutor();
+
+		topology.offerGridnode(stale, NOW);
+
+		boolean threw = false;
+
+		try {
+			topology.purgeGridnodes(NOW + MAX_AGE, null);
+		} catch (NullPointerException ex) {
+			threw = true;
+		}
+
+		assertThat("the purge was expected to throw for a missing entry to keep", threw, is(true));
+
+		try {
+			final Future<Set<Gridnode>> copied = threads.submit(topology::cloneGridnode);
+
+			assertThat(copied.get(10, TimeUnit.SECONDS).stream().map(Gridnode::getId).toList(),
+				hasItem(stale.getId()));
+		} catch (TimeoutException ex) {
+			assertThat("the lock of the gridnodes is held after the purge threw", false);
+		} finally {
+			threads.shutdownNow();
+		}
+	}
+
 	private static final int RELAYED_TO = 40;
 	private static final int OFFERING_THREADS = 4;
 	private static final int OFFERED_BY_EACH = 75;

@@ -231,7 +231,10 @@ public class Node {
 	   than the comparison itself on the event loops that handle a list of peers. */
 	@Override
 	public boolean equals(Object o) {
-		final Node other = (Node) o;
+		if (!(o instanceof Node other)) {
+			return false;
+		}
+
 		final boolean isEqual = address.getPort() == other.address.getPort() && host().equals(other.host());
 
 		log.atTrace().log("Comparing {} with {} = {}", address, other.address, isEqual);

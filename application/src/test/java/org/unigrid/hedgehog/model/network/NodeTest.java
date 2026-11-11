@@ -26,6 +26,7 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -161,6 +162,20 @@ public class NodeTest extends BaseMockedWeldTest {
 		assertThat(scoped, not(equalTo(rescoped)));
 		assertComparedAsItsUriIs(scoped, rescoped);
 		assertComparedAsItsUriIs(scoped, scoped);
+	}
+
+	/* A list or a set that holds more than nodes, or nothing at all, asks a node whether it is the same as what it holds:
+	   the answer is no, not an exception */
+	@Example
+	public void shouldNotEqualNothingOrAnObjectOfAnotherType() {
+		final Node node = Node.builder().address(new InetSocketAddress("127.0.0.1", 52883)).build();
+		final List<Object> mixed = Arrays.asList("127.0.0.1:52883", null, node);
+
+		assertThat(node.equals(null), is(false));
+		assertThat(node.equals("127.0.0.1:52883"), is(false));
+		assertThat(node.equals(node.getURI()), is(false));
+		assertThat(mixed.contains(node), is(true));
+		assertThat(mixed.indexOf(node), is(2));
 	}
 
 	/* Listing a node that does not resolve is allowed, keeping one is not: a peer could fill the topology with names */
