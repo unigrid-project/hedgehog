@@ -28,6 +28,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
 /*
    Most daemons will never be asked about the legacy chain, and a snapshot costs several hundred
@@ -39,7 +40,7 @@ public final class BootstrapSnapshot {
 	@Getter private final Path path;
 	private final AtomicReference<SnapshotReader> reader = new AtomicReference<>();
 	private final AtomicReference<FileIdentity> opened = new AtomicReference<>();
-	private final AtomicReference<FileIdentity> refusal = new AtomicReference<>();
+	private final AtomicReference<Refusal> refusal = new AtomicReference<>();
 
 	public Optional<SnapshotReader> getReader() {
 		if (Files.exists(path) && needsOpen()) {
@@ -50,17 +51,27 @@ public final class BootstrapSnapshot {
 	}
 
 	private boolean needsOpen() {
-		return reader.get() == null ? !matches(refusal.get()) : !matches(opened.get());
+		return reader.get() == null ? !isRefused() : !matches(opened.get());
+	}
+
+	private boolean isRefused() {
+		final Refusal known = refusal.get();
+
+		return known != null && known.getGeneration() == NetworkKey.getGeneration() && matches(known.getFile());
 	}
 
 	private boolean matches(FileIdentity previous) {
 		return previous != null && FileIdentity.of(path).map(previous::equals).orElse(false);
 	}
 
+	/* The board keys are taken as they are when the open begins, so that keys learnt of meanwhile make the refusal
+	   stale on the next request */
 	private synchronized void open() {
 		if (!needsOpen()) {
 			return;
 		}
+
+		final long generation = NetworkKey.getGeneration();
 
 		try {
 			reader.set(SnapshotReader.open(path));
@@ -74,7 +85,7 @@ public final class BootstrapSnapshot {
 			}
 		} catch (IOException ex) {
 			reader.set(null);
-			refusal.set(FileIdentity.of(path).orElse(null));
+			refusal.set(new Refusal(FileIdentity.of(path).orElse(null), generation));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}
 	}
@@ -97,5 +108,15 @@ public final class BootstrapSnapshot {
 				return Optional.empty();
 			}
 		}
+	}
+
+	/*
+	   Whether a signature verifies depends on the board keys the node holds, which grow as it learns of the changes
+	   to them, so a refusal also stands only for the keys it was judged against.
+	*/
+	@Value
+	private static final class Refusal {
+		private FileIdentity file;
+		private long generation;
 	}
 }

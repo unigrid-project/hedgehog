@@ -25,16 +25,27 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
 import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import net.jqwik.api.Example;
+import net.jqwik.api.lifecycle.AfterTry;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 
 public class BootstrapSnapshotTest {
+	@AfterTry
+	public void after() {
+		NetworkKey.reset();
+	}
+
 	@Example
 	@SneakyThrows
 	public void shouldServeAnUnsignedSnapshot() {
@@ -114,6 +125,27 @@ public class BootstrapSnapshotTest {
 		assertThat(snapshot.getReader().isPresent(), equalTo(false));
 		assertThat(snapshot.getReader().isPresent(), equalTo(false));
 		assertThat(opens.get(), equalTo(1));
+	}
+
+	/* A node that goes by the board keys of its release refuses a snapshot that a board key signed which joined later.
+	   The refusal is a verdict on the board keys as much as on the file, so once the node learns of the key the
+	   snapshot is taken without the file being touched. */
+	@Example
+	@SneakyThrows
+	public void shouldJudgeARefusedSnapshotAgainWhenTheBoardKeysChange() {
+		buildIn(keys(0, 1));
+
+		final Path path = snapshot();
+
+		SnapshotSignature.signAndAppend(path, key(2).getPrivateKey());
+
+		final BootstrapSnapshot snapshot = new BootstrapSnapshot(path);
+
+		assertThat(snapshot.getReader().isPresent(), equalTo(false));
+		assertThat(NetworkKey.install(NetworkKey.getActiveKeys().after(List.of(publicKeysOf(keys(1, 2))))),
+			equalTo(true));
+
+		assertThat(snapshot.getReader().isPresent(), equalTo(true));
 	}
 
 	@Example
