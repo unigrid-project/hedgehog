@@ -28,6 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
@@ -40,12 +42,13 @@ import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.server.BaseDefaultNodeTest;
 
 /* A holder of the REST token sends every HTTP method, with and without a small body, to the paths of the ledger, the
-   storage and the gridnodes at a node run without --preview. A method that a path takes is answered as left off, and
-   any other request is refused by the container before there is a resource. Nothing that a part stands on is built
-   for any of them: the resource is made before the filter turns the request away, so a resource that asked for the
-   ledger service as it was made would start it. The requests are written out by hand, as a client library does not
-   send every method. */
+   storage and the gridnodes at a node run without --preview. A method that a path takes is answered as left off, an
+   OPTIONS request is told the methods of the path by the container, and any other request is refused by the container
+   before there is a resource. Nothing that a part stands on is built for any of them: the resource is made before the
+   filter turns the request away, so a resource that asked for the ledger service as it was made would start it. The
+   requests are written out by hand, as a client library does not send every method. */
 public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
+	private static final int ANSWERED = Status.OK.getStatusCode();
 	private static final int LEFT_OFF = Status.SERVICE_UNAVAILABLE.getStatusCode();
 	private static final int NOT_ALLOWED = Status.METHOD_NOT_ALLOWED.getStatusCode();
 	private static final int NOT_TAKEN = Status.UNSUPPORTED_MEDIA_TYPE.getStatusCode();
@@ -87,6 +90,10 @@ public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
 			return EVERY_METHOD.stream().filter(method -> !taken().contains(method) && !OPTIONS.equals(method))
 				.toList();
 		}
+
+		Set<String> allowed() {
+			return Stream.concat(taken().stream(), Stream.of(OPTIONS)).collect(Collectors.toSet());
+		}
 	}
 
 	private record Request(String method, String path, String mediaType, byte[] body) {
@@ -96,7 +103,8 @@ public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
 		}
 	}
 
-	private record Reply(int status, String body) { }
+	/* The methods are those that the Allow header of the answer names, which is none where it has no such header */
+	private record Reply(int status, Set<String> methods, String body) { }
 
 	@SneakyThrows
 	private static SSLContext trustingEveryCertificate() {
@@ -129,7 +137,13 @@ public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
 		return line.toString(StandardCharsets.US_ASCII).trim();
 	}
 
-	/* The status of the answer and the body that it gives the length of, which an answer to HEAD does not carry */
+	private static Set<String> methodsOf(final String list) {
+		return Stream.of(list.split(",")).map(String::trim).filter(method -> !method.isEmpty())
+			.collect(Collectors.toSet());
+	}
+
+	/* The status of the answer, the methods that it allows and the body that it gives the length of, which an answer
+	   to HEAD does not carry */
 	private static Reply send(final Request request) throws IOException {
 		try (SSLSocket socket = (SSLSocket) TLS.getSocketFactory().createSocket(RestOptions.getHost(),
 			RestOptions.getPort())) {
@@ -144,16 +158,21 @@ public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
 
 			final InputStream in = socket.getInputStream();
 			final int status = Integer.parseInt(readLine(in).split(" ")[1]);
+			String allowed = "";
 			int length = 0;
 
 			for (String header = readLine(in); !header.isEmpty(); header = readLine(in)) {
+				final String value = header.substring(header.indexOf(':') + 1).trim();
+
 				if (header.toLowerCase(Locale.ROOT).startsWith("content-length:")) {
-					length = Integer.parseInt(header.substring(header.indexOf(':') + 1).trim());
+					length = Integer.parseInt(value);
+				} else if (header.toLowerCase(Locale.ROOT).startsWith("allow:")) {
+					allowed = value;
 				}
 			}
 
-			return new Reply(status, new String(in.readNBytes(HEAD.equals(request.method()) ? 0 : length),
-				StandardCharsets.UTF_8));
+			return new Reply(status, methodsOf(allowed), new String(in.readNBytes(HEAD.equals(request.method()) ? 0
+				: length), StandardCharsets.UTF_8));
 		}
 	}
 
@@ -244,15 +263,35 @@ public class PreviewPartDefaultNodeTest extends BaseDefaultNodeTest {
 		assertNothingOfThePreview(problems);
 	}
 
-	/* The container answers the request from what it knows of the path, and whatever it answers, it makes no
-	   resource for it */
+	/* The container answers the request by itself, from what it knows of the path: it names the methods that the path
+	   takes, and it neither asks the filter of the parts nor makes a resource */
 	@Example
-	public void shouldBuildNothingForAnOptionsRequest() throws IOException {
+	public void shouldAnswerAnOptionsRequestWithTheMethodsOfThePath() throws IOException {
 		final List<String> problems = new ArrayList<>();
 
 		for (Location location : LOCATIONS) {
 			for (byte[] body : BODIES) {
-				ask(new Request(OPTIONS, location.path(), location.mediaType(), body), problems);
+				final Request request = new Request(OPTIONS, location.path(), location.mediaType(), body);
+				final Reply reply = ask(request, problems);
+
+				if (reply.status() != ANSWERED || !location.allowed().equals(reply.methods())) {
+					problems.add(request + " was answered " + reply.status() + " allowing " + reply.methods());
+				}
+			}
+		}
+
+		assertNothingOfThePreview(problems);
+	}
+
+	/* The container would describe every resource at this path, those of a part left off among them, and the node
+	   has it serve no description */
+	@Example
+	public void shouldAnswerThePathOfADescriptionOfTheResourcesAsNotThere() throws IOException {
+		final List<String> problems = new ArrayList<>();
+
+		for (String method : EVERY_METHOD) {
+			for (byte[] body : BODIES) {
+				askFor(new Request(method, "/application.wadl", XML, body), List.of(NOT_FOUND), problems);
 			}
 		}
 

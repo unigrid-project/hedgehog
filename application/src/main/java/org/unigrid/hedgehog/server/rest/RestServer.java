@@ -46,6 +46,7 @@ import lombok.Getter;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.server.spi.Container;
 import org.glassfish.jersey.server.validation.ValidationFeature;
 import org.unigrid.hedgehog.model.option.RestOptions;
@@ -86,6 +87,10 @@ public class RestServer extends AbstractServer {
 			UtilResource.class
 		);
 
+		/* The container would otherwise describe every resource to a holder of the token, those of a part that this
+		   release leaves off among them: as its answer to an OPTIONS request and at a path of its own. With the
+		   description off it answers an OPTIONS request with the methods of the path alone. */
+		config.property(ServerProperties.WADL_FEATURE_DISABLE, true);
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
