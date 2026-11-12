@@ -45,6 +45,7 @@ import org.unigrid.hedgehog.model.bootstrap.Chain;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.EntryKind;
 import org.unigrid.hedgehog.model.bootstrap.Hashing;
+import org.unigrid.hedgehog.model.bootstrap.Holder;
 import org.unigrid.hedgehog.model.bootstrap.LedgerEntries;
 import org.unigrid.hedgehog.model.bootstrap.AddressRegistry;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
@@ -56,6 +57,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.server.rest.entity.ErrorResponse;
 import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
 
 public class BootstrapResourceTest extends BaseRestClientTest {
@@ -190,6 +192,62 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		assertThat(page.get(0).getAmount(), equalTo(Coin.toDecimal(AMOUNT)));
 		assertThat(page.get(0).getKind(), equalTo(EntryKind.RECEIVED));
 		assertThat(page.get(0).getTransaction(), equalTo(BlockParser.toDisplayString(identifierAt(1))));
+	}
+
+	/* The snapshot of these tests holds one address, so it is both the first and the last holder */
+	@Example
+	@SneakyThrows
+	public void shouldReadTheHolderAtAnIndexWithItsPlainSnapshotBalance() {
+		writeSnapshot();
+		mint(ADDRESS_HASH, TIP_HEIGHT + 1, "2.5");
+
+		final Holder holder = client.getEntity("/bootstrap/holders/0", Holder.class);
+
+		assertThat(holder.index(), equalTo(0));
+		assertThat(holder.address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(holder.balance(), equalTo(Coin.toDecimal(AMOUNT * HEIGHTS)));
+		assertThat(holder.transactionCount(), equalTo(HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotFindAHolderPastTheLastAddress() {
+		writeSnapshot();
+
+		final Response response = client.get("/bootstrap/holders/1");
+
+		assertThat(response.getStatus(), equalTo(Response.Status.NOT_FOUND.getStatusCode()));
+		assertThat(response.readEntity(ErrorResponse.class).error(),
+			equalTo("No holder at index 1; the snapshot has 1 addresses"));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRejectANegativeHolderIndex() {
+		writeSnapshot();
+
+		try {
+			client.get("/bootstrap/holders/-1");
+			throw new AssertionError("A negative holder index was accepted");
+
+		} catch (ResponseOddityException expected) {
+			assertThat(expected.getMessage(), startsWith(
+				String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldPageThroughTheHoldersWithinTheLargestPage() {
+		writeSnapshot();
+
+		final GenericType<List<Holder>> holders = new GenericType<>() { };
+		final List<Holder> first = client.get("/bootstrap/holders?offset=0&limit=5000").readEntity(holders);
+		final List<Holder> past = client.get("/bootstrap/holders?offset=1").readEntity(holders);
+
+		assertThat(first.size(), equalTo(1));
+		assertThat(first.get(0).address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(past, equalTo(List.of()));
 	}
 
 	@SneakyThrows

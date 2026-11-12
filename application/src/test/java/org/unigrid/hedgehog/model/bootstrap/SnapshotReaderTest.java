@@ -25,9 +25,12 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 import lombok.SneakyThrows;
 import mockit.Mock;
 import mockit.MockUp;
@@ -218,6 +221,77 @@ public class SnapshotReaderTest {
 		assertThat(unitsOf(reader, hash("7f", "ff", "")), equalTo(0L));
 		assertThat(unitsOf(reader, hash("80", "00", "01")), equalTo(0L));
 		assertThat(unitsOf(reader, hash("", "ff", "fe")), equalTo(0L));
+	}
+
+	/* The table is sorted by hash, so the holder at an index is the hash that sorts at that place */
+	@Property(tries = 50)
+	@SneakyThrows
+	public void shouldReadEveryHolderByIndexInTheOrderOfItsHash(
+		@ForAll("provideHoldings") Map<String, Long> holdings) {
+
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(holdings));
+		final List<String> sorted = holdings.keySet().stream().sorted().toList();
+
+		assertThat(reader.addressCount(), equalTo(sorted.size()));
+
+		for (int index = 0; index < sorted.size(); index++) {
+			final Holder holder = reader.holderAt(index).orElseThrow();
+
+			assertThat(holder.index(), equalTo(index));
+			assertThat(holder.address(), equalTo(AddressSnapshots.addressOf(sorted.get(index))));
+			assertThat(holder.balance(), equalTo(Coin.toDecimal(holdings.get(sorted.get(index)))));
+		}
+
+		assertThat(reader.holderAt(sorted.size()), equalTo(Optional.empty()));
+		assertThat(reader.holders(0, sorted.size()), equalTo(IntStream.range(0, sorted.size())
+			.mapToObj(index -> reader.holderAt(index).orElseThrow()).toList()));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldPageThroughTheHoldersAndStopAtTheEnd() {
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(Map.of(hash("", "01", ""), 5L,
+			hash("", "02", ""), 0L, hash("", "03", ""), 7L, hash("", "04", ""), 0L, hash("", "05", ""), 9L)));
+
+		assertThat(indexesOf(reader.holders(3, 10)), equalTo(List.of(3, 4)));
+		assertThat(indexesOf(reader.holders(1, 2)), equalTo(List.of(1, 2)));
+		assertThat(indexesOf(reader.holders(-2, 2)), equalTo(List.of(0, 1)));
+		assertThat(reader.holders(5, 10), equalTo(List.of()));
+		assertThat(reader.holders(0, -1), equalTo(List.of()));
+		assertThat(reader.holderAt(1).orElseThrow().balance(), equalTo(Coin.toDecimal(0)));
+		assertThat(reader.holderAt(2).orElseThrow().balance(), equalTo(Coin.toDecimal(7)));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldRefuseANegativeHolderIndex() {
+		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(Map.of(hash("", "01", ""), 5L)));
+
+		try {
+			reader.holderAt(-1);
+			throw new AssertionError("A negative holder index was accepted");
+
+		} catch (IllegalArgumentException expected) {
+			assertThat(expected.getMessage(), equalTo("A holder index cannot be negative: -1"));
+		}
+	}
+
+	/* A holder carries the same balance and number of entries as asking for its address does */
+	@Example
+	@SneakyThrows
+	public void shouldAgreeWithTheBalanceOfEachHoldersAddress() {
+		final SnapshotReader reader = SnapshotReader.open(validSnapshot());
+
+		for (final Holder holder : reader.holders(0, reader.addressCount())) {
+			final AddressBalance balance = reader.balanceOf(holder.address()).orElseThrow();
+
+			assertThat(holder.balance(), equalTo(balance.getBalance()));
+			assertThat(holder.transactionCount(), equalTo(balance.getTransactionCount()));
+		}
+	}
+
+	private static List<Integer> indexesOf(List<Holder> holders) {
+		return holders.stream().map(Holder::index).toList();
 	}
 
 	@Example
