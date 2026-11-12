@@ -18,6 +18,9 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import com.google.common.jimfs.Configuration;
+import com.google.common.jimfs.Jimfs;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -208,6 +211,22 @@ public class BoardKeysRecordTest {
 			run.get(WAIT.toMillis(), TimeUnit.MILLISECONDS);
 		} catch (TimeoutException ex) {
 			assertThat(run.isDone(), is(false));
+		}
+	}
+
+	/* A data directory given as a bare name, or as none, keeps the record in the working directory */
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheRecordUnderABareFileNameInTheWorkingDirectory() {
+		try (FileSystem fileSystem = Jimfs.newFileSystem(Configuration.unix())) {
+			BoardKeysRecordFixture.keepIn(fileSystem.getPath(""));
+
+			final Path file = BoardKeysRecord.ofThisMachine().getFile();
+
+			assertThat(file.getNameCount(), is(1));
+			assertThat(keep(chain(ADDING)).isPresent(), is(true));
+			assertThat(Files.exists(file.toAbsolutePath()), is(true));
+			assertThat(recorded().size(), is(1));
 		}
 	}
 

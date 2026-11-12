@@ -36,6 +36,10 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 	/* An IPv6 address written out in full with the name of its scope, the longest an honest peer writes */
 	public static final int MAX_HOST_ADDRESS = 64;
 
+	/* What an address of either family is written with, before the scope that one may have */
+	private static final String ADDRESS_CHARACTERS = "0123456789abcdefABCDEF.:";
+	private static final int DECIMAL = 10;
+
 	/*
 	    Packet format:
 	    0..............................................................63
@@ -72,11 +76,51 @@ public class PublishPeersDecoder extends AbstractReplayingDecoder<PublishPeers> 
 	   same thread for as long as a name server cares to take. An honest peer writes an address, so only an address
 	   is taken, and a name is dropped without a lookup. */
 	private static Optional<InetAddress> literalOf(String hostAddress) {
+		if (!isWrittenAsAddress(hostAddress)) {
+			return Optional.empty();
+		}
+
 		try {
 			return Optional.of(InetAddress.ofLiteral(hostAddress));
 		} catch (IllegalArgumentException ex) {
 			return Optional.empty();
 		}
+	}
+
+	/* A name is told from an address by what it is written with, before the JDK is asked to read it: the JDK finds
+	   that a name is no address by an exception for each family, for each host of a list. What follows a percent
+	   sign is the scope of an IPv6 address. One that is no number is the name of an interface to the JDK, which asks
+	   the operating system for the interfaces of this host to find it. The name is that of an interface of the
+	   peer's host, so a host with such a scope is no address to take either. */
+	private static boolean isWrittenAsAddress(String hostAddress) {
+		final int percent = hostAddress.indexOf('%');
+		final int end = percent < 0 ? hostAddress.length() : percent;
+
+		for (int i = 0; i < end; i++) {
+			if (ADDRESS_CHARACTERS.indexOf(hostAddress.charAt(i)) < 0) {
+				return false;
+			}
+		}
+
+		return percent < 0 || isScopeNumber(hostAddress.substring(percent + 1));
+	}
+
+	/* What the JDK takes for the number of a scope: digits alone, of a number that an int holds. Anything else it
+	   takes for a name. */
+	private static boolean isScopeNumber(String scope) {
+		long number = 0;
+
+		for (int i = 0; i < scope.length(); i++) {
+			final int digit = scope.charAt(i) - '0';
+
+			number = number * DECIMAL + digit;
+
+			if (digit < 0 || digit >= DECIMAL || number > Integer.MAX_VALUE) {
+				return false;
+			}
+		}
+
+		return !scope.isEmpty();
 	}
 
 	@Override

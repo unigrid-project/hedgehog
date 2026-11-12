@@ -22,12 +22,15 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.not;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import mockit.Mock;
 import mockit.MockUp;
 import java.util.List;
+import java.util.Optional;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
@@ -37,6 +40,7 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.lifecycle.BeforeTry;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 
@@ -51,9 +55,16 @@ public class BootstrapHistoryTest {
 		BootstrapCli.snapshotInMemory();
 	}
 
-	/* Answers only these exact arguments, so a command passing anything else gets an empty page */
 	private void readerAnswers(String address, int offset, int limit, List<AddressTransaction> page,
 		RuntimeException problem, IOException unreadable) {
+
+		readerAnswers(address, offset, limit, page, problem, unreadable, 0);
+	}
+
+	/* Answers only these exact arguments, so a command passing anything else gets an empty page. The address is in the
+	   snapshot with the entries given, none when it never appeared. */
+	private void readerAnswers(String address, int offset, int limit, List<AddressTransaction> page,
+		RuntimeException problem, IOException unreadable, int entries) {
 
 		final SnapshotReader reader = BootstrapCli.withoutConstructor(SnapshotReader.class);
 		final List<Object> expected = List.of(address, offset, limit);
@@ -73,6 +84,11 @@ public class BootstrapHistoryTest {
 				}
 
 				return expected.equals(List.of(requested, from, count)) ? page : List.of();
+			}
+
+			@Mock public Optional<AddressBalance> balanceOf(String requested) {
+				return entries > 0 && requested.equals(address)
+					? Optional.of(new AddressBalance(address, BigDecimal.TEN, entries)) : Optional.empty();
 			}
 		};
 	}
@@ -130,6 +146,31 @@ public class BootstrapHistoryTest {
 
 		assertThat(result.exitCode(), equalTo(1));
 		assertThat(result.err(), containsString("No transactions for " + ADDRESS));
+	}
+
+	/* An address that appeared has transactions, only none on this page; "no transactions" says it never had any */
+	@Property(tries = 20)
+	public void shouldNotSayAnAddressHasNoTransactionsWhenTheOffsetIsPastTheEnd(
+		@ForAll @IntRange(min = 3, max = MAX_PAGE) int offset) {
+
+		readerAnswers(ADDRESS, offset, DEFAULT_LIMIT, List.of(), null, null, 3);
+
+		final HedgehogCli.Result result = BootstrapCli.run("history", ADDRESS, "--offset", String.valueOf(offset));
+
+		assertThat(result.err(), not(containsString("No transactions for")));
+		assertThat(result.err(), containsString("3 in all"));
+		assertThat(result.out(), equalTo(""));
+	}
+
+	@Example
+	public void shouldNotSayAnAddressHasNoTransactionsWhenNoneIsAsked() {
+		readerAnswers(ADDRESS, DEFAULT_OFFSET, 0, List.of(), null, null, 3);
+
+		final HedgehogCli.Result result = BootstrapCli.run("history", ADDRESS, "-n", "0");
+
+		assertThat(result.err(), not(containsString("No transactions for")));
+		assertThat(result.err(), containsString("3 in all"));
+		assertThat(result.out(), equalTo(""));
 	}
 
 	@Example

@@ -38,15 +38,21 @@ public class PublishPeersSchedule extends AbstractSchedule implements Schedulabl
 		super(PublishPeers.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
 	}
 
+	/* The peers are those known when it runs, so a stream that takes no more is left out: what would only wait on it is
+	   sent by the next run, as it stands then */
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			CDIUtil.resolveAndRun(Topology.class, topology -> {
-				final Set<Node> nodesToSend = topology.cloneNodes();
-
-				log.atTrace().log("Publishing {} peers to {}", nodesToSend.size(), channel.remoteAddress());
-				channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend).build());
-			});
+			if (channel.isWritable()) {
+				CDIUtil.resolveAndRun(Topology.class, topology -> publish(topology, channel));
+			}
 		};
+	}
+
+	private static void publish(Topology topology, Channel channel) {
+		final Set<Node> nodesToSend = topology.cloneNodes();
+
+		log.atTrace().log("Publishing {} peers to {}", nodesToSend.size(), channel.remoteAddress());
+		channel.writeAndFlush(PublishPeers.builder().nodes(nodesToSend).build());
 	}
 }

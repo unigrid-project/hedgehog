@@ -20,9 +20,14 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
+import mockit.Invocation;
+import mockit.Mock;
+import mockit.MockUp;
 import net.jqwik.api.Example;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.unigrid.hedgehog.ledger.AccountKey;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
@@ -31,6 +36,8 @@ public class PendingMintsTest {
 	private static final int CURRENT_HEIGHT = 100;
 	private static final String ADDRESS = LegacyAddress.encode(new byte[Hashing.ADDRESS_HASH_SIZE]);
 	private static final String OTHER_ADDRESS = LegacyAddress.encode(filledHash((byte) 1));
+	private static final String LEDGER_ACCOUNT = "ab".repeat(AccountKey.SIZE);
+	private static final int MINTS_OF_OTHERS = 200;
 
 	private final MintStorage mintStorage = new MintStorage();
 
@@ -81,6 +88,31 @@ public class PendingMintsTest {
 		mint("not an address", CURRENT_HEIGHT + 1, "5");
 		mint(ADDRESS, CURRENT_HEIGHT + 1, "1");
 		assertThat(pending(), equalTo(new BigDecimal("1.00000000")));
+	}
+
+	/* A request names one address, so the only text it needs decoded is that address. The owner of a mint is found
+	   by comparing its text, as an address has one spelling, and a mint to a ledger account is never decoded to
+	   find out that it is not a legacy address. */
+	@Example
+	public void shouldDecodeNothingButTheRequestedAddressWhateverTheMintsHold() {
+		final AtomicInteger decodes = new AtomicInteger();
+
+		for (int i = 1; i <= MINTS_OF_OTHERS; i++) {
+			mint(i % 2 == 0 ? OTHER_ADDRESS : LEDGER_ACCOUNT, CURRENT_HEIGHT + i, "1");
+		}
+
+		mint(ADDRESS, CURRENT_HEIGHT + 1, "2");
+
+		new MockUp<LegacyAddress>() {
+			@Mock
+			public byte[] decode(Invocation invocation, String invocationAddress) {
+				decodes.incrementAndGet();
+				return invocation.proceed();
+			}
+		};
+
+		assertThat(pending(), equalTo(new BigDecimal("2.00000000")));
+		assertThat(decodes.get(), is(1));
 	}
 
 	@Example

@@ -50,6 +50,10 @@ public class ConnectionContainer implements Connection {
 		return channel.writeAndFlush(packet);
 	}
 
+	/* A connection that came with an event loop is one this node dialed, and is closed before its loop is shut down:
+	   the loop takes the socket with it, and a peer that was told nothing of the close holds the connection until it
+	   idles out, minutes later. A stream that a peer opened has no loop of its own, and its connection is the
+	   server's to close. */
 	@SneakyThrows
 	public void close() {
 		if (!channel.isShutdown()) {
@@ -58,11 +62,13 @@ public class ConnectionContainer implements Connection {
 
 		if (group.isPresent()) {
 			if (!group.get().isShuttingDown()) {
+				channel.parent().close().await();
 				group.get().shutdownGracefully().sync();
 			}
 		}
 	}
 
+	/* The loop is shut down once the close has gone out, as one shut down at once may close the socket first */
 	@SneakyThrows
 	public void closeDirty() {
 		if (!channel.isShutdown()) {
@@ -71,7 +77,7 @@ public class ConnectionContainer implements Connection {
 
 		if (group.isPresent()) {
 			if (!group.get().isShuttingDown()) {
-				group.get().shutdownGracefully();
+				channel.parent().close().addListener(closed -> group.get().shutdownGracefully());
 			}
 		}
 	}

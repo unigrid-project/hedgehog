@@ -32,6 +32,7 @@ import org.unigrid.hedgehog.model.option.RestOptions;
 import org.unigrid.hedgehog.model.option.SocksOptions;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
+import org.unigrid.hedgehog.model.network.ConnectionLimiter;
 import org.unigrid.hedgehog.server.p2p.P2PServer;
 import org.unigrid.hedgehog.server.rest.RestServer;
 import org.unigrid.hedgehog.server.socks.SocksServer;
@@ -87,6 +88,7 @@ public class TestServer {
 
 			NetOptions.getHost(); result = "localhost";
 			NetOptions.getPort(); result = port;
+			NetOptions.getMaxInbound(); result = ConnectionLimiter.MAX_IN_ALL; minTimes = 0;
 			RestOptions.getHost(); result = "localhost";
 			RestOptions.getPort(); result = FreePortFinder.findFreeLocalPort(port + 1);
 		}};

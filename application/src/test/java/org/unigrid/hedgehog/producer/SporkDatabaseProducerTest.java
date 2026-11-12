@@ -30,12 +30,22 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import lombok.Cleanup;
 import lombok.Data;
@@ -47,6 +57,7 @@ import static org.hamcrest.MatcherAssert.*;
 import static org.hamcrest.Matchers.*;
 import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
+import static org.awaitility.Awaitility.await;
 import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -108,6 +119,111 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 		}
 	}
 
+	/* Seconds that an Instant holds, and that are found in the written file by their bytes, to be changed to seconds
+	   that it does not */
+	private static final long SECONDS_MARKED = 0x0001020304050607L;
+
+	private static byte[] withSecondsBeyondAnInstant(byte[] file) {
+		final byte[] marked = ByteBuffer.allocate(Long.BYTES).putLong(SECONDS_MARKED).array();
+		final byte[] beyond = ByteBuffer.allocate(Long.BYTES).putLong(Long.MAX_VALUE).array();
+		final byte[] changed = file.clone();
+
+		for (int at = 0; at <= file.length - marked.length; at++) {
+			if (Arrays.equals(file, at, at + marked.length, marked, 0, marked.length)) {
+				System.arraycopy(beyond, 0, changed, at, beyond.length);
+				return changed;
+			}
+		}
+
+		throw new IllegalStateException("The time of the spork is not in the file");
+	}
+
+	/* The time of a spork is read by the Instant itself, which refuses seconds it cannot hold with a runtime exception
+	   that the stream does not turn into an IOException. Such a file is moved aside like any other that cannot be read,
+	   and the node starts: if the exception left the producer, the node would not exchange sporks until the file was
+	   removed by hand, and a start would read the same file again. */
+	@Example
+	@SneakyThrows
+	public void shouldMoveAsideAFileWhoseTimeIsBeyondTheRangeOfAnInstant() {
+		final GridSpork spork = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		fakeTheBoard(new Signature(), new Signature());
+		spork.setTimeStamp(Instant.ofEpochSecond(SECONDS_MARKED));
+		stored.set(spork);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+
+			SporkDatabase.persist(file, stored);
+			Files.write(file, withSecondsBeyondAnInstant(Files.readAllBytes(file)));
+
+			final byte[] original = Files.readAllBytes(file);
+			final SporkDatabase db = produced(holding(data));
+			final List<Path> aside = unreadableCopiesIn(data);
+
+			assertThat(db, equalTo(SporkDatabase.builder().build()));
+			assertThat(Files.exists(file), is(false));
+			assertThat(aside, hasSize(1));
+			assertThat(Files.readAllBytes(aside.getFirst()), equalTo(original));
+		}
+	}
+
+	/* A node that is killed after a save made the file it writes into and before it moved the file over the database
+	   leaves that file behind, and every save names a new one. The node removes them when it loads the database, and
+	   only the regular files that a save names so, beside the database. */
+	@Example
+	@SneakyThrows
+	public void shouldRemoveTheFilesOfASaveThatDidNotFinishWhenItLoads() {
+		final List<String> unrelated = List.of("spork.db.lock", "spork.db.1700000000", "spork.db.unreadable-1700000000",
+			"spork.db.unsigned-1700000000", "spork.db.abc.tmp", "spork.db..tmp", "spork.db.12.tmp.bak", "rest.token77.tmp",
+			"other.123.tmp", "xspork.db.123.tmp");
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path nested = Files.createDirectories(data.resolve("nested"));
+			final Path directory = Files.createDirectories(data.resolve("spork.db.5.tmp"));
+
+			SporkDatabase.persist(data.resolve(SporkDatabase.SPORK_DB_FILE), SporkDatabase.builder().build());
+			Files.write(data.resolve("spork.db.123.tmp"), new byte[] {1, 2, 3});
+			Files.write(data.resolve("spork.db.18446744073709551615.tmp"), new byte[0]);
+			Files.write(nested.resolve("spork.db.9.tmp"), new byte[] {4});
+
+			for (String name : unrelated) {
+				Files.write(data.resolve(name), new byte[] {5});
+			}
+
+			assertThat(produced(holding(data)), equalTo(SporkDatabase.builder().build()));
+			assertThat(namesIn(data), containsInAnyOrder(Stream.concat(unrelated.stream(),
+				Stream.of(SporkDatabase.SPORK_DB_FILE, "nested", "spork.db.5.tmp")).toArray(String[]::new)));
+			assertThat(namesIn(nested), contains("spork.db.9.tmp"));
+			assertThat(Files.isDirectory(directory), is(true));
+		}
+	}
+
+	/* The first save of a node that was killed has no database to leave next to the file it was writing */
+	@Example
+	@SneakyThrows
+	public void shouldRemoveTheFileOfASaveThatDidNotFinishWhenThereIsNoDatabase() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+
+			Files.write(data.resolve("spork.db.123.tmp"), new byte[] {1});
+
+			assertThat(produced(holding(data)), equalTo(SporkDatabase.builder().build()));
+			assertThat(namesIn(data), hasSize(0));
+		}
+	}
+
+	@SneakyThrows
+	private static List<Path> unreadableCopiesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.filter(file -> file.getFileName().toString().startsWith(SporkDatabase.SPORK_DB_FILE
+				+ ".unreadable-")).toList();
+		}
+	}
+
 	@SneakyThrows
 	private static void fakeTheBoard(Signature... keys) {
 		final String[] publicKeys = Stream.of(keys).map(Signature::getPublicKey).toArray(String[]::new);
@@ -130,11 +246,16 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 	}
 
 	@SneakyThrows
-	private static SporkDatabase produced(ApplicationDirectory directory) {
+	private static SporkDatabaseProducer producerOf(ApplicationDirectory directory) {
 		final SporkDatabaseProducer producer = new SporkDatabaseProducer();
 
 		FieldUtils.writeField(producer, "applicationDirectory", directory, true);
-		return Reflection.invoke(producer, "produce");
+		return producer;
+	}
+
+	@SneakyThrows
+	private static SporkDatabase produced(ApplicationDirectory directory) {
+		return Reflection.invoke(producerOf(directory), "produce");
 	}
 
 	@SneakyThrows
@@ -349,5 +470,225 @@ public class SporkDatabaseProducerTest extends BaseSporkDatabaseTest {
 			assertThat(SporkDatabase.load(file).getMintStorage(), notNullValue());
 			assertThat(db, equalTo(SporkDatabase.builder().build()));
 		}
+	}
+
+	private static GridSpork supplyOf(long maxSupply) {
+		final GridSpork spork = GridSpork.nextVersion(GridSpork.Type.MINT_SUPPLY, null, Optional.empty());
+
+		spork.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.valueOf(maxSupply));
+		return spork;
+	}
+
+	@SneakyThrows
+	private static Map<String, Object> identityOf(Path file) {
+		return Files.readAttributes(file, "fileKey,lastModifiedTime");
+	}
+
+	@SneakyThrows
+	private static List<String> namesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.map(file -> file.getFileName().toString()).toList();
+		}
+	}
+
+	@SneakyThrows
+	private static BigDecimal maxSupplyIn(Path file) {
+		return SporkDatabase.load(file).getMintSupply().<MintSupply.SporkData>getData().getMaxSupply();
+	}
+
+	/* The saver runs every few minutes whether or not a spork came in, and each run serializes the database, writes
+	   it beside the file and forces it to the disk: a database that is what the last save wrote is left alone */
+	@Example
+	@SneakyThrows
+	public void shouldWriteNothingWhenTheDatabaseIsWhatTheLastSaveWrote() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+
+			final Map<String, Object> written = identityOf(file);
+			final byte[] original = Files.readAllBytes(file);
+
+			Reflection.invoke(producer, "save");
+
+			assertThat(identityOf(file), equalTo(written));
+			assertThat(Files.readAllBytes(file), equalTo(original));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldWriteAgainOnceTheDatabaseChanged() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Reflection.invoke(producer, "save");
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(10)));
+
+			db.set(supplyOf(20));
+			Reflection.invoke(producer, "save");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(20)));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	/* What came in after the last timed save is still on the disk when the node stops */
+	@Example
+	@SneakyThrows
+	public void shouldWriteWhatChangedSinceTheLastSaveWhenTheNodeStops() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Reflection.invoke(producer, "save");
+
+			db.set(supplyOf(20));
+			Reflection.invoke(producer, "destroy");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(20)));
+		}
+	}
+
+	/* A file that an operator removed while the node runs is written again, as it was before saves were skipped */
+	@Example
+	@SneakyThrows
+	public void shouldWriteAgainWhenTheFileIsGone() {
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final Path file = data.resolve(SporkDatabase.SPORK_DB_FILE);
+			final SporkDatabaseProducer producer = producerOf(holding(data));
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			db.set(supplyOf(10));
+			Reflection.invoke(producer, "save");
+			Files.delete(file);
+			Reflection.invoke(producer, "save");
+
+			assertThat(maxSupplyIn(file), equalTo(BigDecimal.valueOf(10)));
+		}
+	}
+
+	/* What a caller that is not kept waiting gets through in with room to spare, on a machine that is busy */
+	private static final long SECONDS = 10;
+
+	/* A data directory on a disk that stops answering: once it is held, whoever asks for it waits until it is
+	   released, as a save does that looks at its directory before it writes */
+	private static final class HeldDirectory extends ApplicationDirectory {
+		private final Path dataDirectory;
+		private final CountDownLatch release = new CountDownLatch(1);
+		private final AtomicInteger waiting = new AtomicInteger();
+		private volatile boolean held;
+
+		private HeldDirectory(Path dataDirectory) {
+			super("test", "test");
+			this.dataDirectory = dataDirectory;
+		}
+
+		@Override
+		@SneakyThrows
+		public Path getUserDataDir() {
+			if (held) {
+				waiting.incrementAndGet();
+				release.await();
+			}
+
+			return dataDirectory;
+		}
+	}
+
+	private static boolean isKeptWaiting(Thread thread) {
+		return thread.getState() == Thread.State.BLOCKED || thread.getState() == Thread.State.WAITING;
+	}
+
+	/* Every lookup of the database runs the producer: on the threads that read the network, for each spork a peer
+	   sends and each stream it opens, and on those that answer REST. A save that waits on a disk that does not answer
+	   keeps the saver waiting, and must not keep them waiting with it. */
+	@Example
+	@SneakyThrows
+	public void shouldHandOutTheDatabaseWhileASaveWaitsOnTheDisk() {
+		final ExecutorService executor = Executors.newFixedThreadPool(2);
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final HeldDirectory directory = new HeldDirectory(Files.createDirectories(fs.getPath("/data")));
+			final SporkDatabaseProducer producer = producerOf(directory);
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+
+			try {
+				directory.held = true;
+
+				final Future<?> save = executor.submit(() -> Reflection.invoke(producer, "save"));
+
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> directory.waiting.get() == 1);
+
+				final Future<SporkDatabase> lookup = executor.submit(() -> Reflection.invoke(producer, "produce"));
+
+				await("a lookup of the database while a save waits on the disk").atMost(SECONDS, TimeUnit.SECONDS)
+					.until(lookup::isDone);
+
+				assertThat(lookup.get(), sameInstance(db));
+				assertThat(save.isDone(), is(false));
+			} finally {
+				directory.release.countDown();
+				executor.shutdown();
+				executor.awaitTermination(SECONDS, TimeUnit.SECONDS);
+			}
+		}
+	}
+
+	/* A stop does not wait for the timer to end before it saves, so its save can meet one that is under way. The two
+	   take turns, as each goes by what the save before it wrote: the save of the stop does not as much as look at the
+	   directory until the other is done. */
+	@Example
+	@SneakyThrows
+	public void shouldKeepTheSaveOfAStopWaitingForASaveThatIsUnderWay() {
+		final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final HeldDirectory directory = new HeldDirectory(data);
+			final SporkDatabaseProducer producer = producerOf(directory);
+			final SporkDatabase db = Reflection.invoke(producer, "produce");
+			final Thread stop = new Thread(() -> destroy(producer), "stop");
+
+			db.set(supplyOf(10));
+
+			try {
+				directory.held = true;
+				executor.submit(() -> Reflection.invoke(producer, "save"));
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> directory.waiting.get() == 1);
+
+				stop.start();
+				await().atMost(SECONDS, TimeUnit.SECONDS).until(() -> isKeptWaiting(stop));
+				assertThat(directory.waiting.get(), is(1));
+			} finally {
+				directory.release.countDown();
+				executor.shutdown();
+				executor.awaitTermination(SECONDS, TimeUnit.SECONDS);
+				stop.join(TimeUnit.SECONDS.toMillis(SECONDS));
+			}
+
+			assertThat(maxSupplyIn(data.resolve(SporkDatabase.SPORK_DB_FILE)), equalTo(BigDecimal.valueOf(10)));
+			assertThat(namesIn(data), contains(SporkDatabase.SPORK_DB_FILE));
+		}
+	}
+
+	@SneakyThrows
+	private static void destroy(SporkDatabaseProducer producer) {
+		Reflection.invoke(producer, "destroy");
 	}
 }

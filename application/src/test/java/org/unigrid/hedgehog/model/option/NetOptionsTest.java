@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -37,13 +38,19 @@ import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.jqwik.RestoreOptionsHook;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.ConnectionLimiter;
+import picocli.CommandLine;
 
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 public class NetOptionsTest {
 	private static final int PUBLIC_KEY_LENGTH = Signature.PUBLIC_KEY_HEX_SIZE * 2;
 	private static final String PUBLIC_KEY = "\\p{XDigit}{" + PUBLIC_KEY_LENGTH + "}";
+
+	/* What a node admitted in all before the operator could say */
+	private static final int DEFAULT_MAX_INBOUND = 2000;
 
 	@Provide
 	public Arbitrary<List<String>> provideCommand() {
@@ -101,6 +108,68 @@ public class NetOptionsTest {
 
 		OptionsCli.parse(command, "--network-keys=" + String.join(",", keys));
 		assertThat(List.of(NetOptions.getNetworkKeys()), equalTo(keys));
+	}
+
+	/* A seed, which every node dials, holds more connections than a node that few know, so the operator says how many
+	   peers may hold to the node at a time */
+	@Property(tries = 20)
+	public void shouldTakeTheCeilingOfInboundConnectionsItIsGiven(@ForAll("provideCommand") List<String> command,
+		@ForAll @IntRange(min = ConnectionLimiter.MAX_PER_ADDRESS) int ceiling) {
+
+		OptionsCli.parse(command, "--netmaxinbound", String.valueOf(ceiling));
+		assertThat(NetOptions.getMaxInbound(), equalTo(ceiling));
+	}
+
+	/* A node that is not given the option admits what it did before there was one: the connections of a topology
+	   that is full */
+	@Property(tries = 5)
+	public void shouldAdmitTheConnectionsOfAFullTopologyByDefault(@ForAll("provideCommand") List<String> command) {
+		OptionsCli.parse(command);
+
+		assertThat(NetOptions.getMaxInbound(), equalTo(ConnectionLimiter.MAX_IN_ALL));
+		assertThat(NetOptions.getMaxInbound(), equalTo(DEFAULT_MAX_INBOUND));
+	}
+
+	/* One address may hold that many, so a node that admitted fewer in all would give no address its share */
+	@Example
+	public void shouldTakeACeilingOfWhatOneAddressMayHold() {
+		OptionsCli.parse(List.of("daemon"), "--netmaxinbound", String.valueOf(ConnectionLimiter.MAX_PER_ADDRESS));
+		assertThat(NetOptions.getMaxInbound(), equalTo(ConnectionLimiter.MAX_PER_ADDRESS));
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseACeilingBelowWhatOneAddressMayHold(@ForAll("provideCommand") List<String> command,
+		@ForAll @IntRange(min = Integer.MIN_VALUE, max = ConnectionLimiter.MAX_PER_ADDRESS - 1) int ceiling) {
+
+		final String message = OptionsCli.refusal(command, "--netmaxinbound=" + ceiling).getMessage();
+
+		assertThat(message, containsString("'--netmaxinbound'"));
+		assertThat(message, containsString("Not " + ConnectionLimiter.MAX_PER_ADDRESS + " or more"));
+	}
+
+	@Property(tries = 20)
+	public void shouldRefuseACeilingThatIsNotANumber(@ForAll("provideCommand") List<String> command,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 10) String ceiling) {
+
+		assertThat(OptionsCli.refusal(command, "--netmaxinbound", ceiling).getMessage(),
+			containsString("'" + ceiling + "' is not an int"));
+	}
+
+	/* What the operator of a seed reads in the help of the daemon: what the ceiling counts and what it leaves out,
+	   what it is when the option is not given, and that a seed may need more */
+	@Example
+	public void shouldSayInTheHelpWhatTheCeilingCountsAndThatASeedMayNeedMore() {
+		final CommandLine daemon = new CommandLine(Hedgehog.class).getSubcommands().get("daemon");
+		final String help = daemon.getUsageMessage(CommandLine.Help.Ansi.OFF).replaceAll("\\s+", " ");
+
+		assertThat(daemon.getCommandSpec().findOption("--netmaxinbound").hidden(), equalTo(false));
+		assertThat(help, containsString("--netmaxinbound"));
+		assertThat(help, containsString("peers open to this node"));
+		assertThat(help, containsString("not the ones it dials"));
+		assertThat(help, containsString("none from the loopback address"));
+		assertThat(help, containsString(ConnectionLimiter.MAX_PER_ADDRESS + " or more"));
+		assertThat(help, containsString("defaults to " + DEFAULT_MAX_INBOUND));
+		assertThat(help, containsString("A seed, which every node dials, may need more."));
 	}
 
 	/* A key that the board no longer holds signs nothing the network trusts, so there is no option to name one */

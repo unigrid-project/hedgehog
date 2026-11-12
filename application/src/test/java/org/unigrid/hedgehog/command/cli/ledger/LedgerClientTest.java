@@ -53,6 +53,7 @@ import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.bloc
 import static org.unigrid.hedgehog.command.cli.ledger.LedgerCommandFixtures.errorBody;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
+import org.unigrid.hedgehog.command.util.RestCommandFixture.Answer;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
@@ -227,6 +228,53 @@ public class LedgerClientTest {
 
 		assertThat(refusalOf(run(command -> RestCommandFixture.runWithOddity(command,
 			new ResponseOddityException(Status.UNAUTHORIZED, "")), LedgerClient::info)), equalTo(rejected));
+	}
+
+	private static Response plainText(final int status, final String body) {
+		return Response.status(status).entity(body).type(MediaType.TEXT_PLAIN_TYPE).build();
+	}
+
+	/* An answer that the client refuses to return, made of the answer as the client makes it */
+	private static Outcome refused(final Response answer, final Asking asking) {
+		final Answer refusing = request -> {
+			throw ResponseOddityException.of(answer);
+		};
+
+		return run(command -> RestCommandFixture.run(command, refusing), asking);
+	}
+
+	/* A node whose release leaves the ledger off says so in plain text, which no field names: the sentence follows the
+	   status, whether the client refuses to return the answer or returns it */
+	@Example
+	public void givesTheSentenceOfAnAnswerInPlainTextAfterItsStatus() {
+		final String sentence = "This release does not include the ledger part";
+		final Response leftOff = plainText(Status.SERVICE_UNAVAILABLE.getStatusCode(), sentence + "\n");
+		final Response missing = plainText(Status.NOT_FOUND.getStatusCode(), sentence);
+
+		for (final Asking asking : List.<Asking>of(LedgerClient::info, ledger -> ledger.account("a"),
+			ledger -> ledger.block(1), ledger -> ledger.submit(TRANSFER))) {
+
+			assertThat(refusalOf(refused(leftOff, asking)),
+				equalTo(new ResponseOddityException(Status.SERVICE_UNAVAILABLE).getMessage() + ": " + sentence));
+		}
+
+		assertThat(refusalOf(answered(missing, ledger -> ledger.block(1))),
+			equalTo(new ResponseOddityException(Status.NOT_FOUND).getMessage() + ": " + sentence));
+	}
+
+	/* Plain text that says nothing adds nothing to the status, an error text is given alone as it is from any answer,
+	   and a status that is none is not read on with */
+	@Example
+	public void givesNoMoreOfAnAnswerInPlainTextThanItSays() {
+		final int unavailable = Status.SERVICE_UNAVAILABLE.getStatusCode();
+
+		assertThat(refusalOf(refused(plainText(unavailable, " \n"), LedgerClient::info)),
+			equalTo(new ResponseOddityException(Status.SERVICE_UNAVAILABLE).getMessage()));
+
+		assertThat(refusalOf(refused(plainText(unavailable, errorBody("No ledger")), LedgerClient::info)),
+			equalTo("No ledger"));
+
+		assertThat(refusalOf(refused(plainText(599, "Odd"), LedgerClient::info)), equalTo(UNREADABLE + "status 599"));
 	}
 
 	@Example

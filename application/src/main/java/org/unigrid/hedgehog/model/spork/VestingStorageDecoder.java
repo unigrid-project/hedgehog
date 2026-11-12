@@ -25,6 +25,7 @@ import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Optional;
 import org.unigrid.hedgehog.model.Address;
 import org.unigrid.hedgehog.model.network.chunk.Chunk;
@@ -67,7 +68,10 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 
 		in.skipBytes(5 /* 40 bits */);
 
-		while (in.readableBytes() > 0 && vests.size() < entries) {
+		/* The count is what ends the reading: an address that repeats replaces its first and leaves the map short of
+		   the count, so a body that only repeats it would be read to its last byte, and it is none an honest peer
+		   sends */
+		for (int read = 0; read < entries && in.readableBytes() > 0; read++) {
 			final Address address = new Address(ByteBufUtils.readNullTerminatedString(in, Address.MAX_LENGTH));
 			final VestingStorage.SporkData.Vesting vesting = new VestingStorage.SporkData.Vesting();
 
@@ -80,7 +84,9 @@ public class VestingStorageDecoder implements TypedCodec<GridSpork.Type>, ChunkD
 
 			vesting.setAmount(SporkAmount.readOptional(in).orElse(null));
 
-			vests.put(address, vesting);
+			if (Objects.nonNull(vests.put(address, vesting))) {
+				throw new CorruptedFrameException("A vesting storage holds the same address twice");
+			}
 		}
 
 		if (entries == vests.size()) {

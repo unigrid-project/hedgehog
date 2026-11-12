@@ -30,17 +30,15 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.netty.util.NetUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.ws.rs.core.Application;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
-import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.security.cert.CertificateException;
 import javax.net.ssl.SSLException;
@@ -48,6 +46,7 @@ import lombok.Getter;
 import lombok.SneakyThrows;
 import org.glassfish.jersey.jackson.internal.jackson.jaxrs.json.JacksonJaxbJsonProvider;
 import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.server.spi.Container;
 import org.glassfish.jersey.server.validation.ValidationFeature;
 import org.unigrid.hedgehog.model.option.RestOptions;
@@ -88,11 +87,17 @@ public class RestServer extends AbstractServer {
 			UtilResource.class
 		);
 
+		/* The container would otherwise describe every resource to a holder of the token, those of a part that this
+		   release leaves off among them: as its answer to an OPTIONS request and at a path of its own. With the
+		   description off it answers an OPTIONS request with the methods of the path alone. */
+		config.property(ServerProperties.WADL_FEATURE_DISABLE, true);
 		config.register(JacksonJaxbJsonProvider.class);
 		config.register(new JsonConfiguration());
 		config.register(JsonExceptionMapper.class);
 		config.register(ValidationFeature.class);
 		config.register(authentication);
+		config.register(CutBodyFilter.class);
+		config.register(UnreadBodyFilter.class);
 		config.register(PreviewPartFilter.class);
 
 		return config;
@@ -108,39 +113,62 @@ public class RestServer extends AbstractServer {
 		return (Container) constructor.newInstance(resourceConfig);
 	}
 
+	/* The certificate is written to a key file and a certificate file in the temporary directory, which the context
+	   has read once it is built, so they are deleted then rather than left there with the key in them */
+	private static SslContext serverContext() throws CertificateException, SSLException {
+		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+
+		try {
+			return SslContextBuilder.forServer(certificate.certificate(), certificate.privateKey()).build();
+		} finally {
+			certificate.delete();
+		}
+	}
+
+	/* The address that the resources answer under, which is the host and the port that the server binds: a location
+	   that a resource hands out is resolved against it. An IPv6 address goes in brackets, as its colons would end the
+	   host otherwise, and the path ends in a slash, as the container puts the path of a request straight after it. */
+	static URI baseUri() throws URISyntaxException {
+		final String address = NetUtil.toSocketAddressString(RestOptions.getHost(), RestOptions.getPort());
+
+		return new URI("https://" + address + "/");
+	}
+
 	private ChannelHandler getJerseyInitializerInstance(Container container) throws CertificateException,
 		ClassNotFoundException, IllegalAccessException, InstantiationException, InvocationTargetException,
-		MalformedURLException, NoSuchMethodException, SSLException, UnknownHostException, URISyntaxException {
+		NoSuchMethodException, SSLException, URISyntaxException {
 
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
-		final String url = String.format("https://%s:%d", RestOptions.getHost(), RestOptions.getPort());
-
-		final SslContext context = SslContextBuilder.forServer(
-			certificate.certificate(), certificate.privateKey()
-		).build();
+		final SslContext context = serverContext();
 
 		final Constructor<?> constructor = Reflection.getConstructor(
 			"org.glassfish.jersey.netty.httpserver.JerseyServerInitializer", URI.class,
 			SslContext.class, container.getClass(), ResourceConfig.class
 		);
 
-		return (ChannelHandler) constructor.newInstance(allocate(url).toURI(), context,
-			container, resourceConfig
-		);
+		return (ChannelHandler) constructor.newInstance(baseUri(), context, container, resourceConfig);
 	}
 
 	/* The initializer of the container builds the pipeline of a connection, so the limit is set in after its codec,
-	   where a request has been read from the wire and nothing has yet queued it */
+	   where a request has been read from the wire and nothing has yet queued it. The codec hands nothing on until it
+	   has the head of a request whole, so what tells the limit that something has arrived is set in before it. What
+	   holds the stop of the node back until its answer is written stands between the codec and the limit, where an
+	   answer is on its way to the socket and the limit has no more say over it. */
 	private static ChannelHandler limited(final ChannelHandler jersey, final BearerTokenFilter authentication) {
 		return new ChannelInitializer<SocketChannel>() {
 			@Override
 			protected void initChannel(final SocketChannel connection) {
 				final ChannelPipeline pipeline = connection.pipeline();
+				final RequestBodyLimit limit = new RequestBodyLimit(authentication,
+					RequestBodyLimit.MAX_REQUEST_BYTES, StorageResource.MAX_UPLOAD_BYTES,
+					RequestBodyLimit.BODY_TIME, RequestBodyLimit.LINGER);
 
 				pipeline.addLast(jersey);
-				pipeline.addAfter(pipeline.context(HttpServerCodec.class).name(), null, new RequestBodyLimit(
-					authentication, RequestBodyLimit.MAX_REQUEST_BYTES, StorageResource.MAX_UPLOAD_BYTES,
-					RequestBodyLimit.BODY_TIME, RequestBodyLimit.LINGER));
+
+				final String codec = pipeline.context(HttpServerCodec.class).name();
+
+				pipeline.addBefore(codec, null, limit.arrivals());
+				pipeline.addAfter(codec, null, limit);
+				pipeline.addAfter(codec, null, new StopAfterAnswer());
 			}
 		};
 	}
@@ -156,10 +184,11 @@ public class RestServer extends AbstractServer {
 		container = getContainerInstance();
 		final ChannelHandler initializer = limited(getJerseyInitializerInstance(container), authentication);
 
-		channel = new ServerBootstrap().group(group)
+		final ServerBootstrap bootstrap = new ServerBootstrap().group(group)
 			.channel(NioServerSocketChannel.class)
-			.childHandler(initializer)
-			.bind(new InetSocketAddress(RestOptions.getHost(), RestOptions.getPort())).sync().channel();
+			.childHandler(initializer);
+
+		channel = listen(bootstrap, RestOptions.getHost(), RestOptions.getPort(), "REST", "--resthost, --restport");
 	}
 
 	@PreDestroy

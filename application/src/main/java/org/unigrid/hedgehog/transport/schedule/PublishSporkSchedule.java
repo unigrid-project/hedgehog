@@ -38,14 +38,19 @@ public class PublishSporkSchedule extends AbstractSchedule implements Schedulabl
 		super(PublishSpork.DISTRIBUTION_FREQUENCY_MINUTES, TimeUnit.MINUTES, false);
 	}
 
+	/* A stream that takes no more is left out of a round, as the sporks would only wait on it and the next round sends
+	   them as they stand then. It is left out of the whole round or of none: a stream takes no more as soon as one
+	   spork is too large for it to take at once, so a round cut short would never get to the sporks after that one. */
 	@Override
 	public Consumer<Channel> getConsumer() {
 		return channel -> {
-			CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
-				CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
-					writeAndFlush(channel, db, pendingSporks);
+			if (channel.isWritable()) {
+				CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
+					CDIUtil.resolveAndRun(PendingSporks.class, pendingSporks -> {
+						writeAndFlush(channel, db, pendingSporks);
+					});
 				});
-			});
+			}
 		};
 	}
 

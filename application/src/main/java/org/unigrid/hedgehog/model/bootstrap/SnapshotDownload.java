@@ -87,10 +87,11 @@ public final class SnapshotDownload {
 	static void install(URL source, Path target, long maximumSize, IntConsumer progress) throws IOException {
 		final byte[] publishedHash = publishedHash(source);
 
-		Files.createDirectories(target.toAbsolutePath().getParent());
+		final Path directory = target.toAbsolutePath().getParent();
 
-		final Path partial = Files.createTempFile(target.toAbsolutePath().getParent(),
-			PARTIAL_PREFIX, PARTIAL_SUFFIX);
+		Files.createDirectories(directory);
+
+		final Path partial = PartialFiles.create(directory, PARTIAL_PREFIX, PARTIAL_SUFFIX);
 
 		try {
 			if (!MessageDigest.isEqual(copy(source, partial, maximumSize, progress), publishedHash)) {
@@ -104,7 +105,7 @@ public final class SnapshotDownload {
 			log.atInfo().log("Installed the legacy chain snapshot at {}", target);
 
 		} finally {
-			discard(partial);
+			PartialFiles.discard(partial);
 		}
 	}
 
@@ -175,8 +176,7 @@ public final class SnapshotDownload {
 	*/
 	private static byte[] copy(URL source, Path partial, long maximumSize, IntConsumer progress) throws IOException {
 		final DigestInputStream transfer = new DigestInputStream(open(source, progress), sha256());
-		@Cleanup final InputStream stream = source.getPath().endsWith(COMPRESSED_SUFFIX)
-			? new GZIPInputStream(transfer) : transfer;
+		@Cleanup final InputStream stream = decompressing(transfer, source);
 		@Cleanup final OutputStream out = Files.newOutputStream(partial);
 		final byte[] buffer = new byte[1 << 16];
 		long total = 0;
@@ -186,8 +186,7 @@ public final class SnapshotDownload {
 			total += read;
 
 			if (total > maximumSize) {
-				throw new IOException("The download from " + source + " passed " + maximumSize
-					+ " bytes and was abandoned");
+				throw abandoned(source, maximumSize);
 			}
 
 			out.write(buffer, 0, read);
@@ -198,8 +197,50 @@ public final class SnapshotDownload {
 			}
 		}
 
-		transfer.transferTo(OutputStream.nullOutputStream());
+		drain(transfer, source, maximumSize);
 		return transfer.getMessageDigest().digest();
+	}
+
+	/*
+	   The decompressor reads the header of the stream when it is constructed and, when that is not gzip,
+	   leaves the transfer it was handed open, so it is closed here before the failure goes on.
+	*/
+	private static InputStream decompressing(InputStream transfer, URL source) throws IOException {
+		if (!source.getPath().endsWith(COMPRESSED_SUFFIX)) {
+			return transfer;
+		}
+
+		try {
+			return new GZIPInputStream(transfer);
+
+		} catch (IOException | RuntimeException ex) {
+			try {
+				transfer.close();
+			} catch (IOException closing) {
+				ex.addSuppressed(closing);
+			}
+
+			throw ex;
+		}
+	}
+
+	/* What follows the compressed stream is read to its end for the hash, but not beyond the ceiling. */
+	private static void drain(InputStream transfer, URL source, long maximumSize) throws IOException {
+		final byte[] buffer = new byte[1 << 16];
+		long drained = 0;
+
+		for (int read = transfer.read(buffer); read > 0; read = transfer.read(buffer)) {
+			drained += read;
+
+			if (drained > maximumSize) {
+				throw abandoned(source, maximumSize);
+			}
+		}
+	}
+
+	private static IOException abandoned(URL source, long maximumSize) {
+		return new IOException("The download from " + source + " passed " + maximumSize
+			+ " bytes and was abandoned");
 	}
 
 	private static MessageDigest sha256() {
@@ -207,16 +248,6 @@ public final class SnapshotDownload {
 			return MessageDigest.getInstance(HASH_ALGORITHM);
 		} catch (NoSuchAlgorithmException ex) {
 			throw new IllegalStateException(ex);
-		}
-	}
-
-	/* Cleanup must never replace the failure that caused it with one about the leftover file. */
-	private static void discard(Path partial) {
-		try {
-			Files.deleteIfExists(partial);
-		} catch (IOException ex) {
-			log.atWarn().log("Could not remove the partial download at {}: {}", partial,
-				ex.getMessage());
 		}
 	}
 

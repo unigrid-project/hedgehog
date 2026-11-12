@@ -20,6 +20,8 @@ package org.unigrid.hedgehog.model.bootstrap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.instanceOf;
+import java.util.Arrays;
 import java.util.List;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
@@ -29,6 +31,8 @@ public class LedgerReplayTest {
 	private static final byte[] ADDRESS_B = addressHash((byte) 0x02);
 	private static final long MINED_FIRST = 5_000_000_000L;
 	private static final long MINED_SECOND = 3_000_000_000L;
+	private static final int MISSING_BYTES = 9;
+	private static final byte[] COUNT_OF_TWO_BILLION = { (byte) 0xfe, (byte) 0xff, (byte) 0xff, (byte) 0xff, 0x7f };
 
 	@Example
 	@SneakyThrows
@@ -70,6 +74,59 @@ public class LedgerReplayTest {
 		} catch (IllegalStateException expected) {
 			assertThat(expected.getMessage(), equalTo("Input at height 1 spends an unknown output "
 				+ BlockParser.toDisplayString(neverCreated) + ":0"));
+		}
+	}
+
+	/*
+	   The hash of a block covers its header alone, so a block whose transactions are damaged still
+	   takes its place in the chain and is first found out when it is replayed. Here the last bytes of
+	   the only transaction are missing.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldNameTheBlockWhoseTransactionIsCutShort() {
+		final byte[] coinbase = SyntheticBlocks.coinbaseTransaction(ADDRESS_A, MINED_FIRST);
+		final List<List<byte[]>> perHeight = List.of(List.of(),
+			List.of(Arrays.copyOf(coinbase, coinbase.length - MISSING_BYTES)));
+		final BlockFileStore store = SyntheticBlocks.store(builder -> builder.mainChain(1, perHeight::get));
+		final Chain chain = ChainLinker.link(store);
+		final Throwable refusal = refusalOf(store, chain);
+
+		assertThat(refusal, instanceOf(IllegalStateException.class));
+		assertThat(refusal.getMessage(), equalTo(damagedAt(store, chain, 1)));
+	}
+
+	/*
+	   A count that is taken at its word has room made for as many as it says before the first of them
+	   is read, and a damaged count says more than there is room for.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldNameTheBlockThatCountsMoreTransactionsThanItHolds() {
+		final BlockFileStore store = SyntheticBlocks.store(builder -> {
+			builder.mainChain(1);
+			builder.tip(COUNT_OF_TWO_BILLION);
+		});
+		final Chain chain = ChainLinker.link(store);
+		final Throwable refusal = refusalOf(store, chain);
+
+		assertThat(refusal, instanceOf(IllegalStateException.class));
+		assertThat(refusal.getMessage(), equalTo(damagedAt(store, chain, 2)));
+	}
+
+	private static String damagedAt(BlockFileStore store, Chain chain, int height) {
+		return "The block at offset " + chain.locationAt(height).getOffset() + " of " + store.getPaths().get(0)
+			+ " is damaged and cannot be read";
+	}
+
+	/* Room that cannot be made ends the replay with an error, which is told of here as an exception is */
+	private static Throwable refusalOf(BlockFileStore store, Chain chain) {
+		try {
+			LedgerReplay.replay(store, chain);
+			throw new AssertionError("A damaged block was replayed");
+
+		} catch (RuntimeException | OutOfMemoryError refusal) {
+			return refusal;
 		}
 	}
 

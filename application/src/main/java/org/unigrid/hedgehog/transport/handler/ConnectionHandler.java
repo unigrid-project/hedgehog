@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.transport.handler;
 
+import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -43,6 +44,9 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 	public static final AttributeKey<InetSocketAddress> SOCKET_ADDRESS_KEY = AttributeKey.valueOf("SOCKET_ADDRESS");
 	private static final AttributeKey<InetAddress> ADMITTED_KEY = AttributeKey.valueOf("ADMITTED");
 
+	private static final String CEILING_REACHED = "The ceiling of {} inbound connections is reached, new peers are "
+		+ "refused; a seed may need more: option {}";
+
 	private final ConnectionLimiter limiter;
 
 	private int getPort(ChannelHandlerContext ctx) {
@@ -50,38 +54,82 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 		return Objects.isNull(oldAddress) ? NetOptions.getPort() : oldAddress.getPort();
 	}
 
-	/* A connection counts against the address it first came from, for as long as it is open */
+	/* The node of the peer is named by the port it said it listens on, the one it said hello with, and by the port
+	   assumed for it only while it has said none: the assumed port is this node's own, which another peer at the same
+	   address may be named by */
+	private void moveNode(ChannelHandlerContext ctx, Topology topology, InetSocketAddress from, InetAddress to) {
+		final int port = RemoteAddress.listenPortOf(ctx.channel()).orElse(from.getPort());
+		final Node node = Node.builder().address(new InetSocketAddress(from.getAddress(), port)).build();
+		final InetSocketAddress moved = new InetSocketAddress(to.getHostAddress(), port);
+
+		log.atTrace().log("Modifying node {} with new address {}", node, moved);
+		topology.changeAddress(node, moved);
+	}
+
+	/* A connection counts against the address it first came from, for as long as it is open. It is admitted before its
+	   handshake is done, and one that closes before that never becomes active, so it never goes inactive either: the
+	   close is what gives the slot back, as every connection ends in one. */
 	private boolean admitted(ChannelHandlerContext ctx, InetAddress address) {
 		if (ctx.channel().hasAttr(ADMITTED_KEY)) {
 			return true;
 		}
 
-		if (limiter.admit(address)) {
+		final ConnectionLimiter.Admission admission = limiter.decide(address);
+
+		if (admission == ConnectionLimiter.Admission.ADMITTED) {
 			ctx.channel().attr(ADMITTED_KEY).set(address);
+			ctx.channel().closeFuture().addListener(closed -> release(ctx.channel()));
 			return true;
 		}
 
-		log.atDebug().addArgument(address).log("Too many connections from {}, one more is closed");
+		tellOfRefusal(admission, address);
 		ctx.close();
 		return false;
 	}
 
+	/* An address that holds its share is refused alone, which is its own doing. A node that holds all it admits
+	   refuses every peer that is new to it, which its operator can change by admitting more, and so is told of. */
+	private void tellOfRefusal(ConnectionLimiter.Admission admission, InetAddress address) {
+		if (admission == ConnectionLimiter.Admission.ADDRESS_FULL) {
+			log.atDebug().addArgument(address).log("Too many connections from {}, one more is closed");
+			return;
+		}
+
+		if (limiter.takeWarning()) {
+			log.atWarn().addArgument(limiter.getCeiling()).addArgument(NetOptions.MAX_INBOUND)
+				.log(CEILING_REACHED);
+		}
+
+		log.atDebug().addArgument(address).log("Too many connections in all, one more from {} is closed");
+	}
+
+	private void release(Channel connection) {
+		Optional.ofNullable(connection.attr(ADMITTED_KEY).getAndSet(null)).ifPresent(limiter::release);
+	}
+
 	@Override
 	public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-		Optional.ofNullable(ctx.channel().attr(ADMITTED_KEY).getAndSet(null)).ifPresent(limiter::release);
+		release(ctx.channel());
 		super.channelInactive(ctx);
 	}
 
 	@Override
 	public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-		if (evt instanceof QuicConnectionEvent event
-			&& !admitted(ctx, ((InetSocketAddress) event.newAddress()).getAddress())) {
+		if (evt instanceof QuicConnectionEvent event) {
+			addressChanged(ctx, event);
+		} else {
+			ctx.fireUserEventTriggered(evt);
+		}
+	}
+
+	private void addressChanged(ChannelHandlerContext ctx, QuicConnectionEvent event) {
+		if (!admitted(ctx, ((InetSocketAddress) event.newAddress()).getAddress())) {
 			return;
 		}
 
 		final Instance<Topology> topology = CDI.current().select(Topology.class);
 
-		if (topology.isResolvable() && evt instanceof QuicConnectionEvent event) {
+		if (topology.isResolvable()) {
 			log.atDebug().log("New address (or change) detected");
 
 			final InetAddress addr = ((InetSocketAddress) event.newAddress()).getAddress();
@@ -89,10 +137,7 @@ public class ConnectionHandler extends ChannelInboundHandlerAdapter {
 			final InetSocketAddress newWPort = new InetSocketAddress(addr.getHostAddress(), getPort(ctx));
 
 			if (Objects.nonNull(oldWPort)) {
-				final Node node = Node.builder().address(oldWPort).build();
-
-				log.atTrace().log("Modifying node {} with new address {}", node, newWPort);
-				topology.get().changeAddress(node, newWPort);
+				moveNode(ctx, topology.get(), oldWPort, addr);
 			}
 
 			log.atTrace().log("Stored new address {} on channel {}", newWPort, ctx.channel());

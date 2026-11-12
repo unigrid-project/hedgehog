@@ -36,7 +36,7 @@ public class BootstrapInfo implements Callable<Integer> {
 			info = SnapshotReader.open(SnapshotOptions.getSnapshot()).getInfo();
 
 		} catch (IOException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.UNUSABLE;
 		}
 

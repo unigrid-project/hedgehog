@@ -32,11 +32,17 @@ public class PingChannelHandler extends AbstractInboundHandler<Ping> {
 		super(Ping.class);
 	}
 
+	/* A ping is answered only while the stream takes more: a peer sends as many as it likes, and the answers to one
+	   that reads too little would pile up in memory. Whatever else reaches the peer meanwhile counts for it as an
+	   answer does (PeerActivityHandler). */
 	@Override
 	public void typedChannelRead(ChannelHandlerContext ctx, Ping ping) throws Exception {
 		if (!ping.isResponse()) {
 			ping.setResponse(true);
-			ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+
+			if (ctx.channel().isWritable()) {
+				ctx.writeAndFlush(ping).addListener(ChannelFutureListener.FIRE_EXCEPTION_ON_FAILURE);
+			}
 		} else {
 			/* Only an answer to the ping this node sent counts, and only once: a peer may answer what was never
 			   asked, or answer twice */

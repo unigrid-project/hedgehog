@@ -87,7 +87,8 @@ public class PendingSporks {
 
 	/**
 	* Holds the proposal when it may replace the stored spork once co-signed and is newer than the one held
-	* for its type. Returns whether it was taken, so only proposals new to this node travel further.
+	* for its type, or changes the stored spork where the one held renews it. A renewal is not held in the place of a
+	* change. Returns whether it was taken, so only proposals new to this node travel further.
 	*/
 	public boolean offer(GridSpork spork, GridSpork stored) {
 		return offer(spork, () -> stored, () -> true);
@@ -182,7 +183,16 @@ public class PendingSporks {
 	private synchronized boolean mayTakeThePlaceOfTheHeld(GridSpork spork) {
 		final GridSpork held = proposals.get(spork.getType());
 
-		return spork.isNewerThan(held) && !holdsLessThan(spork, held);
+		return settlesOver(spork, held) && !holdsLessThan(spork, held);
+	}
+
+	/* The newer proposal wins, but for a change and a renewal of the stored spork, which settle as the versions that
+	   they make do (SporkSuccession): a renewal would have the board co-sign the stored data again in the place of a
+	   change that waits, so it does not push that out, and a change takes the place of a renewal though that is
+	   newer. A proposal that outlived its time waits for nothing and holds its place against no newer one. */
+	private boolean settlesOver(GridSpork spork, GridSpork held) {
+		return Objects.isNull(held) || !isAlive(held) ? spork.isNewerThan(held)
+			: SporkSuccession.settlesOver(spork, held);
 	}
 
 	public synchronized List<GridSpork> list() {
@@ -190,7 +200,9 @@ public class PendingSporks {
 		return new ArrayList<>(proposals.values());
 	}
 
-	public synchronized Optional<GridSpork> find(String digest) {
+	/* The digests are worked out on the proposals held when the list was taken, with no lock held that the intake of a
+	   proposal from a peer waits for */
+	public Optional<GridSpork> find(String digest) {
 		return list().stream().filter(spork -> digestOf(spork).equals(digest)).findFirst();
 	}
 
@@ -221,7 +233,7 @@ public class PendingSporks {
 		if (Objects.nonNull(held) && !held.isProposalOver(over)) {
 			synchronized (this) {
 				if (stored.get() == over) {
-					proposals.remove(type, held);
+					dropIfHeld(held);
 				}
 			}
 		}
@@ -229,7 +241,7 @@ public class PendingSporks {
 
 	/* A proposal that a key signed which the board switched off can no longer be co-signed into a spork that counts */
 	public void retainProposalsOfActiveKeys() {
-		heldProposals().stream().filter(spork -> !spork.isValidSignature()).forEach(this::drop);
+		heldProposals().stream().filter(spork -> !spork.isValidSignature()).forEach(this::dropIfHeld);
 	}
 
 	private synchronized GridSpork heldOf(Type type) {
@@ -240,8 +252,12 @@ public class PendingSporks {
 		return new ArrayList<>(proposals.values());
 	}
 
-	private synchronized void drop(GridSpork held) {
-		proposals.remove(held.getType(), held);
+	/* By identity, as sporks of a type are equal to each other: another proposal that took the place of the one judged
+	   is not the one to drop */
+	private synchronized void dropIfHeld(GridSpork held) {
+		if (proposals.get(held.getType()) == held) {
+			proposals.remove(held.getType());
+		}
 	}
 
 	/* A change of the board keys waits for its co-signature, and one stolen key would push it out with a renewal of the
@@ -261,7 +277,7 @@ public class PendingSporks {
 		return Objects.nonNull(spork.getTimeStamp()) && spork.getTimeStamp().isAfter(now.plus(LEEWAY));
 	}
 
-	private boolean isAlive(GridSpork spork) {
+	public boolean isAlive(GridSpork spork) {
 		return Duration.between(spork.getTimeStamp(), clock.instant()).abs().compareTo(LIFETIME) <= 0;
 	}
 }

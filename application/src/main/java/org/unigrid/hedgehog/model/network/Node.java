@@ -34,9 +34,11 @@ import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.LongSupplier;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
@@ -53,6 +55,7 @@ import org.unigrid.hedgehog.model.option.NetOptions;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Node {
+	private static final int MAX_PORT = 0xFFFF;
 
 	private InetSocketAddress address;
 
@@ -93,20 +96,32 @@ public class Node {
 	/* Every node a peer tells of is asked whether it is this one, under the lock of the topology, so the addresses of
 	   the host are listed once a minute and not for each node: they seldom change, and listing the interfaces, or
 	   resolving the configured host, takes long enough for a list of peers to hold the lock for seconds */
-	private record LocalAddresses(Set<InetAddress> addresses, long listedAt) {
+	record LocalAddresses(Set<InetAddress> addresses, long listedAt) {
 		private static final long LIFETIME_MILLIS = 60_000;
 		private static volatile LocalAddresses held;
 
 		static Set<InetAddress> current() {
-			final LocalAddresses known = held;
-			final long now = System.currentTimeMillis();
+			return current(System::currentTimeMillis);
+		}
 
-			if (known != null && now - known.listedAt() < LIFETIME_MILLIS) {
+		static Set<InetAddress> current(LongSupplier clock) {
+			final LocalAddresses known = held;
+			final long now = clock.getAsLong();
+
+			if (known != null && known.isFresh(now)) {
 				return known.addresses();
 			}
 
 			held = new LocalAddresses(listed(), now);
 			return held.addresses();
+		}
+
+		/* The host, or a time service, may step the clock back. A list that is dated after the clock now is older
+		   than it looks, so it is made again at once and not kept for as long as the clock was stepped back. */
+		private boolean isFresh(long now) {
+			final long age = now - listedAt;
+
+			return age >= 0 && age < LIFETIME_MILLIS;
 		}
 
 		private static Set<InetAddress> listed() {
@@ -160,7 +175,7 @@ public class Node {
 	public static void send(Packet packet, Node node, Predicate<Channel> recipients,
 		Optional<BiConsumer<Node, Future>> consumer) {
 
-		log.atDebug().log("Send all packet " + packet.toString());
+		log.atDebug().log("Send all packet {}", packet);
 		node.relays().stream().map(Connection::getChannel).filter(recipients).forEach(channel -> {
 			final ChannelFuture out = channel.writeAndFlush(packet);
 
@@ -173,12 +188,16 @@ public class Node {
 	}
 
 	/* A node made by hand is refused when its host does not resolve, rather than stored under a name that may never
-	   match the address a peer connects from */
-	public static Node fromURI(URI uri) throws UnknownHostException {
+	   match the address a peer connects from, and so is a port that no host has, which the URI takes as it is */
+	public static Node fromURI(URI uri) throws URISyntaxException, UnknownHostException {
 		int port = uri.getPort();
 
 		if (uri.getPort() == -1) {
 			port = NetOptions.DEFAULT_PORT;
+		}
+
+		if (port > MAX_PORT) {
+			throw new URISyntaxException(uri.toString(), "Port above " + MAX_PORT);
 		}
 
 		final InetSocketAddress address = new InetSocketAddress(uri.getHost(), port);
@@ -205,23 +224,30 @@ public class Node {
 	/* The address it resolves to, or its host name while it cannot be resolved, so that a node read from JSON during a
 	   failed lookup can still be hashed, compared and listed */
 	public URI getURI() {
-		final String host = address.isUnresolved() ? address.getHostString() : address.getAddress().getHostAddress();
-
-		return UriBuilder.fromPath("/{host}:{port}").build(host, address.getPort());
+		return UriBuilder.fromPath("/{host}:{port}").build(host(), address.getPort());
 	}
 
+	private String host() {
+		return address.isUnresolved() ? address.getHostString() : address.getAddress().getHostAddress();
+	}
+
+	/* A node is the host and the port of its address, which is all that its URI is made of. Making one for each
+	   comparison, as the topology compares a node with the nodes it holds and hashes it to find its place, costs more
+	   than the comparison itself on the event loops that handle a list of peers. */
 	@Override
 	public boolean equals(Object o) {
-		final URI me = getURI();
-		final URI other = ((Node) o).getURI();
-		final boolean isEqual = me.equals(other);
+		if (!(o instanceof Node other)) {
+			return false;
+		}
 
-		log.atTrace().log("Comparing {} with {} = {}", me, other, isEqual);
+		final boolean isEqual = address.getPort() == other.address.getPort() && host().equals(other.host());
+
+		log.atTrace().log("Comparing {} with {} = {}", address, other.address, isEqual);
 		return isEqual;
 	}
 
 	@Override
 	public int hashCode() {
-		return getURI().hashCode();
+		return Objects.hash(host(), address.getPort());
 	}
 }

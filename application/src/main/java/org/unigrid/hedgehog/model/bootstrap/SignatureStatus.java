@@ -18,8 +18,15 @@
 
 package org.unigrid.hedgehog.model.bootstrap;
 
+/* What a snapshot carries after its content. A reader uses a snapshot that is signed or unsigned and no other. */
 public enum SignatureStatus {
 	SIGNED,
 	UNSIGNED,
-	INVALID
+
+	/* A whole signature that verifies against no trusted key, so the content is not to be trusted either */
+	INVALID,
+
+	/* Bytes that are no whole signature, as a signing that was cut short leaves them: they say nothing of the
+	   content */
+	MALFORMED
 }

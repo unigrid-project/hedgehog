@@ -32,13 +32,25 @@ public class ProtectedInterceptor {
 	private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
 	private Lock getLockAnnotation(InvocationContext ctx) {
-		Lock lockAnnotation = ctx.getMethod().getAnnotation(Lock.class);
+		final Lock lockAnnotation = ctx.getMethod().getAnnotation(Lock.class);
 
-		if (lockAnnotation == null) {
-			lockAnnotation = ctx.getTarget().getClass().getAnnotation(Lock.class);
+		return lockAnnotation != null ? lockAnnotation : classLockAnnotation(ctx);
+	}
+
+	/* The target is an instance of the subclass that Weld generates to intercept the bean, which does not carry the
+	   annotation of the class it extends, so the classes above it are looked at too. */
+	private Lock classLockAnnotation(InvocationContext ctx) {
+		for (Class<?> type = ctx.getTarget().getClass(); type != null; type = type.getSuperclass()) {
+			final Lock lockAnnotation = type.getAnnotation(Lock.class);
+
+			if (lockAnnotation != null) {
+				return lockAnnotation;
+			}
 		}
 
-		return lockAnnotation;
+		throw new IllegalStateException("The protected method " + ctx.getMethod().getName() + " of "
+			+ ctx.getMethod().getDeclaringClass().getName()
+			+ " has no lock, neither on the method nor on its class");
 	}
 
 	@AroundInvoke

@@ -25,6 +25,7 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
@@ -76,6 +77,13 @@ public final class SyntheticBlocks {
 		return Hashing.doubleSha256(ByteBuffer.wrap(transaction));
 	}
 
+	private static byte[] filled(byte value) {
+		final byte[] bytes = new byte[Hashing.HASH_SIZE];
+
+		Arrays.fill(bytes, value);
+		return bytes;
+	}
+
 	private static byte[] transaction(List<byte[]> inputs, List<byte[]> outputs) {
 		final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 		final ByteBuffer version = ByteBuffer.allocate(Integer.BYTES)
@@ -119,6 +127,7 @@ public final class SyntheticBlocks {
 		private static final int MERKLE_OFFSET = 36;
 		private static final int TIME_OFFSET = 68;
 		private static final int VERSION_WITH_ACCUMULATOR = 4;
+		private static final byte[] UNSTORED_PARENT = filled((byte) 0x11);
 
 		private final ByteArrayOutputStream records = new ByteArrayOutputStream();
 		private final List<byte[]> mainChain = new ArrayList<>();
@@ -145,14 +154,43 @@ public final class SyntheticBlocks {
 			}
 		}
 
-		private byte[] append(int version, byte[] previousHash, int time, List<byte[]> transactions) {
-			final byte[] header = header(version, previousHash, time);
-			final byte[] payload = transactionPayload(transactions);
-			final ByteBuffer record = ByteBuffer.allocate(header.length + payload.length + 8)
-				.order(ByteOrder.LITTLE_ENDIAN);
+		/*
+		   A run of blocks whose first block names a parent that is not stored, as found when the first
+		   block files of a chain are missing or belong to another chain.
+		*/
+		public void detachedChain(int blocksAfterFirst) {
+			byte[] previous = append(VERSION_WITH_ACCUMULATOR, UNSTORED_PARENT, timeAt(0), List.of());
 
-			record.putInt(BlockFileStore.MAGIC).putInt(header.length + payload.length).put(header).put(payload);
-			records.write(record.array(), 0, record.position());
+			for (int height = 1; height <= blocksAfterFirst; height++) {
+				previous = append(VERSION_WITH_ACCUMULATOR, previous, timeAt(height), List.of());
+			}
+		}
+
+		/*
+		   A block on top of the main chain whose bytes after the header are written as they are given,
+		   where a block has the count of its transactions and the transactions themselves.
+		*/
+		public void tip(byte[] payload) {
+			mainChain.add(append(VERSION_WITH_ACCUMULATOR, mainChain.getLast(), timeAt(mainChain.size()),
+				payload));
+		}
+
+		/* A record that is framed as a block is, around bytes that need not be one */
+		public void record(byte[] contents) {
+			final ByteBuffer record = ByteBuffer.allocate(contents.length + 8).order(ByteOrder.LITTLE_ENDIAN);
+
+			record.putInt(BlockFileStore.MAGIC).putInt(contents.length).put(contents);
+			records.writeBytes(record.array());
+		}
+
+		private byte[] append(int version, byte[] previousHash, int time, List<byte[]> transactions) {
+			return append(version, previousHash, time, transactionPayload(transactions));
+		}
+
+		private byte[] append(int version, byte[] previousHash, int time, byte[] payload) {
+			final byte[] header = header(version, previousHash, time);
+
+			record(ByteBuffer.allocate(header.length + payload.length).put(header).put(payload).array());
 
 			return version < VERSION_WITH_ACCUMULATOR
 				? BlockParser.GENESIS_HASH : Hashing.doubleSha256(ByteBuffer.wrap(header));

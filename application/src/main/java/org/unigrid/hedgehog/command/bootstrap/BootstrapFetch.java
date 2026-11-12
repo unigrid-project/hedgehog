@@ -65,7 +65,7 @@ public class BootstrapFetch implements Callable<Integer> {
 			);
 
 		} catch (IOException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.UNUSABLE;
 		}
 

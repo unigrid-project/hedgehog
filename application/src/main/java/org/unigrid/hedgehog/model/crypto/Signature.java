@@ -184,7 +184,7 @@ public class Signature {
 			return remembered(key, digest, signatureData, signature.verify(signatureData));
 
 		} catch (InvalidKeyException | NoSuchAlgorithmException | SignatureException ex) {
-			throw new VerifySignatureException(String.format("Failed to verify siugnature data "
+			throw new VerifySignatureException(() -> String.format("Failed to verify siugnature data "
 				+ "with public key '%s'", publicKey), ex);
 		}
 	}

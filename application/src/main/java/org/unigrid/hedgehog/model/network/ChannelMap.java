@@ -73,4 +73,9 @@ public class ChannelMap {
 	public void remove(Channel channel) {
 		channels.remove(channel);
 	}
+
+	@Protected @Lock(LockMode.READ)
+	public int size() {
+		return channels.size();
+	}
 }

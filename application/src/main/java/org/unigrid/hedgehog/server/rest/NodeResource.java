@@ -98,21 +98,18 @@ public class NodeResource extends CDIBridgeResource {
 		});
 	}
 
+	/* The node is taken out first and its connection closed after, as the topology thread may hand the client of a dial
+	   to the node for as long as the topology holds it: a connection that was looked for before the removal could be
+	   missed, and nothing else would close it */
 	@Path("/{address}") @DELETE
 	public Response remove(@NotNull @PathParam("address") String address) {
-		return withNode(address, nodeToFind -> {
-			if (!topology.containsNode(nodeToFind)) {
-				return Response.status(Response.Status.NOT_FOUND).build();
-			}
+		return withNode(address, nodeToFind -> topology.removeConfigured(nodeToFind).map(removed -> {
+			removed.getConnection().ifPresent(connection -> {
+				connection.closeDirty();
+				topology.getChannels().remove(connection.getChannel());
+			});
 
-			topology.cloneNodes().stream().filter(nodeToFind::equals).findFirst()
-				.flatMap(Node::getConnection).ifPresent(connection -> {
-					connection.closeDirty();
-					topology.getChannels().remove(connection.getChannel());
-				});
-
-			topology.removeConfigured(nodeToFind);
 			return Response.ok().build();
-		});
+		}).orElseGet(() -> Response.status(Response.Status.NOT_FOUND).build()));
 	}
 }

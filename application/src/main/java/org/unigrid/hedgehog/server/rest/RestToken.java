@@ -57,8 +57,13 @@ public final class RestToken {
 
 		final Path partial = Files.createTempFile(directory, FILE, null, ownerOnly(directory));
 
-		Files.writeString(partial, token);
-		Files.move(partial, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+		/* Gone after a move, and a write or a move that failed would leave the token in it unless it is removed */
+		try {
+			Files.writeString(partial, token);
+			Files.move(partial, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+		} finally {
+			Files.deleteIfExists(partial);
+		}
 	}
 
 	/* Created restricted rather than restricted afterwards, so the token is never readable by others */

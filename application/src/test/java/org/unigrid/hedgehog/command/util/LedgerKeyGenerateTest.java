@@ -31,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import net.jqwik.api.Arbitraries;
@@ -72,6 +73,28 @@ public class LedgerKeyGenerateTest {
 			assertThat(result.out(), matchesPattern(PUBLIC_KEY));
 			assertThat(result.out().strip(), equalTo(LedgerKeyFile.publicKeyHex(LedgerKeyFile.load(file))));
 			assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)), equalTo(OWNER_ONLY));
+		}
+	}
+
+	/* A bare name has no parent directory of its own, so the key goes to the working directory as it does for
+	   ./name, with no partial file left beside it */
+	@Example
+	@SneakyThrows
+	public void shouldWriteAKeyGivenAsABareFileName() {
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final HedgehogCli.Result result = generateOn(fs, "validator.key");
+			final Path file = fs.getPath("validator.key");
+
+			result.assertNoStackTrace();
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(result.err(), emptyString());
+			assertThat(result.out().strip(), equalTo(LedgerKeyFile.publicKeyHex(LedgerKeyFile.load(file))));
+			assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(file)), equalTo(OWNER_ONLY));
+
+			try (Stream<Path> entries = Files.list(file.toAbsolutePath().getParent())) {
+				assertThat(entries.map(entry -> entry.getFileName().toString()).toList(),
+					equalTo(List.of("validator.key")));
+			}
 		}
 	}
 

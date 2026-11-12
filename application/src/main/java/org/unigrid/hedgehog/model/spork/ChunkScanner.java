@@ -18,8 +18,10 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -40,7 +42,17 @@ import org.unigrid.hedgehog.model.network.chunk.TypedCodec;
 @Slf4j
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class ChunkScanner {
+	/* Every stream of a peer builds a decoder that looks the codecs up here, on the event loop of its connection,
+	   and scanning the classpath reads the whole jar. So a type and group is scanned once, and the codecs it found,
+	   which keep nothing of what they read, serve every stream. */
+	private static final Map<Pair<ChunkType, ChunkGroup>, OptionalMap<?, ?>> SCANNED = new ConcurrentHashMap<>();
+
 	public static <K, V> OptionalMap<K, V> scan(ChunkType chunkType, ChunkGroup chunkGroup) {
+		return (OptionalMap<K, V>) SCANNED.computeIfAbsent(Pair.of(chunkType, chunkGroup),
+			key -> load(chunkType, chunkGroup));
+	}
+
+	private static <K, V> OptionalMap<K, V> load(ChunkType chunkType, ChunkGroup chunkGroup) {
 		/* The package is also on the test classpath, where a plain package lookup would find only test classes */
 		final Set<Class<?>> classes = new Reflections(new ConfigurationBuilder()
 			.addUrls(ClasspathHelper.forClass(ChunkScanner.class))
@@ -62,6 +74,6 @@ public class ChunkScanner {
 			}
 		}).collect(Collectors.toMap(p -> p.getLeft(), p -> p.getRight()));
 
-		return new OptionalMap(chunks);
+		return new OptionalMap(Collections.unmodifiableMap(chunks));
 	}
 }

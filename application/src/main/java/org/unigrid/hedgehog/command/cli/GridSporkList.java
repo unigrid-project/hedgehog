@@ -21,7 +21,6 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
-import java.util.Optional;
 import org.unigrid.hedgehog.command.util.RestClientCommand;
 import org.unigrid.hedgehog.model.Json;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
@@ -30,7 +29,7 @@ import picocli.CommandLine.Command;
 @Command(name = "gridspork-list")
 public class GridSporkList extends RestClientCommand {
 	public GridSporkList() {
-		super(HttpMethod.GET, "/gridspork", Optional.of(() -> "No Content"));
+		super(HttpMethod.GET, "/gridspork");
 	}
 
 	@Override

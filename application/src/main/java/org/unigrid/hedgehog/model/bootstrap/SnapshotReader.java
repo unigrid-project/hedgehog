@@ -75,7 +75,7 @@ public final class SnapshotReader {
 
 		final SignatureStatus status = SnapshotSignature.read(path).getStatus();
 
-		if (status == SignatureStatus.INVALID) {
+		if (status == SignatureStatus.INVALID || status == SignatureStatus.MALFORMED) {
 			throw new IOException("The snapshot at " + path + " has a signature that does not "
 				+ "verify against any trusted key and will not be used");
 		}
@@ -146,40 +146,21 @@ public final class SnapshotReader {
 		return result;
 	}
 
-	/**
-	 * The number of addresses in the snapshot, funded or empty. Their indexes run from 0 to one less than this.
-	 * It is read once, when the snapshot is opened: the file is frozen, and a replaced file gets a reader of its
-	 * own.
-	 *
-	 * @return the number of records in the address table
-	 */
+	/** Read once, as the file is frozen and a replaced file gets a reader of its own, so an index never changes. */
 	public int addressCount() {
 		return addressCount;
 	}
 
-	/**
-	 * The address at a place in the address table, with its plain snapshot balance and its number of entries.
-	 *
-	 * @param index the place in the address table, from 0
-	 * @return the holder at that place, or empty when the index is past the last address
-	 * @throws IllegalArgumentException when the index is negative
-	 */
+	/** Empty for any index outside the table, negative or past the end, so that no caller needs a check of its own. */
 	public Optional<Holder> holderAt(int index) {
-		if (index < 0) {
-			throw new IllegalArgumentException("A holder index cannot be negative: " + index);
+		if (index < 0 || index >= addressCount()) {
+			return Optional.empty();
 		}
 
-		return index < addressCount() ? Optional.of(holder(index)) : Optional.empty();
+		return Optional.of(holder(index));
 	}
 
-	/**
-	 * The holders from a place in the address table on, in index order. Like the history of an address, a
-	 * negative offset counts as 0 and a negative limit gives nothing.
-	 *
-	 * @param offset the index of the first holder
-	 * @param limit the most holders to give
-	 * @return at most limit holders, fewer at the end of the table and none past it
-	 */
+	/** Bounded like the history of an address, so that a client pages through both the same way. */
 	public List<Holder> holders(int offset, int limit) {
 		final int first = Math.max(0, offset);
 		final int count = Math.max(0, Math.min(limit, addressCount() - first));

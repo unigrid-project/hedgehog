@@ -68,6 +68,7 @@ public class Hedgehog {
 	}
 
 	public static CommandLine commandLine() {
-		return new CommandLine(Hedgehog.class).setParameterExceptionHandler(BoardKeyOptions::reportWithoutKeys);
+		return new CommandLine(Hedgehog.class).setParameterExceptionHandler(BoardKeyOptions::reportWithoutKeys)
+			.setExecutionExceptionHandler(Daemon::reportFailedStart);
 	}
 }

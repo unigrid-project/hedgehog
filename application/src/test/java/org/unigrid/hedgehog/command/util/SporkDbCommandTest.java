@@ -40,6 +40,7 @@ import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
@@ -556,6 +557,52 @@ public class SporkDbCommandTest {
 			assertThat(result.err(), containsString("Cannot read the spork database /queue.db: java.util.PriorityQueue"
 				+ " is no class of a spork database"));
 			result.assertNoStackTrace();
+		}
+	}
+
+	/* Seconds that an Instant holds, and that are found in the written file by their bytes, to be changed to seconds
+	   that it does not */
+	private static final long SECONDS_MARKED = 0x0001020304050607L;
+
+	private static byte[] withSecondsBeyondAnInstant(byte[] file) {
+		final byte[] marked = ByteBuffer.allocate(Long.BYTES).putLong(SECONDS_MARKED).array();
+		final byte[] beyond = ByteBuffer.allocate(Long.BYTES).putLong(Long.MAX_VALUE).array();
+		final byte[] changed = file.clone();
+
+		for (int at = 0; at <= file.length - marked.length; at++) {
+			if (Arrays.equals(file, at, at + marked.length, marked, 0, marked.length)) {
+				System.arraycopy(beyond, 0, changed, at, beyond.length);
+				return changed;
+			}
+		}
+
+		throw new IllegalStateException("The time of the spork is not in the file");
+	}
+
+	/* The time of a spork is read by the Instant itself, which refuses seconds it cannot hold with a runtime exception
+	   that the stream does not turn into an IOException. The file is refused like any other that cannot be read, in
+	   one line, as a trace tells the operator nothing about the file. */
+	@Example
+	@SneakyThrows
+	public void refusesAFileWhoseTimeIsBeyondTheRangeOfAnInstantInOneLine() {
+		final GridSpork spork = supply(supplyOf(10), FIRST, SECOND);
+
+		spork.setTimeStamp(Instant.ofEpochSecond(SECONDS_MARKED));
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path file = written(fs, "instant.db", spork);
+
+			Files.write(file, withSecondsBeyondAnInstant(Files.readAllBytes(file)));
+
+			for (HedgehogCli.Result result : List.of(run(fs, "validate", "/instant.db"),
+				run(fs, "import", "/instant.db"), sign(fs, file, "/out.db", FIRST))) {
+
+				assertThat(result.err(), result.exitCode(), equalTo(2));
+				assertThat(result.err(), containsString("Cannot read the spork database /instant.db: "));
+				result.assertNoStackTrace();
+				assertThat(Files.exists(fs.getPath("/out.db")), is(false));
+				assertThat(Files.exists(fs.getPath(NODE)), is(false));
+			}
 		}
 	}
 

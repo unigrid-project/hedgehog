@@ -26,12 +26,14 @@ import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Future;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.model.option.NetOptions;
 import org.unigrid.hedgehog.model.cdi.CDIUtil;
 import org.unigrid.hedgehog.model.network.packet.Hello;
+import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
 import org.unigrid.hedgehog.transport.schedule.PublishSporkSchedule;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 import org.unigrid.hedgehog.model.spork.PendingSporks;
@@ -46,7 +48,7 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 	private final Type type;
 
 	public RegisterQuicChannelInitializer(Supplier<List<ChannelHandler>> handlersCreator, Type type) {
-		this(handlersCreator, null, type);
+		this(handlersCreator, List::of, type);
 	}
 
 	public enum Type {
@@ -67,22 +69,12 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 			channel.writeAndFlush(Hello.builder().port(NetOptions.getPort()).build());
 		}
 		log.atDebug().log("Schedulers");
-		if (Objects.nonNull(schedulersCreator.get())) {
-			schedulersCreator.get().forEach(s -> {
 
-				/* Netty schedulers just support Callable<A>, so in order to support something like a
-				Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
+		/* Asked once, as a supplier may hand out a different list each time */
+		final List<Schedulable> schedulers = schedulersCreator.get();
 
-				if (Objects.nonNull(s.getConsumer())) {
-					final Future<?> future = channel.eventLoop().scheduleAtFixedRate(() -> {
-						s.getConsumer().accept(channel);
-					}, s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(), s.getTimeUnit());
-
-					channel.closeFuture().addListener(f -> {
-						future.cancel(true);
-					});
-				}
-			});
+		if (Objects.nonNull(schedulers)) {
+			schedulers.forEach(s -> schedule(channel, s));
 		}
 		log.atDebug().log("CDIUtil");
 		CDIUtil.resolveAndRun(SporkDatabase.class, db -> {
@@ -91,5 +83,41 @@ public class RegisterQuicChannelInitializer extends ChannelInitializer<QuicStrea
 				PublishSporkSchedule.writeAndFlush(channel, db, pendingSporks);
 			});
 		});
+	}
+
+	private static void schedule(QuicStreamChannel channel, Schedulable s) {
+		/* Netty schedulers just support Callable<A>, so in order to support something like a
+		Function<A, B> we wrap it in a Callable and call the callback in our scheduler. */
+
+		if (Objects.nonNull(s.getConsumer())) {
+			/* The period is counted from the end of a run, as one counted from the start would make up for
+			   the runs that a stalled event loop missed by making them back to back, each as one more
+			   ping unanswered. */
+			final Future<?> future = channel.eventLoop().scheduleWithFixedDelay(
+				() -> runOnce(channel, s), s.isExecuteOnCreation() ? 0 : s.getPeriod(), s.getPeriod(),
+				s.getTimeUnit());
+
+			channel.closeFuture().addListener(f -> {
+				future.cancel(true);
+			});
+		}
+	}
+
+	/* A periodic task is never run again once a run of it throws, and says nothing of it, so a run that fails
+	   is logged here and the next one is still made: a ping that stopped would leave a dead peer open. */
+	private static void runOnce(QuicStreamChannel channel, Schedulable s) {
+		try {
+			s.getConsumer().accept(channel);
+		} catch (Throwable ex) {
+			log.atWarn().setCause(ex).addArgument(() -> peerOf(channel))
+				.log("A scheduled run on the stream to {} failed, the next is still made");
+		}
+	}
+
+	/* A stream names itself by its number alone, which is the same for the main stream of every peer, so the peer is
+	   named by the address that the connection of the stream holds for it */
+	private static Object peerOf(QuicStreamChannel channel) {
+		return Optional.<Object>ofNullable(channel.parent().attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).get())
+			.orElse(channel.remoteAddress());
 	}
 }

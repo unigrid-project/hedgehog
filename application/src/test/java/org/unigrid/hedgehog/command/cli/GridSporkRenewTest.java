@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response.Status;
 import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -47,6 +48,8 @@ import static org.unigrid.hedgehog.command.cli.SporkCommands.PROPOSER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.STRANGER;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.proposal;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.refusing;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejecting;
+import static org.unigrid.hedgehog.command.cli.SporkCommands.rejection;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.stored;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -200,6 +203,34 @@ public class GridSporkRenewTest {
 
 		RestCommandFixture.runWithOddity(command, new ResponseOddityException(status));
 		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* The node says why it turned a renewal down in the body of its answer, which the status line does not say */
+	@Example
+	public void showsWhyTheNodeTurnedARenewalDown() {
+		final GridSporkRenew command = renew(PROPOSER.getPrivateKey());
+		final FakeSporkNode node = new FakeSporkNode().holding(stored(Type.MINT_SUPPLY, supplyOf(10)));
+		final String reason = "This node takes no MINT_SUPPLY spork";
+		final Result result = RestCommandFixture.run(command, rejecting(node, reason));
+
+		assertThat(result.err().lines().toList(), equalTo(List.of(rejection(reason))));
+		assertThat(command.getExitCode(), equalTo(ExitCode.FAILED));
+	}
+
+	/* A node that does not answer is reported by the client as an exception of its own: the command says so in a line */
+	@Example
+	public void saysInOneLineThatTheNodeCannotBeReached() {
+		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
+
+		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "gridspork-renew", "--key",
+			PROPOSER.getPrivateKey())), RestCommandFixture.unreachable(new ConnectException("Connection refused")));
+
+		cli.get().assertNoStackTrace();
+		assertThat(cli.get().out(), equalTo(""));
+		assertThat(cli.get().err().lines().toList(), equalTo(List.of("Could not reach the node at "
+			+ RestCommandFixture.HOST + ":" + RestCommandFixture.PORT + ": ConnectException: Connection refused")));
+
+		assertThat(cli.get().exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	/* As the shell sees it: through the command line of the application */

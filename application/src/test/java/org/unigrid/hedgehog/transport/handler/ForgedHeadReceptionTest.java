@@ -19,9 +19,12 @@
 package org.unigrid.hedgehog.transport.handler;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
@@ -40,6 +43,7 @@ import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.crypto.SignatureForms;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
@@ -97,6 +101,12 @@ public class ForgedHeadReceptionTest {
 
 		private GridSpork stored() {
 			return database.get(Type.MINT_SUPPLY);
+		}
+
+		/* The bytes of both signatures, which no version is told by */
+		private boolean holdsTheSignaturesOf(Node other) {
+			return Arrays.equals(stored().getSignature(), other.stored().getSignature())
+				&& Arrays.equals(stored().getCosignature(), other.stored().getCosignature());
 		}
 	}
 
@@ -287,6 +297,105 @@ public class ForgedHeadReceptionTest {
 		assertThat(new Node(older).receive(muchLater), is(true));
 	}
 
+	/* A renewal moves the stored head to a new time, a next version changes it, and two board members can co-sign one
+	   each over the head that their nodes hold. Both are made from the same retired head, which the log of each
+	   tells, and the next version is the one that every node takes, whichever of the two is newer: the renewal has
+	   the data of the head, and would undo the change. */
+	@Example
+	public void shouldSettleARenewalAndANextVersionOverOneVersionOnTheNextVersion() {
+		final GridSpork head = secondVersionHoursAgo();
+		final GridSpork change = cosigned(proposalOver(head, 30, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork laterRenewal = renewalOf(head, change.getTimeStamp().plusMillis(1));
+		final GridSpork renewal = renewalOf(head, head.getTimeStamp().plusSeconds(1));
+		final GridSpork laterChange = cosigned(proposalOver(head, 30, renewal.getTimeStamp().plusMillis(1)));
+
+		for (GridSpork sibling : List.of(change, laterRenewal, renewal, laterChange)) {
+			assertThat(new Node(head).receive(sibling), is(true));
+		}
+
+		assertThat(List.of(new Node(change).receive(laterRenewal), new Node(laterRenewal).receive(change),
+			new Node(renewal).receive(laterChange), new Node(laterChange).receive(renewal)),
+			equalTo(List.of(false, true, true, false)));
+	}
+
+	/* The renewals of a head that a board member can make beside a change of it and the version after that: before
+	   the change, between the two, and after both */
+	private static List<GridSpork> renewalsAround(GridSpork head, GridSpork change, GridSpork next) {
+		return List.of(renewalOf(head, change.getTimeStamp().minusMillis(1)),
+			renewalOf(head, change.getTimeStamp().plus(Duration.ofMinutes(2))),
+			renewalOf(head, next.getTimeStamp().plus(Duration.ofMinutes(5))));
+	}
+
+	/* A board member renews every spork that a node holds in one run, and a node that has not yet heard of a change
+	   hands out the version before it. The renewal of that version has its data, so a node that took it in the
+	   place of the change would refuse the version after the change for good, as the log of that one names the
+	   change and not the renewal, while the nodes that hold that version refuse the renewal. The change keeps its
+	   place and takes that of the renewal, so every node goes on to the version after it. */
+	@Example
+	public void shouldGoOnToTheVersionAfterAChangeWhereARenewalOfTheVersionBeforeItIsHeld() {
+		final GridSpork head = secondVersionHoursAgo();
+		final GridSpork change = cosigned(proposalOver(head, 30, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork next = cosigned(proposalOver(change, 40, change.getTimeStamp().plus(Duration.ofMinutes(5))));
+
+		for (GridSpork renewal : renewalsAround(head, change, next)) {
+			final Node onTheChange = new Node(change);
+			final Node onTheRenewal = new Node(renewal);
+			final Node onTheNext = new Node(next);
+
+			assertThat(List.of(onTheChange.receive(renewal), onTheChange.receive(next)),
+				equalTo(List.of(false, true)));
+			assertThat(List.of(onTheRenewal.receive(change), onTheRenewal.receive(next)),
+				equalTo(List.of(true, true)));
+			assertThat(onTheNext.receive(renewal), is(false));
+
+			for (Node node : List.of(onTheChange, onTheRenewal, onTheNext)) {
+				assertThat(node.stored().getSignable(), equalTo(next.getSignable()));
+			}
+		}
+	}
+
+	/* In whatever order the three reach a node that holds the head. Every peer sends what it holds again every few
+	   minutes, so each comes a second time: the version after the change is refused by a node that holds the
+	   renewal, and taken once the change took the place of that. */
+	@Example
+	public void shouldEndOnTheVersionAfterAChangeInWhateverOrderARenewalComes() {
+		final GridSpork head = secondVersionHoursAgo();
+		final GridSpork change = cosigned(proposalOver(head, 30, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork next = cosigned(proposalOver(change, 40, change.getTimeStamp().plus(Duration.ofMinutes(5))));
+
+		for (GridSpork renewal : renewalsAround(head, change, next)) {
+			for (List<GridSpork> arrivals : List.of(List.of(change, renewal, next),
+				List.of(change, next, renewal), List.of(renewal, change, next), List.of(renewal, next, change),
+				List.of(next, change, renewal), List.of(next, renewal, change))) {
+
+				final Node node = new Node(head);
+
+				arrivals.forEach(node::receive);
+				arrivals.forEach(node::receive);
+				assertThat(node.stored().getSignable(), equalTo(next.getSignable()));
+			}
+		}
+	}
+
+	/* A next version takes the place of a renewal that is newer than it only while a proposal made along with it
+	   could still be waiting, as two versions with other data do. A renewal never takes the place of a next version,
+	   however much later it was made, and not of one that sets the data of the head again either: that is a
+	   version all the same, which the one after it names. */
+	@Example
+	public void shouldTakeANextVersionOverANewerRenewalWithinTheLifetimeOfAProposalOnly() {
+		final GridSpork head = secondVersionHoursAgo();
+		final GridSpork change = cosigned(proposalOver(head, 30, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork sameData = cosigned(proposalOver(head, 20, head.getTimeStamp().plusSeconds(1)));
+		final GridSpork inTime = renewalOf(head, change.getTimeStamp().plus(PendingSporks.LIFETIME));
+		final GridSpork tooLate = renewalOf(head, change.getTimeStamp().plus(PendingSporks.LIFETIME).plusMillis(1));
+
+		assertThat(List.of(new Node(inTime).receive(change), new Node(tooLate).receive(change)),
+			equalTo(List.of(true, false)));
+		assertThat(List.of(new Node(change).receive(inTime), new Node(change).receive(tooLate),
+			new Node(sameData).receive(inTime), new Node(sameData).receive(tooLate)),
+			equalTo(List.of(false, false, false, false)));
+	}
+
 	/* The board signs the data of a database again as first versions, which two board members can make on two
 	   machines hours apart. There is no version before them that the later one could undo, so the newer wins. */
 	@Example
@@ -298,6 +407,96 @@ public class ForgedHeadReceptionTest {
 		assertThat(new Node(older).receive(newer), is(true));
 		assertThat(new Node(newer).receive(older), is(false));
 		assertThat(new Node(older).stored().getSignable(), equalTo(older.getSignable()));
+	}
+
+	/* The signatures are no part of what is signed, so one version can be had as two heads that differ in a signature
+	   only: a board member who co-signs a proposal twice makes two co-signatures, as the nonces differ, and whoever
+	   holds a head makes a copy with the other value of s, which verifies as well for the types that take a signature
+	   in either form. The time stamp of such heads is one, so neither is newer than the other. */
+	private static List<GridSpork> rivalsOf(GridSpork head, GridSpork proposal) {
+		final GridSpork otherS = SerializationUtils.clone(head);
+
+		otherS.setCosignature(SignatureForms.withTheOtherS(head.getCosignature()));
+		return List.of(cosigned(proposal), otherS);
+	}
+
+	/* Neither head is newer than the other, so neither takes the place of the other: a node keeps the bytes that it
+	   has, however often its peers send theirs. Both nodes hold one version all the same, which the next version
+	   shows: made over the head of either node, it is taken by both, and they hold the same bytes from then on. */
+	private void keepsItsHeadUntilTheNextVersion(GridSpork base, GridSpork head, GridSpork rival, GridSpork over) {
+		final Node west = new Node(base);
+		final Node east = new Node(base);
+		final GridSpork next = cosigned(proposalOver(over, 40));
+
+		assertThat(rival.getSignable(), equalTo(head.getSignable()));
+		assertThat(List.of(west.receive(head), east.receive(rival)), equalTo(List.of(true, true)));
+
+		/* As every node republishes the head that it holds */
+		assertThat(List.of(west.receive(east.stored()), east.receive(west.stored())),
+			equalTo(List.of(false, false)));
+		assertThat(west.holdsTheSignaturesOf(east), is(false));
+
+		assertThat(List.of(west.receive(next), east.receive(next)), equalTo(List.of(true, true)));
+		assertThat(west.holdsTheSignaturesOf(east), is(true));
+	}
+
+	@Example
+	public void shouldKeepOneOfTwoHeadsOfOneVersionUntilTheNextVersionOverEitherOfThem() {
+		final GridSpork base = secondVersionHoursAgo();
+		final GridSpork proposal = proposalOver(base, 30, base.getTimeStamp().plusSeconds(1));
+		final GridSpork head = cosigned(proposal);
+
+		for (GridSpork rival : rivalsOf(head, proposal)) {
+			keepsItsHeadUntilTheNextVersion(base, head, rival, head);
+			keepsItsHeadUntilTheNextVersion(base, head, rival, rival);
+		}
+	}
+
+	/* A version over a head carries that head in its log, signatures included, and a node takes it if the entry is of
+	   the version that the node holds. Whichever head a board member built on, every node that holds one of the two
+	   takes the version. */
+	@Example
+	public void shouldTakeTheNextVersionOverEitherHeadOfOneVersion() {
+		final GridSpork base = secondVersionHoursAgo();
+		final GridSpork proposal = proposalOver(base, 30, base.getTimeStamp().plusSeconds(1));
+		final GridSpork head = cosigned(proposal);
+		final List<Boolean> taken = new ArrayList<>();
+
+		for (GridSpork rival : rivalsOf(head, proposal)) {
+			final List<GridSpork> heads = List.of(head, rival);
+			final List<GridSpork> successors = heads.stream().map(over -> cosigned(proposalOver(over, 40))).toList();
+
+			for (GridSpork held : heads) {
+				successors.forEach(successor -> taken.add(new Node(held).receive(successor)));
+			}
+		}
+
+		assertThat(taken, equalTo(Collections.nCopies(8, true)));
+	}
+
+	/* A proposal waits on every node for its co-signature, and a renewal moves the head to a new time. Both log the
+	   head as the board member read it from a node, and a node that holds the other head of the version takes them as
+	   made from the head that it holds. */
+	@Example
+	public void shouldTakeAProposalAndARenewalOverEitherHeadOfOneVersion() {
+		final GridSpork base = secondVersionHoursAgo();
+		final GridSpork proposal = proposalOver(base, 30, base.getTimeStamp().plusSeconds(1));
+		final GridSpork head = cosigned(proposal);
+		final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+		final List<Boolean> taken = new ArrayList<>();
+
+		for (GridSpork rival : rivalsOf(head, proposal)) {
+			for (List<GridSpork> heads : List.of(List.of(head, rival), List.of(rival, head))) {
+				final Node node = new Node(heads.getFirst());
+				final GridSpork renewal = renewalOf(heads.getLast(), now);
+
+				taken.add(renewal.isRenewalOf(node.stored()));
+				taken.add(node.receive(proposalOver(heads.getLast(), 40)));
+				taken.add(node.receive(renewal));
+			}
+		}
+
+		assertThat(taken, equalTo(Collections.nCopies(12, true)));
 	}
 
 	@Example

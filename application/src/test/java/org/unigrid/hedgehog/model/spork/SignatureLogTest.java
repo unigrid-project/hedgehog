@@ -18,6 +18,10 @@
 
 package org.unigrid.hedgehog.model.spork;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,7 +32,9 @@ import net.jqwik.api.lifecycle.BeforeProperty;
 import org.apache.commons.codec.digest.DigestUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
+import org.slf4j.LoggerFactory;
 import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
+import org.unigrid.hedgehog.model.crypto.CountedKeys;
 import org.unigrid.hedgehog.model.crypto.Signature;
 
 public class SignatureLogTest extends BaseMockedWeldTest {
@@ -192,5 +198,37 @@ public class SignatureLogTest extends BaseMockedWeldTest {
 		final SignatureLog cosignedLog = replaced(1, cosigned(entry(key, 1), key, 1));
 
 		assertThat(cosignedLog.isValidFrom(0, Set.of(key.getPublicKey())), is(false));
+	}
+
+	/* An entry that a peer sends with a signature that is no signature at all fails with an exception each time it is
+	   checked. The text of that exception holds the key, and is for a node that logs at trace level, which the others
+	   must not pay for each time. The count with the trace on shows that the signature does fail, and that the text
+	   logged is what it was. */
+	@Example
+	public void shouldWriteNoKeyAsTextForASignatureThatCannotBeReadUnlessTheMessageIsLogged() {
+		final Logger logger = (Logger) LoggerFactory.getLogger(SignatureLogEntry.class);
+		final Level level = logger.getLevel();
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		final SignatureLogEntry garbled = entry(key, 1).toBuilder().signature(new byte[] { 1, 2, 3 }).build();
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try (CountedKeys keys = new CountedKeys(List.of(key))) {
+			logger.setLevel(Level.INFO);
+			assertThat(garbled.isValid(), is(false));
+			assertThat("keys written out as text", keys.getWritten().intValue(), is(0));
+			assertThat(appender.list.size(), is(0));
+
+			logger.setLevel(Level.TRACE);
+			assertThat(garbled.isValid(), is(false));
+			assertThat(keys.getWritten().intValue(), is(1));
+			assertThat(appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList(),
+				contains("Log entry signed at " + garbled.getTimeStamp() + " does not verify: Failed to verify"
+					+ " siugnature data with public key '" + keys.getReal().get(key.getPublicKey()) + "'"));
+		} finally {
+			logger.setLevel(level);
+			logger.detachAppender(appender);
+		}
 	}
 }

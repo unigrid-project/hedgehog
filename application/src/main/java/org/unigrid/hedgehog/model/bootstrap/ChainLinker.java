@@ -25,7 +25,8 @@ import lombok.extern.slf4j.Slf4j;
    Roughly one block in twenty-three stored by the legacy daemon is on a branch that lost. Balances are
    only correct if those are dropped, so the chain is rebuilt here: every stored block is linked to its
    parent by hash, heights are assigned forwards from the genesis block, and the walk back from the
-   deepest block is the only thing that survives.
+   deepest block is the only thing that survives. A block whose parent is not stored and that is not the
+   genesis block belongs to no chain that can be replayed, so it is dropped together with its descendants.
 */
 @Slf4j
 public final class ChainLinker {
@@ -57,6 +58,10 @@ public final class ChainLinker {
 		store.forEachBlock(location -> stored[0]++);
 		log.info("Indexing {} stored blocks", stored[0]);
 
+		if (stored[0] == 0) {
+			throw new IllegalStateException("The block files hold no block that starts with the network magic");
+		}
+
 		final ChainLinker linker = new ChainLinker(store, stored[0]);
 
 		linker.readHeaders();
@@ -69,7 +74,7 @@ public final class ChainLinker {
 
 		store.forEachBlock(location -> {
 			final int position = next[0]++;
-			final BlockHeader header = BlockParser.header(store.read(location));
+			final BlockHeader header = store.read(location, BlockParser::header);
 
 			System.arraycopy(header.getHash(), 0, hashes, position * Hashing.HASH_SIZE, Hashing.HASH_SIZE);
 			System.arraycopy(header.getPreviousHash(), 0, previousHashes,
@@ -103,7 +108,7 @@ public final class ChainLinker {
 		Arrays.fill(heights, -1);
 
 		for (int i = 0; i < count; i++) {
-			if (parents[i] == BlockHashIndex.NOT_FOUND) {
+			if (isGenesis(i)) {
 				heights[i] = 0;
 				pending[top++] = i;
 			}
@@ -119,6 +124,11 @@ public final class ChainLinker {
 		}
 
 		return heights;
+	}
+
+	private boolean isGenesis(int block) {
+		return parents[block] == BlockHashIndex.NOT_FOUND && BlockParser.isGenesis(
+			Arrays.copyOfRange(hashes, block * Hashing.HASH_SIZE, (block + 1) * Hashing.HASH_SIZE));
 	}
 
 	private int[] childOffsets() {

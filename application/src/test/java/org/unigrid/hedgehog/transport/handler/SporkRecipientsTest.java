@@ -205,6 +205,18 @@ public class SporkRecipientsTest {
 		}
 	}
 
+	/* The other way round, a node of release 0.0.8 sends the vesting spork in the layout it had then, and every other
+	   type it sends is read as before */
+	@Example
+	public void shouldTakeOnlyTheVestingSporkOfAnEarlierStreamToBeInAnotherLayout() {
+		for (final Type type : Type.values()) {
+			assertThat(type.toString(), SporkProtocol.inTheLayoutOfThisRelease(stream(false), type),
+				is(type != Type.VESTING_STORAGE));
+			assertThat(type.toString(), SporkProtocol.inTheLayoutOfThisRelease(streamOfThisRelease(), type), is(true));
+			assertThat(type.toString(), SporkProtocol.inTheLayoutOfThisRelease(stream(true), type), is(true));
+		}
+	}
+
 	@Example
 	public void shouldWriteALedgerSporkOnlyToAStreamThatSettledOnTheLedgerProtocol() {
 		final EmbeddedChannel ledger = stream(true);

@@ -57,7 +57,6 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
-import org.unigrid.hedgehog.server.rest.entity.ErrorResponse;
 import org.unigrid.hedgehog.server.rest.entity.HeightResponse;
 
 public class BootstrapResourceTest extends BaseRestClientTest {
@@ -217,22 +216,23 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		final Response response = client.get("/bootstrap/holders/1");
 
 		assertThat(response.getStatus(), equalTo(Response.Status.NOT_FOUND.getStatusCode()));
-		assertThat(response.readEntity(ErrorResponse.class).error(),
-			equalTo("No holder at index 1; the snapshot has 1 addresses"));
 	}
 
+	/* A negative index or offset is a malformed request, which bean validation refuses before the snapshot is read */
 	@Example
 	@SneakyThrows
-	public void shouldRejectANegativeHolderIndex() {
+	public void shouldRejectANegativeIndexOrOffset() {
 		writeSnapshot();
 
-		try {
-			client.get("/bootstrap/holders/-1");
-			throw new AssertionError("A negative holder index was accepted");
+		for (final String location : List.of("/bootstrap/holders/-1", "/bootstrap/holders?offset=-1")) {
+			try {
+				client.get(location);
+				throw new AssertionError(location + " was accepted");
 
-		} catch (ResponseOddityException expected) {
-			assertThat(expected.getMessage(), startsWith(
-				String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+			} catch (ResponseOddityException expected) {
+				assertThat(location, expected.getMessage(), startsWith(
+					String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+			}
 		}
 	}
 

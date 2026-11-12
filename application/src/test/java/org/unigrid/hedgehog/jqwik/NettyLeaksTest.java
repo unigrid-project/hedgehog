@@ -16,12 +16,34 @@
     If not, see <http://www.gnu.org/licenses/> and <https://github.com/unigrid-project/hedgehog>.
  */
 
-package org.unigrid.hedgehog.server.rest.entity;
+package org.unigrid.hedgehog.jqwik;
 
-/**
- * Why a request was refused, sent as the body of an error answer: {@code {"error":"…"}}.
- *
- * @param error the reason, in a sentence a person can read
- */
-public record ErrorResponse(String error) {
+import io.netty.buffer.PooledByteBufAllocator;
+import net.jqwik.api.Example;
+import static org.awaitility.Awaitility.await;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
+
+public class NettyLeaksTest {
+	private static final int SIZE = 64;
+
+	@Example
+	public void shouldReportNothingForABufferThatWasReleased() throws Exception {
+		try (NettyLeaks leaks = NettyLeaks.watch()) {
+			PooledByteBufAllocator.DEFAULT.directBuffer(SIZE).release();
+
+			assertThat(leaks.collect(), is(empty()));
+		}
+	}
+
+	@Example
+	public void shouldReportABufferThatWasDroppedUnreleased() throws Exception {
+		try (NettyLeaks leaks = NettyLeaks.watch()) {
+			PooledByteBufAllocator.DEFAULT.directBuffer(SIZE);
+
+			await().until(leaks::collect, is(not(empty())));
+		}
+	}
 }

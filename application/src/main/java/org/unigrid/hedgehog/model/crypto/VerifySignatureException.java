@@ -18,8 +18,39 @@
 
 package org.unigrid.hedgehog.model.crypto;
 
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.util.Objects;
+import java.util.function.Supplier;
+
 public class VerifySignatureException extends Exception {
+	private String message;
+	private transient Supplier<String> pending;
+
 	public VerifySignatureException(String msg, Throwable cause) {
 		super(msg, cause);
+	}
+
+	/* For a failure that anyone can cause as often as they like, such as a signature that is no signature, which is
+	   tried against every key of the network: the text is built the first time it is read, and a node that logs no
+	   trace never reads it. */
+	public VerifySignatureException(Supplier<String> msg, Throwable cause) {
+		super(null, cause);
+		pending = msg;
+	}
+
+	@Override
+	public synchronized String getMessage() {
+		if (Objects.nonNull(pending)) {
+			message = pending.get();
+			pending = null;
+		}
+
+		return Objects.isNull(message) ? super.getMessage() : message;
+	}
+
+	private void writeObject(ObjectOutputStream stream) throws IOException {
+		getMessage();
+		stream.defaultWriteObject();
 	}
 }

@@ -27,6 +27,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
@@ -67,18 +68,12 @@ public class TopologyThread extends Thread {
 
 			try {
 				if (!node.getConnection().isPresent()) {
-					final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
-					final P2PClient client = new P2PClient(node.getAddress().getHostString(),
-						node.getAddress().getPort(), why
-					);
-
-					topology.modifyNode(node, n -> {
-						n.setConnection(Optional.of(client));
-						topology.getChannels().set(client.getChannel(), n);
-					});
+					dial(node);
 				}
-			} catch (ExecutionException | InterruptedException | TimeoutException | RuntimeException ex) {
-
+			} catch (Exception ex) {
+				/* Netty rethrows the cause of a failed future as it is, so a dial can also end in a checked
+				   exception that the constructor of the client does not declare, as when a peer at its limit
+				   refuses a stream, and that ends this dial alone, not the round */
 				log.atWarn().log("Node connection to {} failed", node, ex);
 
 				node.getConnection().ifPresent(connection -> {
@@ -87,6 +82,35 @@ public class TopologyThread extends Thread {
 				});
 
 				forget(node);
+			}
+		}
+
+		/* The client is handed to the node that it dialed. An operator may have removed that node over REST in the
+		   meantime, and the topology then has none to give it to, so no one else closes the client and its event
+		   loop. The same goes for a thread that was told to exit while it dialed: the server closes the connections
+		   that the topology holds, so a client that comes after that would be one no one closes. The flag is read
+		   under the lock that exit() takes, so a client is either registered before the exit, and closed with the
+		   others, or closed here. */
+		private void dial(Node node) throws ExecutionException, InterruptedException, TimeoutException {
+			final Dialed why = configured.contains(node) ? Dialed.CONFIGURED : Dialed.CHOSEN;
+			final P2PClient client = new P2PClient(node.getAddress().getHostString(),
+				node.getAddress().getPort(), why
+			);
+
+			final AtomicBoolean kept = new AtomicBoolean();
+
+			synchronized (lock) {
+				if (run) {
+					topology.modifyNode(node, n -> {
+						n.setConnection(Optional.of(client));
+						topology.getChannels().set(client.getChannel(), n);
+						kept.set(true);
+					});
+				}
+			}
+
+			if (!kept.get()) {
+				client.closeDirty();
 			}
 		}
 
@@ -198,12 +222,16 @@ public class TopologyThread extends Thread {
 	}
 
 	private int round(Topology topology) {
+		/* The seeds are looked up here, outside the lock of the topology, which a slow lookup would hold up for
+		   every reader */
+		final Set<Node> seeds = Topology.resolveSeeds();
+
 		/* If we have no connections, we try the seed nodes again! */
 		if (topology.isEmpty()) {
-			topology.repopulate();
+			topology.repopulate(seeds);
 		}
 
-		topology.addSeeds();
+		topology.addSeeds(seeds);
 
 		final Set<Node> configured = topology.cloneConfigured();
 

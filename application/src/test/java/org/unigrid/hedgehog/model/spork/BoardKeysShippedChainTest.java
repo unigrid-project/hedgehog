@@ -19,9 +19,11 @@
 package org.unigrid.hedgehog.model.spork;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.AfterTry;
@@ -59,6 +61,20 @@ public class BoardKeysShippedChainTest {
 	private static final KeyChange ADDING = change(ROOT, List.of(), keys(0, 1, 2), keys(0, 1, 2));
 	private static final KeyChange SWITCHING_OFF = change(ROOT, List.of(ADDING), keys(1, 2), keys(1, 2));
 	private static final KeyChange ELSEWHERE = change(ROOT, List.of(), keys(0, 1, 3), keys(0, 1, 3));
+
+	private static final class ClosingStream extends ByteArrayInputStream {
+		private final AtomicBoolean isClosed = new AtomicBoolean();
+
+		private ClosingStream(byte[] content) {
+			super(content);
+		}
+
+		@Override
+		public void close() throws IOException {
+			isClosed.set(true);
+			super.close();
+		}
+	}
 
 	@BeforeTry
 	public void before() {
@@ -134,6 +150,19 @@ public class BoardKeysShippedChainTest {
 
 		asReleased();
 		assertThat(BoardKeyChain.shipped(), is(empty()));
+	}
+
+	/* The resource of the release is read once and let go, whether or not the chain in it reads */
+	@Example
+	public void shouldCloseTheStreamOfTheChainWhetherOrNotItReads() {
+		final ClosingStream reading = new ClosingStream(BoardKeyChain.encoded(List.of(ADDING)));
+		final ClosingStream broken = new ClosingStream(new byte[] { 1, 2, 3 });
+
+		BoardKeyChain.Release.read(reading, Set.of());
+		assertThrows(IllegalStateException.class, () -> BoardKeyChain.Release.read(broken, Set.of()));
+
+		assertThat(reading.isClosed.get(), is(true));
+		assertThat(broken.isClosed.get(), is(true));
 	}
 
 	/* A release whose chain does not read is broken, which the node says when it starts, naming what it ships */

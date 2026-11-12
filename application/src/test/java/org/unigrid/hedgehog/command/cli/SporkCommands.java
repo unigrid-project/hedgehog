@@ -39,6 +39,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.model.option.BoardKeyOptions;
 import org.unigrid.hedgehog.command.util.FakeSporkNode;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -182,6 +183,23 @@ public final class SporkCommands {
 	public static Answer refusing(Answer node) {
 		return request -> HttpMethod.POST.equals(request.method())
 			? Response.status(Status.CONFLICT).entity("The spork does not follow on").build() : node.respond(request);
+	}
+
+	/* A node that answers as the one given, but cannot take a spork handed to it and says why with a status that the
+	   client takes for no answer at all */
+	public static Answer rejecting(Answer node, String reason) {
+		return request -> {
+			if (HttpMethod.POST.equals(request.method())) {
+				throw new ResponseOddityException(Status.BAD_REQUEST, reason);
+			}
+
+			return node.respond(request);
+		};
+	}
+
+	/* The line that a command prints for the status above, with the reason of the node */
+	public static String rejection(String reason) {
+		return new ResponseOddityException(Status.BAD_REQUEST).getMessage() + ": " + reason;
 	}
 
 	/* The usage error of a command that asked the node for its board keys first and handed it nothing: a key is

@@ -23,8 +23,11 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.glassfish.jersey.netty.httpserver.NettySecurityContext;
 import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
 import org.unigrid.hedgehog.model.NodeStatus;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
@@ -44,9 +47,16 @@ public class UtilResource extends CDIBridgeResource {
 	@CDIBridgeInject
 	private NodeStatus nodeStatus;
 
+	/* The node shuts down once the answer is written, which the connection of the request sees to. A request that
+	   came over no such connection has no answer that could be waited for. */
 	@Path("/stop") @POST
-	public Response stop() {
-		CDIContext.stop();
+	public Response stop(@Context ContainerRequestContext request) {
+		if (request.getSecurityContext() instanceof NettySecurityContext netty) {
+			StopAfterAnswer.await(netty.getNettyContext().channel());
+		} else {
+			CDIContext.stop();
+		}
+
 		return Response.status(Response.Status.ACCEPTED).build();
 	}
 

@@ -132,6 +132,16 @@ public class StorageTest {
 		}
 	}
 
+	/* The JSON null reads as no parameters at all, which is none that a node can store by */
+	@Example
+	public void refusesNullAsTheParameters() {
+		final FakeSporkNode node = new FakeSporkNode();
+
+		assertThat(assertThrows(CommandLine.ParameterException.class, () -> RestCommandFixture.run(set("null"), node))
+			.getMessage(), containsString("holds no data"));
+		assertThat(node.submitted(), empty());
+	}
+
 	@Example
 	public void refusesToRunUnderAnUnknownCommand() {
 		final CommandSpec unknown = CommandSpec.create().addSubcommand(NAME, new CommandLine(new Storage()));

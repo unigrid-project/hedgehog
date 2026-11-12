@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import jakarta.ws.rs.ProcessingException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -79,7 +80,7 @@ public class GridSporkRenew implements Runnable, IExitCodeGenerator {
 					exitCode = ExitCode.FAILED;
 				}
 			}
-		} catch (ResponseOddityException | IOException ex) {
+		} catch (ResponseOddityException | IOException | ProcessingException ex) {
 			System.err.println(RestClientCommand.describe(ex));
 			exitCode = ExitCode.FAILED;
 		} catch (UntrustedSporkException | SigningException | IllegalArgumentException ex) {

@@ -22,11 +22,16 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.channel.embedded.EmbeddedChannel;
 import jakarta.inject.Inject;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URISyntaxException;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import lombok.SneakyThrows;
 import mockit.Capturing;
 import mockit.Expectations;
@@ -100,6 +105,19 @@ public class NodeTest extends BaseMockedWeldTest {
 		}
 	}
 
+	/* The address of a node is parsed as the callers expect: a port above 65535 is an address that does not parse,
+	   not an IllegalArgumentException from the socket address that no caller of the method catches */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseAPortThatNoHostHas() {
+		try {
+			Node.fromAddress("1.2.3.4:70000");
+			assertThat("A port above 65535 should be refused", false);
+		} catch (URISyntaxException ex) {
+			assertThat(ex.getMessage(), containsString("70000"));
+		}
+	}
+
 	private static Node unresolved(String host) {
 		return Node.builder().address(InetSocketAddress.createUnresolved(host, 52883)).build();
 	}
@@ -113,6 +131,65 @@ public class NodeTest extends BaseMockedWeldTest {
 		assertThat(node.hashCode(), is(unresolved("no-such-host.invalid").hashCode()));
 		assertThat(node, equalTo(unresolved("no-such-host.invalid")));
 		assertThat(node, not(equalTo(unresolved("another-host.invalid"))));
+	}
+
+	private static void assertComparedAsItsUriIs(Node first, Node second) {
+		assertThat(first.equals(second), is(first.getURI().equals(second.getURI())));
+
+		if (first.equals(second)) {
+			assertThat(first.hashCode(), is(second.hashCode()));
+		}
+	}
+
+	/* A node is the same as another when their URIs are, as nodes were compared when a URI was made for each, and the
+	   same node hashes alike */
+	@Property(tries = 100)
+	public void shouldCompareNodesAsTheirUrisDo(@ForAll("provideNode") Node node,
+		@ForAll @IntRange(min = 1024, max = 65535) int port) {
+
+		final InetAddress host = node.getAddress().getAddress();
+		final Node same = Node.builder().address(new InetSocketAddress(host, node.getAddress().getPort())).build();
+		final Node moved = Node.builder().address(new InetSocketAddress(host, port)).build();
+
+		assertThat(node, equalTo(same));
+		assertComparedAsItsUriIs(node, same);
+		assertComparedAsItsUriIs(node, moved);
+		assertComparedAsItsUriIs(moved, node);
+	}
+
+	/* A host name written as the address of a node that resolves names that node, while the two scopes of a link local
+	   address name two: the host is written the way the URI has been made of it */
+	@Example
+	@SneakyThrows
+	public void shouldCompareAHostNameAndTheScopesOfAnAddressAsTheirUrisDo() {
+		final byte[] linkLocal = { (byte) 0xfe, (byte) 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+		final Node resolved = Node.builder().address(new InetSocketAddress("127.0.0.1", 52883)).build();
+		final Node scoped = Node.builder()
+			.address(new InetSocketAddress(Inet6Address.getByAddress(null, linkLocal, 1), 52883)).build();
+		final Node rescoped = Node.builder()
+			.address(new InetSocketAddress(Inet6Address.getByAddress(null, linkLocal, 2), 52883)).build();
+
+		assertThat(resolved, equalTo(unresolved("127.0.0.1")));
+		assertComparedAsItsUriIs(resolved, unresolved("127.0.0.1"));
+		assertComparedAsItsUriIs(unresolved("127.0.0.1"), resolved);
+		assertComparedAsItsUriIs(resolved, unresolved("localhost"));
+		assertThat(scoped, not(equalTo(rescoped)));
+		assertComparedAsItsUriIs(scoped, rescoped);
+		assertComparedAsItsUriIs(scoped, scoped);
+	}
+
+	/* A list or a set that holds more than nodes, or nothing at all, asks a node whether it is the same as what it holds:
+	   the answer is no, not an exception */
+	@Example
+	public void shouldNotEqualNothingOrAnObjectOfAnotherType() {
+		final Node node = Node.builder().address(new InetSocketAddress("127.0.0.1", 52883)).build();
+		final List<Object> mixed = Arrays.asList("127.0.0.1:52883", null, node);
+
+		assertThat(node.equals(null), is(false));
+		assertThat(node.equals("127.0.0.1:52883"), is(false));
+		assertThat(node.equals(node.getURI()), is(false));
+		assertThat(mixed.contains(node), is(true));
+		assertThat(mixed.indexOf(node), is(2));
 	}
 
 	/* Listing a node that does not resolve is allowed, keeping one is not: a peer could fill the topology with names */
@@ -168,6 +245,30 @@ public class NodeTest extends BaseMockedWeldTest {
 		} else {
 			topology.addNode(node);
 			assertThat(topology.cloneNodes().size(), is(originalSize + 1));
+		}
+	}
+
+	/* The addresses of the host are listed once a minute. The host, or a time service, may step the clock back by an hour
+	   after a start with a wrong clock or a resume; the list must not be taken for fresh for that hour too, as an
+	   address of this node that came up in it would then go unknown, and the node would dial itself. */
+	@Example
+	public void shouldListTheAddressesAgainWhenTheClockStepsBack() {
+		final long year2100 = 4_102_444_800_000L;
+		final long anHour = 3_600_000L;
+		final AtomicLong clock = new AtomicLong(year2100);
+
+		try {
+			final Set<InetAddress> listed = Node.LocalAddresses.current(clock::get);
+
+			clock.addAndGet(1000);
+			assertThat("the list was made again within a minute", Node.LocalAddresses.current(clock::get),
+				sameInstance(listed));
+
+			clock.addAndGet(-anHour);
+			assertThat("the list was kept for the hour that the clock stepped back",
+				Node.LocalAddresses.current(clock::get), not(sameInstance(listed)));
+		} finally {
+			Node.LocalAddresses.current(() -> 0);
 		}
 	}
 

@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.server.rest;
 
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response.Status;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,11 +45,17 @@ import net.jqwik.api.GenerationMode;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeContainer;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
+import org.unigrid.hedgehog.model.network.Node;
+import org.unigrid.hedgehog.model.network.Topology;
 import org.unigrid.hedgehog.model.option.PreviewMockUp;
 
 /* The container queues whatever a client sends before a resource reads it, so what a request may hold is bounded
@@ -65,6 +72,9 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 	private static final String JSON = "Content-Type: application/json";
 
 	private record Answer(String status, Map<String, String> headers, String body, boolean closed) { }
+
+	@Inject
+	private Topology topology;
 
 	/* The submit of the ledger reads its body only on a node run with --preview */
 	@BeforeContainer
@@ -252,5 +262,27 @@ public class RestBodyLimitTest extends BaseRestClientTest {
 		Arrays.fill(data, (byte) ' ');
 		out.write(data);
 		out.flush();
+	}
+
+	/* A connection that is cut gives the decoder no end of the request, so the resource that reads the body would wait
+	   for ever, and is given an end that it reads as the failure it is: a node that is half named is added to nothing */
+	@Example
+	@SneakyThrows
+	public void shouldReleaseTheResourceThatReadsABodyOnceTheSenderIsGone() {
+		final BlockedReaders readers = new BlockedReaders();
+		final Node node = Node.builder().address(new InetSocketAddress("10.0.0.1", 5)).build();
+
+		try (SSLSocket socket = connect()) {
+			final OutputStream out = socket.getOutputStream();
+
+			out.write(head("POST /node", List.of(bearer(), "Content-Type: text/plain", "Content-Length: 14")));
+			out.write("10.0.0.1:5".getBytes(StandardCharsets.US_ASCII));
+			out.flush();
+			await().atMost(PATIENCE).until(() -> !readers.started().isEmpty());
+		}
+
+		await().atMost(PATIENCE).untilAsserted(() -> assertThat(readers.started(), empty()));
+		await().during(Duration.ofSeconds(1)).atMost(PATIENCE)
+			.untilAsserted(() -> assertThat(topology.cloneConfigured(), not(hasItem(node))));
 	}
 }

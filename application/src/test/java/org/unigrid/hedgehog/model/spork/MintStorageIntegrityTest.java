@@ -38,6 +38,7 @@ import org.unigrid.hedgehog.model.spork.MintStorage.SporkData;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 
@@ -156,6 +157,40 @@ public class MintStorageIntegrityTest {
 		assertThat(assertThrows(CorruptedFrameException.class, () -> decoded(buffer)).getMessage(),
 			startsWith("A mint storage of " + (1 << 23)));
 		assertThat(buffer.readerIndex(), equalTo(3));
+	}
+
+	/* A body that claims a number of mints and then holds one mint over and over */
+	private static ByteBuf mintRepeated(int claimed, int copies) {
+		final ByteBuf entry = mintTo("a").skipBytes(HEADER_BYTES);
+		final ByteBuf buffer = Unpooled.buffer().writeMedium(claimed).writeZero(5 /* 40 bits */);
+
+		for (int i = 0; i < copies; i++) {
+			buffer.writeBytes(entry, entry.readerIndex(), entry.readableBytes());
+		}
+
+		return buffer;
+	}
+
+	/* A repeat replaces its mint in the map, so the size of the map falls short of the count that the body claims
+	   and a body that keeps repeating would be read to its last byte. The count that is claimed ends the reading. */
+	@Example
+	public void readsNoMoreMintsThanTheBodyClaimsWhenOneRepeats() {
+		final ByteBuf buffer = mintRepeated(2, 100_000);
+		final int entryBytes = mintTo("a").readableBytes() - HEADER_BYTES;
+
+		try {
+			decoded(buffer);
+		} catch (RuntimeException ex) {
+			/* Whether it is refused is for the next test to tell, here it is how far it read */
+		}
+
+		assertThat(buffer.readerIndex(), lessThanOrEqualTo(HEADER_BYTES + 2 * entryBytes));
+	}
+
+	@Example
+	public void refusesAMintThatRepeats() {
+		assertThat(assertThrows(CorruptedFrameException.class, () -> decoded(mintRepeated(2, 3))).getMessage(),
+			startsWith("A mint storage holds the same mint twice"));
 	}
 
 	@Example

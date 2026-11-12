@@ -22,8 +22,10 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -159,6 +161,28 @@ public class SnapshotReaderTest {
 		SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path), "does not verify against any trusted key");
 	}
 
+	/* What a signing that was cut short leaves after the content is no signature, and the snapshot none to use: it
+	   is refused as one whose signature does not verify is, whether the cut fell in the head of the block or after */
+	@Example
+	@SneakyThrows
+	public void shouldRefuseASnapshotThatEndsInTheStartOfASignature() {
+		final int head = SnapshotFormat.SIGNATURE_HEADER_SIZE;
+
+		for (int left : new int[] { 1, head, head + 1 }) {
+			final Path path = validSnapshot();
+			final long content = SnapshotDigest.contentLengthOf(path);
+
+			SnapshotSignature.signAndAppend(path, trustedKey().getPrivateKey());
+
+			try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+				channel.truncate(content + left);
+			}
+
+			SyntheticSnapshots.assertRefused(() -> SnapshotReader.open(path),
+				"does not verify against any trusted key");
+		}
+	}
+
 	@Provide
 	public Arbitrary<Map<String, Long>> provideHoldings() {
 		return AddressSnapshots.holdings(Long.MAX_VALUE);
@@ -240,16 +264,11 @@ public class SnapshotReaderTest {
 
 	@Example
 	@SneakyThrows
-	public void shouldRefuseANegativeHolderIndex() {
+	public void shouldFindNoHolderAtANegativeIndex() {
 		final SnapshotReader reader = SnapshotReader.open(AddressSnapshots.write(Map.of(hash("", "01", ""), 5L)));
 
-		try {
-			reader.holderAt(-1);
-			throw new AssertionError("A negative holder index was accepted");
-
-		} catch (IllegalArgumentException expected) {
-			assertThat(expected.getMessage(), equalTo("A holder index cannot be negative: -1"));
-		}
+		assertThat(reader.holderAt(-1), equalTo(Optional.empty()));
+		assertThat(reader.holderAt(Integer.MIN_VALUE), equalTo(Optional.empty()));
 	}
 
 	/* A holder carries the same balance and number of entries as asking for its address does */

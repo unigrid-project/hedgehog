@@ -25,6 +25,7 @@ import jakarta.ws.rs.core.Response.Status;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
@@ -48,6 +49,8 @@ import org.unigrid.hedgehog.model.spork.content.SporkContent;
 public final class FakeSporkNode implements RestCommandFixture.Answer {
 	public static final String WIRE = "/gridspork/wire";
 	public static final String PENDING = "/gridspork/pending";
+
+	private static final String SHOWN = "/gridspork/";
 
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(PendingSporkInfo.class);
 
@@ -107,9 +110,22 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 				.map(FakeSporkNode::wire).orElseGet(() -> Response.status(Status.NOT_FOUND).build());
 		}
 
-		Validate.isTrue(location.startsWith(WIRE + "/"), "No command of sporks asks for %s", location);
+		if (!location.startsWith(WIRE + "/")) {
+			return shown(location);
+		}
+
 		return Optional.ofNullable(database.get(Type.valueOf(StringUtils.substringAfterLast(location, "/"))))
 			.map(FakeSporkNode::wire).orElseGet(() -> Response.noContent().build());
+	}
+
+	/* Where the daemon shows the spork of a type whole, under the name of the type: it answers nothing where it holds
+	   none, and a command that signs reads no more of the answer than that there is one */
+	private Response shown(String location) {
+		Validate.isTrue(location.startsWith(SHOWN), "No command of sporks asks for %s", location);
+
+		final String name = StringUtils.removeStart(location, SHOWN).toUpperCase(Locale.ROOT).replace('-', '_');
+
+		return database.get(Type.valueOf(name)) == null ? Response.noContent().build() : Response.ok().build();
 	}
 
 	private Stream<GridSpork> heldProposals() {

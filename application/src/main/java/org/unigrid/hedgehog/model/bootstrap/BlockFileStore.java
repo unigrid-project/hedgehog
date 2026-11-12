@@ -29,6 +29,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 import lombok.Getter;
 
 /*
@@ -77,6 +78,22 @@ public final class BlockFileStore {
 		return files.get(location.getFile()).duplicate().order(ByteOrder.LITTLE_ENDIAN)
 			.position(location.getOffset()).limit(location.getOffset() + location.getLength()).slice()
 			.order(ByteOrder.LITTLE_ENDIAN);
+	}
+
+	/*
+	   A record is taken for a block once it starts with the network magic and fits its file, so what
+	   it holds is first found out while it is read. Bytes that are no block end the reading wherever
+	   it runs out of them, with an exception that says nothing of the block files, so the record is
+	   named here by its file and its place in it.
+	*/
+	public <T> T read(BlockLocation location, Function<ByteBuffer, T> reader) {
+		try {
+			return reader.apply(read(location));
+
+		} catch (RuntimeException ex) {
+			throw new IllegalStateException("The block at offset " + location.getOffset() + " of "
+				+ paths.get(location.getFile()) + " is damaged and cannot be read", ex);
+		}
 	}
 
 	private void scanFile(int file, BlockConsumer consumer) {

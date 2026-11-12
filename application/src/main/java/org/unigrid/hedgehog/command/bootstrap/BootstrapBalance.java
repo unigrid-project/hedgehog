@@ -41,7 +41,7 @@ public class BootstrapBalance implements Callable<Integer> {
 			balance = SnapshotReader.open(SnapshotOptions.getSnapshot()).balanceOf(address);
 
 		} catch (IllegalArgumentException | IOException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.UNUSABLE;
 		}
 
