@@ -85,9 +85,15 @@ final class LedgerClient implements AutoCloseable {
 			return new Refused(UNREADABLE + what);
 		}
 
+		/* A node words a refusal that no field names as plain text, such as the part that its release leaves off,
+		   and that sentence follows the status. A page of whatever answers in its place, and JSON without an error
+		   text, say nothing to the person and are left out. */
 		private static String describe(final ResponseOddityException oddity) {
-			return Status.fromStatusCode(oddity.getStatusCode()) == null
-				? UNREADABLE + "status " + oddity.getStatusCode() : oddity.getMessage();
+			if (Status.fromStatusCode(oddity.getStatusCode()) == null) {
+				return UNREADABLE + "status " + oddity.getStatusCode();
+			}
+
+			return oddity.isPlainText() ? RestClientCommand.describe(oddity) : oddity.getMessage();
 		}
 
 		private static Optional<String> errorIn(final String body) {

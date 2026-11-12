@@ -21,6 +21,7 @@ package org.unigrid.hedgehog.command.cli;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import java.net.URI;
@@ -35,10 +36,13 @@ import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.AlphaChars;
+import net.jqwik.api.constraints.StringLength;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
@@ -86,6 +90,34 @@ public class NodeAddTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
+	/* A node that a peer told of first is promoted, and its answer says so in a text next to the location */
+	@Property(tries = 30)
+	public void printsWhatTheNodeSaysWhenItPromotesAKnownNode(@ForAll("addresses") String address,
+		@ForAll @AlphaChars @StringLength(min = 1, max = 40) String said) {
+
+		final Result result = RestCommandFixture.run(nodeAdd(address), Response.ok(said, MediaType.TEXT_PLAIN_TYPE)
+			.location(locationOf(address)).build());
+
+		assertThat(result.out().lines().toList(), equalTo(List.of(locationOf(address).toString(), said)));
+		assertThat(result.err(), equalTo(""));
+	}
+
+	/* An answer with neither a location nor a text is shown by its status, and not as the word null */
+	@Property(tries = 10)
+	public void printsTheStatusWhenTheNodeSaysNothingMore(@ForAll("addresses") String address,
+		@ForAll("answersWithoutContent") Status status) {
+
+		final Result result = RestCommandFixture.run(nodeAdd(address), Response.status(status).build());
+
+		assertThat(result.out().lines().toList(), equalTo(List.of(status.getReasonPhrase())));
+		assertThat(result.err(), equalTo(""));
+	}
+
+	@Provide
+	public Arbitrary<Status> answersWithoutContent() {
+		return Arbitraries.of(Status.OK, Status.ACCEPTED, Status.NO_CONTENT);
+	}
+
 	@Property(tries = 10)
 	public void reportsAConflictOnStandardError(@ForAll("addresses") String address) {
 		final Result result = RestCommandFixture.run(nodeAdd(address), Response.status(Status.CONFLICT).build());
@@ -95,11 +127,15 @@ public class NodeAddTest {
 	}
 
 	/* As the shell sees it: through the command line of the application, which exits with what the command says */
-	private static int exitCodeOf(String address, Answer node) {
+	private static HedgehogCli.Result runThroughTheCli(String address, Answer node) {
 		final AtomicReference<HedgehogCli.Result> cli = new AtomicReference<>();
 
 		RestCommandFixture.run(() -> cli.set(HedgehogCli.run("cli", "node-add", address)), node);
-		return cli.get().exitCode();
+		return cli.get();
+	}
+
+	private static int exitCodeOf(String address, Answer node) {
+		return runThroughTheCli(address, node).exitCode();
 	}
 
 	@Property(tries = 10)
@@ -110,6 +146,20 @@ public class NodeAddTest {
 			.location(locationOf(address)).build();
 
 		assertThat(exitCodeOf(address, request -> answer), equalTo(conflict ? ExitCode.FAILED : ExitCode.OK));
+	}
+
+	/* The node answers 304 for its own address and for one it cannot use, which the client takes for no answer at all:
+	   the line says that the address was not taken, and not only the status */
+	@Property(tries = 10)
+	public void saysThatTheNodeDidNotTakeTheAddress(@ForAll("addresses") String address) {
+		final HedgehogCli.Result result = runThroughTheCli(address, request -> {
+			throw new ResponseOddityException(Status.NOT_MODIFIED);
+		});
+
+		assertThat(result.out(), equalTo(""));
+		assertThat(result.err().lines().toList(), equalTo(List.of("The node did not take " + address
+			+ ", which is its own address or one it cannot use")));
+		assertThat(result.exitCode(), equalTo(ExitCode.FAILED));
 	}
 
 	@Property(tries = 5)

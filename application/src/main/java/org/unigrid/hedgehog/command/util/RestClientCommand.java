@@ -19,6 +19,7 @@
 package org.unigrid.hedgehog.command.util;
 
 import jakarta.ws.rs.HttpMethod;
+import jakarta.ws.rs.ProcessingException;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
@@ -31,12 +32,15 @@ import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.client.rest.RestClient;
 import org.unigrid.hedgehog.command.ExitCode;
@@ -113,9 +117,18 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		}
 	}
 
-	/* A status that is no success is a refusal, whatever the command made of the answer */
+	/* A status that is no success is a refusal, whatever the command made of the answer. A node that answered was
+	   reached, so what fails while the command reads the answer is an answer that cannot be read, also where the
+	   client reports it around an error of the connection, as it does for a body that breaks off. */
 	private void conclude(Response response) {
-		execute(response);
+		try {
+			execute(response);
+		} catch (ProcessingException ex) {
+			System.err.println(TerminalText.printable("The node answered something this command cannot read: "
+				+ ExceptionUtils.getRootCauseMessage(ex)));
+
+			exitCode = ExitCode.FAILED;
+		}
 
 		if (exitCodeOf(response) != ExitCode.OK) {
 			exitCode = ExitCode.FAILED;
@@ -141,7 +154,7 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		} catch (ResponseOddityException ex) {
 			System.err.println(refusal(ex));
 			exitCode = ExitCode.FAILED;
-		} catch (IOException ex) {
+		} catch (IOException | ProcessingException ex) {
 			System.err.println(describe(ex));
 			exitCode = ExitCode.FAILED;
 		} catch (LocalFileException ex) {
@@ -174,7 +187,24 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 				.formatted(missing.getFile());
 		}
 
+		if (ex instanceof ProcessingException processing) {
+			return describeProcessing(processing);
+		}
+
+		/* A node says in the body of its answer why it turned a request down, which the status line does not say */
+		if (ex instanceof ResponseOddityException oddity && StringUtils.isNotBlank(oddity.getBody())) {
+			return TerminalText.printable(oddity.getMessage() + ": " + oddity.getBody().strip());
+		}
+
 		return TerminalText.printable(String.valueOf(ex.getMessage()));
+	}
+
+	/* The client reports a node that does not answer as an exception of its own, around the socket error, and an
+	   address that no request can be made of the same way, around what is wrong with the address. No node answered
+	   in either case. An answer that cannot be read fails where a command reads it, and is told apart there. */
+	private static String describeProcessing(ProcessingException ex) {
+		return TerminalText.printable("Could not reach the node at %s:%d: %s".formatted(RestOptions.getHost(),
+			RestOptions.getPort(), ExceptionUtils.getRootCauseMessage(ex)));
 	}
 
 	/* What failed with a file on this machine, named as the user gave it, as the exception names a file of its own */
@@ -188,7 +218,7 @@ public class RestClientCommand implements Runnable, IExitCodeGenerator {
 		} else if (ex instanceof FileSystemException other) {
 			reason = Optional.ofNullable(other.getReason()).orElse(other.getClass().getSimpleName());
 		} else {
-			reason = String.valueOf(ex.getMessage());
+			reason = Objects.toString(ex.getMessage(), ex.getClass().getSimpleName());
 		}
 
 		return TerminalText.printable(operation + " " + path + ": " + reason);

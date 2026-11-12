@@ -40,11 +40,15 @@ public final class RemoteAddress {
 	}
 
 	/* The first port that a peer says it listens on stands for the connection: a peer that said another one later
-	   would only rename itself */
-	public static void listensOn(final Channel stream, final int port) {
-		if (port > 0 && Objects.nonNull(stream.parent())) {
-			stream.parent().attr(LISTEN_PORT_KEY).setIfAbsent(port);
-		}
+	   would only rename itself. Gives whether the port is that first one, which names the peer from now on. */
+	public static boolean listensOn(final Channel stream, final int port) {
+		return port > 0 && Objects.nonNull(stream.parent())
+			&& Objects.isNull(stream.parent().attr(LISTEN_PORT_KEY).setIfAbsent(port));
+	}
+
+	/* The port that the peer of a connection said it listens on, which names its node in the topology */
+	public static Optional<Integer> listenPortOf(final Channel connection) {
+		return Optional.ofNullable(connection.attr(LISTEN_PORT_KEY).get());
 	}
 
 	/* The address is kept on the QUIC connection that the stream belongs to. A server learns it from the connection

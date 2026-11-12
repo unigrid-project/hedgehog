@@ -38,7 +38,8 @@ import org.unigrid.hedgehog.jqwik.BaseMockedWeldTest;
 import org.unigrid.hedgehog.jqwik.WeldSetup;
 import org.unigrid.hedgehog.model.function.VoidFunctionE;
 
-@WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class })
+@WeldSetup({ ProtectedInterceptorTest.LockModeProtected.class, ProtectedInterceptorTest.LockedByItsClass.class,
+	ProtectedInterceptorTest.WithoutALock.class })
 public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 	@Data
 	@ApplicationScoped
@@ -54,10 +55,38 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		}
 	}
 
+	/* The lock is on the class, which Weld extends with a subclass of its own to intercept the methods */
+	@ApplicationScoped @Lock(LockMode.WRITE)
+	public static class LockedByItsClass {
+		@SneakyThrows @Protected
+		void protect(VoidFunctionE function) {
+			function.apply();
+		}
+	}
+
+	@ApplicationScoped
+	public static class WithoutALock {
+		@SneakyThrows @Protected
+		void protect(VoidFunctionE function) {
+			function.apply();
+		}
+	}
+
 	private static final long TIMEOUT_SECONDS = 10;
+
+	@FunctionalInterface
+	private interface Protecting {
+		void protect(VoidFunctionE function);
+	}
 
 	@Inject
 	private LockModeProtected lockModeProtected;
+
+	@Inject
+	private LockedByItsClass lockedByItsClass;
+
+	@Inject
+	private WithoutALock withoutALock;
 
 	@BeforeContainer
 	private static void before() {
@@ -97,13 +126,38 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 
 	@Example
 	public void shoulBeAbleToWriteProtectMethods() throws Exception {
+		assertWriteProtects(lockModeProtected::writeProtect);
+	}
+
+	/* The method has no lock of its own, so it is the lock of its class that keeps the second thread out */
+	@Example
+	public void shouldWriteProtectMethodsOfAClassThatIsLockedForWriting() throws Exception {
+		lockedByItsClass.protect(() -> { /* Nothing to do, it is the entry that counts */ });
+		assertWriteProtects(lockedByItsClass::protect);
+	}
+
+	/* Neither the method nor its class says which lock it takes, which is no reason to guess one or to fail without
+	   saying where */
+	@Example
+	public void shouldNameAProtectedMethodThatHasNoLockAtAll() {
+		try {
+			withoutALock.protect(() -> { /* Never reached */ });
+			throw new AssertionError("A protected method without a lock was called");
+
+		} catch (IllegalStateException expected) {
+			assertThat(expected.getMessage(), containsString("protect"));
+			assertThat(expected.getMessage(), containsString(WithoutALock.class.getSimpleName()));
+		}
+	}
+
+	private void assertWriteProtects(Protecting protecting) throws Exception {
 		final AtomicInteger counter = new AtomicInteger();
 		final CountDownLatch holding = new CountDownLatch(1);
 		final CountDownLatch contenderWaits = new CountDownLatch(1);
 		final CompletableFuture<Integer> seenWhileHolding = new CompletableFuture<>();
 
 		final Background holder = background(() -> {
-			lockModeProtected.writeProtect(() -> {
+			protecting.protect(() -> {
 				counter.incrementAndGet();
 				holding.countDown();
 				reach(contenderWaits);
@@ -116,7 +170,7 @@ public class ProtectedInterceptorTest extends BaseMockedWeldTest {
 		reach(holding);
 
 		final Background contender = background(() -> {
-			lockModeProtected.writeProtect(() -> {
+			protecting.protect(() -> {
 				counter.incrementAndGet();
 			});
 		});

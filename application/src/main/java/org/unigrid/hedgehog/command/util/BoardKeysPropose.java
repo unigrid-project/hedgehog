@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
@@ -39,11 +40,13 @@ import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
 
 /* A change follows on the chain it is proposed over, so it is proposed over the chain that the board goes by: that of
-   a spork database of a node, or the keys built into the release when the network holds no board keys yet */
+   a spork database of a node, or that the release ships, which is the keys built into it when the network holds no
+   board keys yet */
 @Command(name = "propose",
 	description = "Proposes a change of the board keys and writes it to --output, for board members to approve with"
-		+ " util board-keys approve. The change follows on the chain of board keys of --spork-db, or on the keys"
-		+ " built into the release when none is given or it holds none. It leaves 2 to 16 keys active."
+		+ " util board-keys approve. The change follows on the chain of board keys of --spork-db, or on the chain"
+		+ " that the release ships, or the keys built into it when it ships none, when none is given or it holds"
+		+ " none. It leaves 2 to 16 keys active."
 )
 public class BoardKeysPropose implements Callable<Integer> {
 	@Option(names = "--spork-db", paramLabel = "<file>",
@@ -92,8 +95,8 @@ public class BoardKeysPropose implements Callable<Integer> {
 				+ " changes, the most it can; a release with a new root starts a new one");
 			return keys;
 		} catch (IllegalArgumentException ex) {
-			throw refused("The board keys of " + sporkDb + " do not hold from the root of this machine: "
-				+ ex.getMessage());
+			throw refused("The board keys of " + (Objects.isNull(sporkDb) ? "the release" : sporkDb)
+				+ " do not hold from the root of this machine: " + ex.getMessage());
 		}
 	}
 

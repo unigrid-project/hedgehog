@@ -24,6 +24,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import lombok.SneakyThrows;
 import net.jqwik.api.Example;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
@@ -34,6 +36,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.is;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
+import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
@@ -41,6 +44,7 @@ import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.change;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.key;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.keys;
+import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.publicKeysOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.rootOf;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.signed;
 
@@ -55,6 +59,7 @@ public class CleanupRaceTest {
 	private final Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
 	private final PendingSporks pending = new PendingSporks();
 	private final AtomicBoolean isFirst = new AtomicBoolean(true);
+	private final AtomicReference<Runnable> meanwhile = new AtomicReference<>(() -> { });
 
 	@BeforeTry
 	public void before() {
@@ -143,5 +148,80 @@ public class CleanupRaceTest {
 
 		assertThat(BoardKeysAuthority.commit(taken, database, pending), is(true));
 		assertThat(digestOfTheProposalOf(Type.BOARD_KEYS), is(Optional.of(PendingSporks.digestOf(proposal))));
+	}
+
+	/* A first version, made now and signed once, that runs what is set in meanwhile, once, after it was judged as a
+	   proposal over a spork or by its signature: the other thread that offers a proposal meanwhile */
+	private MintSupply judged() {
+		return new MintSupply() {
+			@Override
+			public boolean isProposalOver(GridSpork stored, BooleanSupplier mayVerify) {
+				final boolean isOver = super.isProposalOver(stored, mayVerify);
+
+				meanwhile.getAndSet(() -> { }).run();
+				return isOver;
+			}
+
+			@Override
+			public boolean isValidSignature() {
+				final boolean isValid = super.isValidSignature();
+
+				meanwhile.getAndSet(() -> { }).run();
+				return isValid;
+			}
+		};
+	}
+
+	@SneakyThrows
+	private static MintSupply firstProposal(MintSupply proposal, long maxSupply, Signature signer, long secondsAgo) {
+		proposal.archive();
+		proposal.<MintSupply.SporkData>getData().setMaxSupply(BigDecimal.valueOf(maxSupply));
+		proposal.setTimeStamp(Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(secondsAgo));
+		proposal.sign(signer.getPrivateKey());
+		return proposal;
+	}
+
+	/* Sporks of a type are equal to each other whatever they hold, so a proposal that took the place of the one judged
+	   is told from it by not being the one judged, and stays. The proposal over nothing is judged against a version
+	   stored since, and a proposal over that version is taken while it is. */
+	@Example
+	public void shouldKeepAProposalThatTookThePlaceOfTheOneJudgedAgainstTheVersionStored() {
+		final MintSupply held = firstProposal(judged(), 10, key(0), 30);
+		final GridSpork stored = version(null, 20, 20);
+		final GridSpork proposal = proposalOver(stored);
+
+		assertThat(pending.offer(held, null), is(true));
+		meanwhile.set(() -> assertThat(pending.offer(proposal, stored), is(true)));
+
+		pending.retainProposalsOver(Type.MINT_SUPPLY, () -> stored);
+
+		assertThat(digestOfTheProposalOf(Type.MINT_SUPPLY), is(Optional.of(PendingSporks.digestOf(proposal))));
+	}
+
+	/* The same when the keys change: the proposal of the key switched off is judged by its signature without the lock,
+	   and a proposal of a key that is active that took its place meanwhile is held, not dropped with it */
+	@Example
+	public void shouldKeepAProposalThatTookThePlaceOfTheOneOfAKeySwitchedOff() {
+		final MintSupply held = firstProposal(judged(), 10, key(0), 30);
+		final MintSupply proposal = firstProposal(new MintSupply(), 20, key(1), 20);
+
+		assertThat(pending.offer(held, null), is(true));
+		NetworkKey.install(NetworkKey.getActiveKeys().after(List.of(publicKeysOf(keys(1, 2)))));
+		meanwhile.set(() -> assertThat(pending.offer(proposal, null), is(true)));
+
+		pending.retainProposalsOfActiveKeys();
+
+		assertThat(digestOfTheProposalOf(Type.MINT_SUPPLY), is(Optional.of(PendingSporks.digestOf(proposal))));
+	}
+
+	/* When nothing took its place, the proposal of a key that was switched off is dropped */
+	@Example
+	public void shouldDropTheProposalOfAKeySwitchedOff() {
+		assertThat(pending.offer(firstProposal(judged(), 10, key(0), 30), null), is(true));
+		NetworkKey.install(NetworkKey.getActiveKeys().after(List.of(publicKeysOf(keys(1, 2)))));
+
+		pending.retainProposalsOfActiveKeys();
+
+		assertThat(pending.proposalOf(Type.MINT_SUPPLY), is(Optional.empty()));
 	}
 }

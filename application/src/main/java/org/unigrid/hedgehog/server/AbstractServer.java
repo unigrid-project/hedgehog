@@ -18,26 +18,27 @@
 
 package org.unigrid.hedgehog.server;
 
+import io.netty.bootstrap.AbstractBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelId;
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.UnknownHostException;
-import me.alexpanov.net.FreePortFinder;
-import org.apache.commons.lang3.StringUtils;
 
 public abstract class AbstractServer {
-	protected URL allocate(String propertyUrl) throws MalformedURLException, UnknownHostException {
-		final URL url = new URL(StringUtils.appendIfMissing(propertyUrl, "/"));
-		final InetAddress address = InetAddress.getByName(url.getHost());
-		final int freePort = FreePortFinder.findFreeLocalPort(url.getPort(), address);
-
-		return new URL(url.getProtocol(), url.getHost(), freePort, url.getFile());
-	}
-
 	public abstract Channel getChannel();
+
+	/* Netty hands out what failed a bind as it is, whatever its class and without declaring it. The server and the
+	   options are those that an operator knows the address by, as in "REST" and "--resthost, --restport". */
+	protected static Channel listen(final AbstractBootstrap<?, ?> bootstrap, final String host, final int port,
+		final String server, final String options) throws InterruptedException, ListenException {
+
+		try {
+			return bootstrap.bind(new InetSocketAddress(host, port)).sync().channel();
+		} catch (InterruptedException ex) {
+			throw ex;
+		} catch (Exception ex) {
+			throw new ListenException(host, port, server, options, ex);
+		}
+	}
 
 	public String getHostName() {
 		return ((InetSocketAddress) getChannel().localAddress()).getHostName();

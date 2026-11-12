@@ -28,10 +28,12 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.unigrid.hedgehog.model.crypto.NetworkKey;
 
 /*
-   Most daemons will never be asked about the legacy chain, and a snapshot costs several hundred
-   megabytes of mapped pages, so the file is only opened the first time somebody asks for it.
+   A snapshot costs several hundred megabytes of mapped pages, so the file is only opened the first
+   time somebody asks for it. In a daemon that is the install of the snapshot as the node starts, which
+   has to tell a file that the node uses from one to fetch again.
 */
 @Slf4j
 @RequiredArgsConstructor
@@ -39,7 +41,7 @@ public final class BootstrapSnapshot {
 	@Getter private final Path path;
 	private final AtomicReference<SnapshotReader> reader = new AtomicReference<>();
 	private final AtomicReference<FileIdentity> opened = new AtomicReference<>();
-	private final AtomicReference<FileIdentity> refusal = new AtomicReference<>();
+	private final AtomicReference<Refusal> refusal = new AtomicReference<>();
 
 	public Optional<SnapshotReader> getReader() {
 		if (Files.exists(path) && needsOpen()) {
@@ -49,22 +51,38 @@ public final class BootstrapSnapshot {
 		return Optional.ofNullable(reader.get());
 	}
 
+	/* Why the node does not use the file, as it said when it last refused to open it, if it did */
+	public Optional<String> getRefusal() {
+		return Optional.ofNullable(refusal.get()).map(Refusal::getReason);
+	}
+
 	private boolean needsOpen() {
-		return reader.get() == null ? !matches(refusal.get()) : !matches(opened.get());
+		return reader.get() == null ? !isRefused() : !matches(opened.get());
+	}
+
+	private boolean isRefused() {
+		final Refusal known = refusal.get();
+
+		return known != null && known.getGeneration() == NetworkKey.getGeneration() && matches(known.getFile());
 	}
 
 	private boolean matches(FileIdentity previous) {
 		return previous != null && FileIdentity.of(path).map(previous::equals).orElse(false);
 	}
 
+	/* The file is taken as it is when the open begins, and the board keys with it, as the open takes seconds for a
+	   large snapshot: whatever changes meanwhile is a change from what was read, and is seen on the next request. */
 	private synchronized void open() {
 		if (!needsOpen()) {
 			return;
 		}
 
+		final long generation = NetworkKey.getGeneration();
+		final FileIdentity before = FileIdentity.of(path).orElse(null);
+
 		try {
 			reader.set(SnapshotReader.open(path));
-			opened.set(FileIdentity.of(path).orElse(null));
+			opened.set(before);
 			refusal.set(null);
 			log.atInfo().log("Opened the legacy chain snapshot at {}", path);
 
@@ -74,7 +92,7 @@ public final class BootstrapSnapshot {
 			}
 		} catch (IOException ex) {
 			reader.set(null);
-			refusal.set(FileIdentity.of(path).orElse(null));
+			refusal.set(new Refusal(before, generation, ex.getMessage()));
 			log.atWarn().log("Could not open the legacy chain snapshot at {}: {}", path, ex.getMessage());
 		}
 	}
@@ -97,5 +115,17 @@ public final class BootstrapSnapshot {
 				return Optional.empty();
 			}
 		}
+	}
+
+	/*
+	   Whether a signature verifies depends on the board keys the node holds, which grow as it learns of the changes
+	   to them, so a refusal also stands only for the keys it was judged against. The reason is kept, as the log
+	   tells it only once for a file and the keys.
+	*/
+	@Value
+	private static final class Refusal {
+		private FileIdentity file;
+		private long generation;
+		private String reason;
 	}
 }

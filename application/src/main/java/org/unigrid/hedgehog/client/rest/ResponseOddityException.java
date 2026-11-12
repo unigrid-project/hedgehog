@@ -18,6 +18,8 @@
 
 package org.unigrid.hedgehog.client.rest;
 
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.core.Response.StatusType;
@@ -25,12 +27,17 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import lombok.Getter;
+import org.apache.commons.lang3.StringUtils;
 
 public class ResponseOddityException extends Exception {
 	private static final int MAX_BODY = 8 * 1024;
 
 	/* What the node sent along with the status; a ledger node explains there why it refused a request */
 	@Getter private final String body;
+
+	/* Whether the node sent the body as plain text: a sentence in its own words, which a page of whatever answers in
+	   its place is not, nor JSON that names its fields */
+	@Getter private final boolean plainText;
 
 	@Getter private final int statusCode;
 
@@ -39,17 +46,43 @@ public class ResponseOddityException extends Exception {
 	}
 
 	public ResponseOddityException(StatusType status, String body) {
-		super(String.format("%d %s (%s)",
-			status.getStatusCode(), Status.fromStatusCode(status.getStatusCode()),
-			status.getReasonPhrase())
-		);
+		this(status, body, false);
+	}
 
+	private ResponseOddityException(StatusType status, String body, boolean plainText) {
+		super(describe(status));
 		this.body = body;
+		this.plainText = plainText;
 		this.statusCode = status.getStatusCode();
 	}
 
+	/* A status that jakarta has no name for, such as one of a proxy in between, is shown by its number. The phrase that
+	   a node words a known status in is shown only where it is not the name of the status already. */
+	private static String describe(StatusType status) {
+		final int code = status.getStatusCode();
+		final Status known = Status.fromStatusCode(code);
+		final String phrase = status.getReasonPhrase();
+
+		if (known != null) {
+			return StringUtils.isBlank(phrase) || known.getReasonPhrase().equals(phrase)
+				? String.format("%d %s", code, known.getReasonPhrase())
+				: String.format("%d %s (%s)", code, known.getReasonPhrase(), phrase);
+		}
+
+		return StringUtils.isBlank(phrase) ? String.valueOf(code) : String.format("%d (%s)", code, phrase);
+	}
+
 	public static ResponseOddityException of(Response response) {
-		return new ResponseOddityException(response.getStatusInfo(), response.hasEntity() ? bodyOf(response) : "");
+		return new ResponseOddityException(response.getStatusInfo(), response.hasEntity() ? bodyOf(response) : "",
+			isSentAsPlainText(response));
+	}
+
+	/* By the header as it was sent, whatever follows the type in it: a header that names no type is no plain text,
+	   and does not fail the request as one that is parsed would */
+	private static boolean isSentAsPlainText(Response response) {
+		final String type = StringUtils.substringBefore(response.getHeaderString(HttpHeaders.CONTENT_TYPE), ";");
+
+		return MediaType.TEXT_PLAIN.equalsIgnoreCase(StringUtils.strip(type));
 	}
 
 	/* A refusal is a line or two of text, so no more than that is read of whatever else a node or a proxy sends. A

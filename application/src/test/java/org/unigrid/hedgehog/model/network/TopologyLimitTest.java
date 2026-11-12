@@ -103,7 +103,7 @@ public class TopologyLimitTest extends BaseMockedWeldTest {
 
 		assertThat(topology.addNode(node(Topology.MAX_NODES)), is(false));
 
-		final Set<Node> seeds = topology.addSeeds();
+		final Set<Node> seeds = topology.addSeeds(Topology.resolveSeeds());
 
 		assertThat(seeds.size(), is(Network.getSeeds().length));
 		assertThat(topology.cloneNodes().size(), is(Topology.MAX_NODES + seeds.size()));

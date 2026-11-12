@@ -25,6 +25,8 @@ import static org.hamcrest.Matchers.equalTo;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URL;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -42,6 +44,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.common.model.Version;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotDownload;
@@ -183,6 +186,34 @@ public class BootstrapFetchTest {
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("was not installed"));
+		result.assertNoStackTrace();
+	}
+
+	/* The file system names a directory that the user may not write to by its path alone, so the line says what failed
+	   and why */
+	@Example
+	public void shouldSayThatTheDirectoryOfTheSnapshotMayNotBeWritten() {
+		downloadFails(new AccessDeniedException(snapshot.getParent().toString()));
+
+		final HedgehogCli.Result result = BootstrapCli.run("fetch");
+
+		assertThat(result.exitCode(), equalTo(ExitCode.UNUSABLE));
+		assertThat(result.err().lines().toList(),
+			equalTo(List.of("Cannot access " + snapshot.getParent() + ": permission denied")));
+		result.assertNoStackTrace();
+	}
+
+	/* A move that fails names two files: first the partial file, which the user never gave and which is gone by the
+	   time the line is read, and then the place the snapshot was to go to. That place is what the line has to name */
+	@Example
+	public void shouldNameThePlaceTheSnapshotCouldNotBeMovedTo() {
+		downloadFails(new FileSystemException(snapshot.resolveSibling("snapshot-pid7-1.part").toString(),
+			snapshot.toString(), "Is a directory"));
+
+		final HedgehogCli.Result result = BootstrapCli.run("fetch");
+
+		assertThat(result.exitCode(), equalTo(ExitCode.UNUSABLE));
+		assertThat(result.err().lines().toList(), equalTo(List.of("Cannot write " + snapshot + ": Is a directory")));
 		result.assertNoStackTrace();
 	}
 }

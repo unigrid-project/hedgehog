@@ -43,7 +43,6 @@ import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.bootstrap.SignatureStatus;
-import org.unigrid.hedgehog.model.bootstrap.SnapshotDigest;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInspector;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotSignature;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
@@ -93,12 +92,6 @@ public class BootstrapSignBoardKeysTest {
 			}
 		};
 
-		new MockUp<SnapshotDigest>() {
-			@Mock public /* static */ long contentLengthOf(Path path) {
-				return CONTENT.length;
-			}
-		};
-
 		new MockUp<SnapshotSignature>() {
 			@Mock public /* static */ SnapshotSignature read(Path path) {
 				return unsigned;
@@ -108,7 +101,7 @@ public class BootstrapSignBoardKeysTest {
 				return false;
 			}
 
-			@Mock public /* static */ void signAndAppend(Path path, String privateKeyHex) {
+			@Mock public /* static */ void signAndReplace(Path path, String privateKeyHex) {
 				signedWith.add(privateKeyHex);
 			}
 		};

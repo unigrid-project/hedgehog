@@ -18,8 +18,10 @@
 
 package org.unigrid.hedgehog.command.cli;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +35,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.comparesEqualTo;
 import static org.hamcrest.Matchers.equalTo;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.json;
 import static org.unigrid.hedgehog.command.cli.SporkCommands.tree;
@@ -40,6 +43,7 @@ import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Result;
 import org.unigrid.hedgehog.jqwik.MockitHook;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseInfo.Overview;
 
@@ -79,8 +83,24 @@ public class GridSporkListTest {
 		assertThat(result.err(), equalTo(""));
 	}
 
+	/* A node with nothing in its spork database answers with an overview of zero amounts that were never changed, and
+	   not with an answer that has no content */
 	@Example
-	public void saysSoWhenTheDatabaseIsEmpty() {
+	public void printsTheZeroOverviewOfAnEmptyDatabase() {
+		final SporkDatabaseInfo empty = new SporkDatabaseInfo(new SporkDatabase());
+		final Result result = RestCommandFixture.run(new GridSporkList(), Response.ok(empty).build());
+		final JsonNode shown = tree(result.out());
+
+		List.of("mintStorageEntries", "mintSupply", "vestingStoragEntries").forEach(name -> {
+			assertThat(shown.get(name).get("amount").decimalValue(), comparesEqualTo(BigDecimal.ZERO));
+			assertThat(shown.get(name).get("lastChanged").asText(), equalTo(SporkDatabaseInfo.LASTCHANGED_NEVER));
+		});
+
+		assertThat(result.err(), equalTo(""));
+	}
+
+	@Example
+	public void printsTheStatusOfAnAnswerWithoutContent() {
 		final Result result = RestCommandFixture.run(new GridSporkList(), Response.noContent().build());
 
 		assertThat(result.out().lines().toList(), equalTo(List.of("No Content")));

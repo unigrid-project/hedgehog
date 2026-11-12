@@ -20,8 +20,8 @@ package org.unigrid.hedgehog.model.cdi;
 
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.se.SeContainerInitializer;
-import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.jboss.weld.environment.se.events.ContainerShutdown;
 import org.jboss.weld.environment.se.events.ContainerInitialized;
@@ -29,22 +29,46 @@ import org.jboss.weld.environment.se.events.ContainerInitialized;
 @Slf4j
 public abstract class CDIContext implements Runnable {
 	private static final Object MONITOR = new Object();
+	private static final String WELD_PREFIX = "Weld SE container ";
+	private static final String WELD_SUFFIX = " shut down by shutdown hook";
 
+	/* Guarded by MONITOR. A stop is remembered, as the REST server answers one before run() gets to wait for it. */
+	private static boolean stopped;
+
+	/* Gets rid of "Weld SE container {uuId} shut down by shutdown hook", which Weld prints on the console once the
+	   container is down. The callbacks that tear the node down run after this, and what they log goes to the console
+	   as well, so every other line is passed on. */
 	private void shutdown(@Observes ContainerShutdown event) {
-		/* Gets rid of "Weld SE container {uuId} shut down by shutdown hook" */
-		System.setOut(new PrintStream(new OutputStream() {
+		final PrintStream console = System.out;
+
+		System.setOut(new PrintStream(console, true, console.charset()) {
 			@Override
-			public void write(int b) { /* Do nothing  */ }
-		}));
+			public void println(String line) {
+				if (!isShutDownByHook(line)) {
+					super.println(line);
+				}
+			}
+		});
+	}
+
+	private static boolean isShutDownByHook(String line) {
+		return Objects.nonNull(line) && line.startsWith(WELD_PREFIX) && line.endsWith(WELD_SUFFIX);
 	}
 
 	@Override
 	public void run() {
+		synchronized (MONITOR) {
+			stopped = false;
+		}
+
 		SeContainerInitializer.newInstance().addExtensions(new EagerExtension()).initialize();
 
 		synchronized (MONITOR) {
 			try {
-				MONITOR.wait();
+				/* A wakeup is no stop unless one was asked for */
+				while (!stopped) {
+					MONITOR.wait();
+				}
 			} catch (InterruptedException e) {
 				log.atDebug().log("Received singal to exit");
 			}
@@ -53,6 +77,7 @@ public abstract class CDIContext implements Runnable {
 
 	public static void stop() {
 		synchronized (MONITOR) {
+			stopped = true;
 			MONITOR.notifyAll();
 		}
 	}

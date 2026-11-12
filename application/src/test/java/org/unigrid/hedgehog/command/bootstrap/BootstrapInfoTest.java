@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Path;
 import mockit.Mock;
 import mockit.MockUp;
@@ -34,6 +35,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.lifecycle.BeforeTry;
+import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.command.HedgehogCli;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
@@ -96,6 +98,22 @@ public class BootstrapInfoTest {
 
 		assertThat(result.exitCode(), equalTo(2));
 		assertThat(result.err(), containsString("does not verify against any trusted key"));
+		result.assertNoStackTrace();
+	}
+
+	/* The file system names a snapshot that the user may not read by its path alone, so the line says what failed and
+	   why */
+	@Example
+	public void shouldSayThatTheSnapshotMayNotBeRead() {
+		final Path snapshot = BootstrapCli.snapshotInMemory();
+
+		readerAnswers(null, new AccessDeniedException(snapshot.toString()));
+
+		final HedgehogCli.Result result = BootstrapCli.run("info");
+
+		assertThat(result.exitCode(), equalTo(ExitCode.UNUSABLE));
+		assertThat(result.err().lines().toList(),
+			equalTo(List.of("Cannot access " + snapshot + ": permission denied")));
 		result.assertNoStackTrace();
 	}
 }

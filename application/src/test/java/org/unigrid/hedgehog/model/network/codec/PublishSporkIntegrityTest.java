@@ -56,6 +56,7 @@ import org.unigrid.hedgehog.jqwik.NotNull;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
 import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.util.ByteBufUtils;
 import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork;
@@ -205,6 +206,51 @@ public class PublishSporkIntegrityTest extends BaseCodecTest<PublishSpork> {
 		channel.writeInbound(encoder.<ByteBuf>readOutbound());
 
 		assertThat(((Ping) channel.readInbound()).getNanoTime(), is(5L));
+		assertThat(channel.<Object>readInbound(), nullValue());
+	}
+
+	/* The frame of a spork of the given type, its data a chunk of two entries that are one entry twice, its previous
+	   data empty, and its signatures and log empty */
+	private static ByteBuf frameOfARepeatedEntry(GridSpork.Type type, ByteBuf entry) {
+		final ByteBuf body = Unpooled.buffer().writeShort(type.getValue()).writeShort(0).writeZero(4 /* 32 bits */)
+			.writeLong(0).writeLong(0).writeZero(8 /* 64 bits */);
+
+		body.writeMedium(2).writeZero(5 /* 40 bits */).writeBytes(entry, 0, entry.readableBytes())
+			.writeBytes(entry, 0, entry.readableBytes());
+		body.writeMedium(0).writeZero(5 /* 40 bits */);
+		body.writeShort(0).writeShort(0).writeInt(0);
+
+		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.PUBLISH_SPORK.getValue())
+			.writeInt(body.readableBytes()).writeBytes(body);
+	}
+
+	/* A frame that repeats an entry is none that an honest peer sends. It is refused as any frame that is not what it
+	   says it is, by the exception that closes the stream of its sender, and nothing of it is passed on. */
+	@Example
+	public void shouldRefuseAMintStorageWhoseMintRepeats() {
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), new PublishSporkDecoder());
+		final ByteBuf entry = Unpooled.buffer();
+
+		ByteBufUtils.writeNullTerminatedString("a", entry);
+		entry.writeInt(7);
+		ByteBufUtils.writeNullTerminatedString("10", entry);
+
+		assertThrows(CorruptedFrameException.class, () -> channel.writeInbound(
+			frameOfARepeatedEntry(GridSpork.Type.MINT_STORAGE, entry)));
+		assertThat(channel.<Object>readInbound(), nullValue());
+	}
+
+	@Example
+	public void shouldRefuseAVestingStorageWhoseAddressRepeats() {
+		final EmbeddedChannel channel = new EmbeddedChannel(new FrameDecoder(), new PublishSporkDecoder());
+		final ByteBuf entry = Unpooled.buffer();
+
+		ByteBufUtils.writeNullTerminatedString("a", entry);
+		entry.writeLong(0).writeInt(0).writeLong(0).writeInt(0).writeInt(10).writeInt(4).writeInt(20).writeInt(7);
+		ByteBufUtils.writeNullTerminatedString("12.5", entry);
+
+		assertThrows(CorruptedFrameException.class, () -> channel.writeInbound(
+			frameOfARepeatedEntry(GridSpork.Type.VESTING_STORAGE, entry)));
 		assertThat(channel.<Object>readInbound(), nullValue());
 	}
 

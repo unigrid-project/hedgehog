@@ -78,13 +78,43 @@ public final class SnapshotSignature implements Signable {
 			StandardOpenOption.APPEND);
 	}
 
+	/* Signs a snapshot whatever it ends in. The signature is made from the content while the block that the snapshot
+	   may carry is still in place, so a signing that fails before it has a signature leaves the file as it was. */
+	public static void signAndReplace(Path snapshot, String privateKeyHex)
+		throws IOException, SigningException {
+
+		final SnapshotSignature snapshotSignature = read(snapshot);
+		final long content = SnapshotDigest.contentLengthOf(snapshot);
+
+		snapshotSignature.sign(privateKeyHex);
+
+		final ByteBuffer block = ByteBuffer.wrap(snapshotSignature.toBlock());
+		@Cleanup final FileChannel channel = FileChannel.open(snapshot, StandardOpenOption.WRITE);
+
+		replaceTrailer(channel, content, block);
+	}
+
+	/* What follows the content is cut off and the block written where it began, in one go through one channel,
+	   which puts both on the disk before the snapshot counts as signed. A write that stops part of the way leaves
+	   the content and the start of the block. */
+	static void replaceTrailer(FileChannel channel, long content, ByteBuffer block) throws IOException {
+		channel.truncate(content);
+		channel.position(content);
+
+		while (block.hasRemaining()) {
+			channel.write(block);
+		}
+
+		channel.force(true);
+	}
+
 	public boolean isPresent() {
 		return signature != null;
 	}
 
 	public SignatureStatus getStatus() {
 		if (malformed) {
-			return SignatureStatus.INVALID;
+			return SignatureStatus.MALFORMED;
 		}
 
 		if (!isPresent()) {
@@ -153,7 +183,7 @@ public final class SnapshotSignature implements Signable {
 
 		final int length = header.getInt(SnapshotFormat.SIGNATURE_LENGTH_OFFSET);
 
-		if (!isWellFormedHeader(magic, length)) {
+		if (!isWellFormedHeader(magic, length) || isCutShort(trailing, length)) {
 			log.atWarn().log("Rejecting an unrecognisable block after the snapshot content");
 			return null;
 		}
@@ -162,6 +192,12 @@ public final class SnapshotSignature implements Signable {
 
 		channel.read(bytes);
 		return bytes.array();
+	}
+
+	/* A block that ends before its signature does is the start of one and no signature: read as one, the bytes that
+	   are missing would be zeroes, and the snapshot would count as one whose signature does not verify */
+	private static boolean isCutShort(long trailing, int length) {
+		return trailing < SnapshotFormat.SIGNATURE_HEADER_SIZE + length;
 	}
 
 	private static boolean isWellFormedHeader(byte[] magic, int length) {

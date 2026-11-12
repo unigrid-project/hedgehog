@@ -38,6 +38,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.security.cert.CertificateException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import lombok.Getter;
@@ -55,6 +56,7 @@ import org.unigrid.hedgehog.transport.initializer.StreamRouter;
 import org.unigrid.hedgehog.transport.handler.ConnectionHandler;
 import org.unigrid.hedgehog.transport.handler.EncryptedTokenHandler;
 import org.unigrid.hedgehog.transport.handler.ProtocolMismatchHandler;
+import org.unigrid.hedgehog.transport.handler.StreamlessConnectionHandler;
 import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer;
 import org.unigrid.hedgehog.transport.schedule.Schedulable;
 import org.unigrid.hedgehog.server.AbstractServer;
@@ -65,7 +67,7 @@ public class P2PServer extends AbstractServer {
 	private static final long CLOSE_WAIT_MILLIS = 2_000;
 
 	private final NioEventLoopGroup group = new NioEventLoopGroup(Network.COMMUNICATION_THREADS);
-	private final ConnectionLimiter limiter = new ConnectionLimiter();
+	private final ConnectionLimiter limiter = new ConnectionLimiter(NetOptions.getMaxInbound());
 	private final ChannelGroup connections = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
 	private TopologyThread topologyThread;
 	@Getter(onMethod_ = @Override) private Channel channel;
@@ -80,13 +82,10 @@ public class P2PServer extends AbstractServer {
 	private void init() {
 		InternalLoggerFactory.setDefaultFactory(Slf4JLoggerFactory.INSTANCE);
 		log.atDebug().log("Init P2P server");
-		final SelfSignedCertificate certificate = new SelfSignedCertificate();
 		final String[] protocols = Network.getProtocols();
 		final boolean ledger = Network.hasLedger(protocols);
 		final boolean preview = Network.hasPreview(protocols);
-		final QuicSslContext context = QuicSslContextBuilder.forServer(
-			certificate.privateKey(), null, certificate.certificate())
-			.applicationProtocols(protocols).build();
+		final QuicSslContext context = serverContext(protocols);
 		log.atDebug().log("adding channels");
 		// TODO: Add support for ChannelCollector
 		final ChannelHandler codec = new QuicServerCodecBuilder()
@@ -103,20 +102,34 @@ public class P2PServer extends AbstractServer {
 					connections.add(quicChannel);
 					quicChannel.pipeline().addLast(new ProtocolMismatchHandler());
 					quicChannel.pipeline().addLast(new ConnectionHandler(limiter));
+					quicChannel.pipeline().addLast(new StreamlessConnectionHandler());
 				}
 			})
 			.streamHandler(new StreamRouter(new RegisterQuicChannelInitializer(() -> handlers(ledger, preview),
 				() -> schedulers(ledger, preview), RegisterQuicChannelInitializer.Type.SERVER),
 				new ChainStreamInitializer(RegisterQuicChannelInitializer.Type.SERVER))).build();
 
-		channel = new Bootstrap().group(group)
+		final Bootstrap bootstrap = new Bootstrap().group(group)
 			.channel(NioDatagramChannel.class)
-			.handler(codec)
-			.bind(NetOptions.getHost(), NetOptions.getPort())
-			.sync().channel();
+			.handler(codec);
+
+		channel = listen(bootstrap, NetOptions.getHost(), NetOptions.getPort(), "P2P", "--nethost, --netport");
 		log.atDebug().log("Init topology");
 		topologyThread = new TopologyThread();
 		topologyThread.start();
+	}
+
+	/* The certificate is written to a key file and a certificate file in the temporary directory, which the context
+	   has read once it is built, so they are deleted then rather than left there with the key in them */
+	private static QuicSslContext serverContext(final String[] protocols) throws CertificateException {
+		final SelfSignedCertificate certificate = new SelfSignedCertificate();
+
+		try {
+			return QuicSslContextBuilder.forServer(certificate.privateKey(), null, certificate.certificate())
+				.applicationProtocols(protocols).build();
+		} finally {
+			certificate.delete();
+		}
 	}
 
 	static List<ChannelHandler> handlers(final boolean ledger, final boolean preview) {

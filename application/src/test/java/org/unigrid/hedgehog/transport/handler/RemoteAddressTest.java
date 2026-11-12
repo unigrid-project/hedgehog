@@ -199,8 +199,8 @@ public class RemoteAddressTest {
 	public void keepsTheFirstPortASideAnnouncesOnAConnection() {
 		final EmbeddedChannel connection = connectionOf("127.0.0.1", "127.0.0.1");
 
-		RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 1);
-		RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 2);
+		assertThat(RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 1), equalTo(true));
+		assertThat(RemoteAddress.listensOn(streamOf(connection), CONNECTION_PORT + 2), equalTo(false));
 
 		assertThat(RemoteAddress.of(streamOf(connection)),
 			equalTo(Optional.of(new InetSocketAddress("127.0.0.1", CONNECTION_PORT + 1))));
@@ -210,7 +210,7 @@ public class RemoteAddressTest {
 	public void ignoresAPortThatIsNoPort(@ForAll @IntRange(min = -5, max = 0) int port) {
 		final Channel stream = streamOf(connectionOf("127.0.0.1", "127.0.0.1"));
 
-		RemoteAddress.listensOn(stream, port);
+		assertThat(RemoteAddress.listensOn(stream, port), equalTo(false));
 		assertThat(RemoteAddress.of(stream),
 			equalTo(Optional.of(new InetSocketAddress("127.0.0.1", CONNECTION_PORT))));
 	}

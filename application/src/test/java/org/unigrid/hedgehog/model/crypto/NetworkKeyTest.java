@@ -18,6 +18,11 @@
 
 package org.unigrid.hedgehog.model.crypto;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import java.security.interfaces.ECPublicKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,8 +38,13 @@ import net.jqwik.api.constraints.Size;
 import net.jqwik.api.lifecycle.BeforeProperty;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.commons.lang3.mutable.MutableInt;
+import org.slf4j.LoggerFactory;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.startsWith;
 
 public class NetworkKeyTest extends BaseMockedWeldTest {
 	private static final int NUM_SIGNATURES = 3;
@@ -130,5 +140,73 @@ public class NetworkKeyTest extends BaseMockedWeldTest {
 	@Example
 	public void shouldTakeLogEntriesOfTheCurrentKeysOnly() {
 		assertThat(NetworkKey.getLogKeys(), is(Set.of(publicKeys(SIGNATURES))));
+	}
+
+	/* A signature that is no signature at all fails with an exception for each key it is tried against, and the trace
+	   of that exception is for a node that logs at trace level, which the others must not pay for each time. The count
+	   with the trace on shows that the signature does fail each key. */
+	@Example
+	public void shouldBuildNoTraceOfASignatureThatCannotBeReadUnlessTraceIsLogged() {
+		final Logger logger = (Logger) LoggerFactory.getLogger(NetworkKey.class);
+		final Level level = logger.getLevel();
+		final MutableInt traces = new MutableInt();
+		final byte[] digest = DigestUtils.sha512(new byte[] { 1 });
+		final byte[] signature = new byte[] { 1, 2, 3 };
+
+		new MockUp<ExceptionUtils>() {
+			@Mock public String getStackTrace(Throwable throwable) {
+				traces.increment();
+				return "";
+			}
+		};
+
+		try {
+			logger.setLevel(Level.TRACE);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat(traces.intValue(), is(SIGNATURES.size()));
+
+			traces.setValue(0);
+			logger.setLevel(Level.INFO);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat(traces.intValue(), is(0));
+		} finally {
+			logger.setLevel(level);
+		}
+	}
+
+	/* Anyone can send a signature that is no signature at all, and it fails with an exception for each key it is tried
+	   against. The text of that exception holds the key, and is for a node that logs at trace level, or for whoever reads
+	   the message, which the others must not pay for each time. The count with the trace on shows that the signature
+	   does fail each key, and that the text logged is what it was. */
+	@Example
+	public void shouldWriteNoKeyAsTextForASignatureThatCannotBeReadUnlessTheMessageIsLogged() {
+		final Logger logger = (Logger) LoggerFactory.getLogger(NetworkKey.class);
+		final Level level = logger.getLevel();
+		final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		final byte[] digest = DigestUtils.sha512(new byte[] { 1 });
+		final byte[] signature = new byte[] { 1, 2, 3 };
+
+		appender.start();
+		logger.addAppender(appender);
+
+		try (CountedKeys keys = new CountedKeys(SIGNATURES)) {
+			logger.setLevel(Level.INFO);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat("keys written out as text", keys.getWritten().intValue(), is(0));
+			assertThat(appender.list.size(), is(0));
+
+			logger.setLevel(Level.TRACE);
+			assertThat(NetworkKey.signerOf(digest, signature), is(Optional.empty()));
+			assertThat(keys.getWritten().intValue(), is(SIGNATURES.size()));
+			assertThat(appender.list.size(), is(SIGNATURES.size()));
+
+			for (ECPublicKey key : keys.getReal().values()) {
+				assertThat(appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList(),
+					hasItem(startsWith("Failed to verify siugnature data with public key '" + key + "':")));
+			}
+		} finally {
+			logger.setLevel(level);
+			logger.detachAppender(appender);
+		}
 	}
 }

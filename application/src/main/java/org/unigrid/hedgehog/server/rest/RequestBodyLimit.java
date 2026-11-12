@@ -20,7 +20,9 @@ package org.unigrid.hedgehog.server.rest;
 
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelDuplexHandler;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import io.netty.handler.codec.http.DefaultFullHttpResponse;
 import io.netty.handler.codec.http.HttpContent;
@@ -29,10 +31,12 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpStatusClass;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.LastHttpContent;
 import io.netty.handler.codec.http.QueryStringDecoder;
+import io.netty.util.AttributeKey;
 import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.Future;
 import java.nio.charset.StandardCharsets;
@@ -54,9 +58,13 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	   of the ledger among them, so a megabyte holds every one of them with room to spare */
 	public static final long MAX_REQUEST_BYTES = 1L << 20;
 
-	/* A sender that trickles holds a thread of the container in its read for as long as the body is open */
+	/* A sender that trickles holds a thread of the container in its read for as long as the body is open, and one that
+	   says nothing holds its connection, so the head of a request has the same time to arrive in as its body has */
 	public static final Duration BODY_TIME = Duration.ofSeconds(30);
 	public static final Duration LINGER = Duration.ofSeconds(2);
+
+	/* Set on a connection while its request has a body that was cut short, which is read as an end like any other */
+	public static final AttributeKey<Boolean> CUT = AttributeKey.valueOf("hedgehog.rest.body.cut");
 
 	private static final String STORAGE = "/storage";
 	private static final String STORAGE_OBJECTS = "/storage-object/";
@@ -72,9 +80,12 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private long allowed;
 	private long remaining;
+	private int unanswered;
 	private boolean unfinished;
+	private boolean answering;
 	private boolean answered;
 	private boolean refused;
+	private boolean idle;
 	private Future<?> deadline;
 
 	/* A store takes a body that is far larger than anything else, and a store is not bound by time either, since
@@ -89,6 +100,53 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		return SPORK.equals(path) ? Math.max(limit, SporkWire.MAX_SIZE) : limit;
+	}
+
+	/* A sender that has connected and says nothing, or stops in the middle of the head of a request, holds a socket of
+	   the node for as long as it likes. A connection is therefore given the time of a body for the head of its next
+	   request to arrive in: from when it opens, and again from when a request is over, which it is once its body has
+	   ended and its answer is written out. A request that a resource is still working on is not timed by this. */
+	@Override
+	public void channelActive(final ChannelHandlerContext ctx) throws Exception {
+		awaitRequest(ctx);
+		super.channelActive(ctx);
+	}
+
+	private void awaitRequest(final ChannelHandlerContext ctx) {
+		if (unanswered == 0 && !unfinished && !refused && ctx.channel().isActive()) {
+			answered = false;
+			cancelDeadline();
+			deadline = timeout(ctx);
+		}
+	}
+
+	private Future<?> timeout(final ChannelHandlerContext ctx) {
+		return ctx.executor().schedule(() -> expire(ctx), bodyTime.toMillis(), TimeUnit.MILLISECONDS);
+	}
+
+	/* A sender keeps a connection that was answered for the request that it sends next, and what is written to it in
+	   the meantime lies there until then and is read as the answer to that request. A connection that has sent
+	   nothing since its last request arrived whole is therefore closed without a word, as one is everywhere. The
+	   answer is for a sender whose request has not arrived whole, which is still waiting for one. */
+	private void expire(final ChannelHandlerContext ctx) {
+		if (idle) {
+			ctx.close();
+		} else {
+			refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT, "A request has to arrive within "
+				+ bodyTime.toSeconds() + " seconds"));
+		}
+	}
+
+	/* The decoder keeps the head of a request to itself until it is whole, so that a sender has begun one shows only
+	   ahead of the decoder, where what it sends is still bytes. This stands there and tells the limit of them. */
+	ChannelHandler arrivals() {
+		return new ChannelInboundHandlerAdapter() {
+			@Override
+			public void channelRead(final ChannelHandlerContext ctx, final Object message) {
+				idle = false;
+				ctx.fireChannelRead(message);
+			}
+		};
 	}
 
 	@Override
@@ -113,6 +171,9 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 	private boolean begin(final ChannelHandlerContext ctx, final HttpRequest request) {
 		answered = false;
+		idle = false;
+		cancelDeadline();
+		ctx.channel().attr(CUT).set(Boolean.FALSE);
 
 		if (!authentication.isAuthorized(request.headers().get(HttpHeaderNames.AUTHORIZATION))) {
 			refuse(ctx, unauthorized());
@@ -136,11 +197,10 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		unfinished = true;
+		unanswered++;
 
 		if (!upload && (declared > 0 || HttpUtil.isTransferEncodingChunked(request))) {
-			deadline = ctx.executor().schedule(() -> refuse(ctx, response(HttpResponseStatus.REQUEST_TIMEOUT,
-				"A request has to arrive within " + bodyTime.toSeconds() + " seconds")), bodyTime.toMillis(),
-				TimeUnit.MILLISECONDS);
+			deadline = timeout(ctx);
 		}
 
 		return true;
@@ -156,7 +216,9 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 
 		if (content instanceof LastHttpContent) {
 			unfinished = false;
+			idle = true;
 			cancelDeadline();
+			awaitRequest(ctx);
 		}
 
 		return true;
@@ -177,10 +239,18 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 		}
 
 		if (unfinished) {
-			ctx.fireChannelRead(LastHttpContent.EMPTY_LAST_CONTENT);
+			endBody(ctx);
 		}
 
 		ctx.executor().schedule((Runnable) ctx::close, linger.toMillis(), TimeUnit.MILLISECONDS);
+	}
+
+	/* The container takes any end of a body for a whole body, so the connection says that this one was cut short, for
+	   the stream that a resource reads it from to report */
+	private void endBody(final ChannelHandlerContext ctx) {
+		unfinished = false;
+		ctx.channel().attr(CUT).set(Boolean.TRUE);
+		ctx.fireChannelRead(LastHttpContent.EMPTY_LAST_CONTENT);
 	}
 
 	private static HttpResponse response(final HttpResponseStatus status, final String reason) {
@@ -208,7 +278,7 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 	}
 
 	/* What the container writes after a refusal answers a request that was cut short, and the sender has had its
-	   answer already */
+	   answer already. A 100 Continue is no answer: the sender is still to send its body, and may yet be refused. */
 	@Override
 	public void write(final ChannelHandlerContext ctx, final Object message, final ChannelPromise promise) {
 		if (refused) {
@@ -217,13 +287,57 @@ final class RequestBodyLimit extends ChannelDuplexHandler {
 			return;
 		}
 
-		answered |= message instanceof HttpResponse;
-		ctx.write(message, promise);
+		ctx.write(message, isInterim(message) ? promise : answer(ctx, message, promise));
 	}
 
+	private static boolean isInterim(final Object message) {
+		return message instanceof HttpResponse response
+			&& response.status().codeClass() == HttpStatusClass.INFORMATIONAL;
+	}
+
+	/* An answer begins with its head and is over once its end is written out, which may be long after the container
+	   handed it over if the sender reads slowly. The container ends an answer without a body twice, with the answer
+	   itself and with an empty end after it, and only the first of the two ends an answer. */
+	private ChannelPromise answer(final ChannelHandlerContext ctx, final Object message, final ChannelPromise promise) {
+		if (message instanceof HttpResponse) {
+			answered = true;
+			answering = true;
+		}
+
+		if (!answering || !(message instanceof LastHttpContent)) {
+			return promise;
+		}
+
+		answering = false;
+
+		return promise.unvoid().addListener(written -> {
+			unanswered--;
+			awaitRequest(ctx);
+		});
+	}
+
+	/* The container closes the connection of a request that it failed, and it fails one whose body was cut short. The
+	   sender of a refused request is still to read its answer and may still be sending, so the connection closes when
+	   the wait is over and no sooner. The close that ends the wait is made from here and does not pass this way. */
+	@Override
+	public void close(final ChannelHandlerContext ctx, final ChannelPromise promise) {
+		if (refused) {
+			ctx.channel().closeFuture().addListener(closed -> promise.trySuccess());
+		} else {
+			ctx.close(promise);
+		}
+	}
+
+	/* A request that its connection cut short has no end for the decoder, which reports none for a request, so a
+	   resource that is reading its body would wait for ever. It is given an end, as a refused request is. */
 	@Override
 	public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
 		cancelDeadline();
+
+		if (unfinished) {
+			endBody(ctx);
+		}
+
 		super.channelInactive(ctx);
 	}
 

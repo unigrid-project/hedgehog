@@ -35,12 +35,14 @@ import org.unigrid.hedgehog.model.network.codec.PublishPeersDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishPeersEncoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkDecoder;
 import org.unigrid.hedgehog.model.network.codec.PublishSporkEncoder;
+import org.unigrid.hedgehog.transport.handler.EndedStreamHandler;
 import org.unigrid.hedgehog.transport.handler.HelloChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PeerActivityHandler;
 import org.unigrid.hedgehog.transport.handler.PingChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishGridnodeChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishPeersChannelHandler;
 import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
+import org.unigrid.hedgehog.transport.handler.SporkProtocol;
 import org.unigrid.hedgehog.transport.handler.UnclaimedFrameHandler;
 import org.unigrid.hedgehog.transport.initializer.RegisterQuicChannelInitializer.Type;
 import org.unigrid.hedgehog.transport.schedule.LedgerStatusSchedule;
@@ -58,15 +60,21 @@ public final class PeerPipeline {
 	/* The ledger stages, and the schedule that announces streams to the ledger, are there only when the node offers the
 	   ledger protocol, as a node without it, such as one of an earlier release, would not know their packets. The
 	   gridnode and storage stages, and the schedule that announces gridnodes, are there only when the node offers the
-	   proxy protocol, which only a node run with --preview does. A frame that no stage takes, such as one of a stage
-	   the node does without, is dropped behind the last of them. */
+	   proxy protocol, which only a node run with --preview does. The frames of the stages that the node does without
+	   are let go of by the frame decoder as they arrive, and any other frame that no stage takes is dropped behind
+	   the last of them. */
 	public static List<ChannelHandler> handlers(final Type side, final boolean ledger, final boolean preview) {
 		final List<ChannelHandler> handlers = new ArrayList<>(Arrays.asList(
 			new PeerActivityHandler(),
 			new LoggingHandler(LogLevel.DEBUG),
-			new FrameDecoder(),
+			FrameDecoder.forMainStream(ledger, preview),
 			hello(side)
 		));
+
+		/* A node closes a connection that it dialed as the peer ends this stream */
+		if (side == Type.CLIENT) {
+			handlers.add(new EndedStreamHandler());
+		}
 
 		if (preview) {
 			handlers.addAll(List.of(new GridnodeEncoder(), new GridnodeDecoder()));
@@ -74,7 +82,7 @@ public final class PeerPipeline {
 
 		handlers.addAll(List.of(
 			new PingEncoder(), new PingDecoder(),
-			new PublishSporkEncoder(), new PublishSporkDecoder(),
+			new PublishSporkEncoder(), new PublishSporkDecoder(SporkProtocol::inTheLayoutOfThisRelease),
 			new PublishPeersEncoder(), new PublishPeersDecoder(),
 			new PingChannelHandler(), new PublishSporkChannelHandler()
 		));

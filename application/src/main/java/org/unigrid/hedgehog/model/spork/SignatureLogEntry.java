@@ -88,7 +88,8 @@ public class SignatureLogEntry implements Serializable {
 		try {
 			return Signature.verifyDigest(digest, keySignature, key);
 		} catch (VerifySignatureException | IllegalArgumentException ex) {
-			log.atTrace().log("Log entry signed at {} does not verify: {}", timeStamp, ex.getMessage());
+			log.atTrace().setMessage("Log entry signed at {} does not verify: {}").addArgument(timeStamp)
+				.addArgument(ex::getMessage).log();
 			return false;
 		}
 	}

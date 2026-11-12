@@ -94,6 +94,9 @@ public class ChainStreamTest extends BaseServerTest {
 	private static final int SERVERS = 2;
 	private static final int TEST_SERVERS = 20;
 	private static final long THIRD_CLIENT_STREAM = 8;
+
+	/* The main streams beside its first that the node closes without closing the connection of the peer */
+	private static final int FURTHER_STREAMS_LET_OFF = 2;
 	private static final String OPEN_FAILED = "Could not open the chain stream: ";
 	private static final String STALL = "stall";
 	private static final ChainEntry PACKET = ChainEntry.builder().entries(ChainArbitraries.entries().list()
@@ -263,6 +266,17 @@ public class ChainStreamTest extends BaseServerTest {
 		stream.eventLoop().submit(() -> { }).sync();
 	}
 
+	/* A stream that the client opens beside its main stream and its chain stream. QUIC creates a stream at the peer
+	   with its first bytes, so it carries a ping. */
+	@SneakyThrows
+	private static QuicStreamChannel openAFurtherStream(final P2PClient client) {
+		final QuicStreamChannel stream = connectionOf(client).createStream(QuicStreamType.BIDIRECTIONAL,
+			new ChannelInboundHandlerAdapter()).sync().getNow();
+
+		stream.writeAndFlush(encoded(new PingEncoder(), Ping.builder().build()));
+		return stream;
+	}
+
 	/* Takes every bidirectional stream the server allows but the main one, so QUIC refuses the next stream */
 	private static void useUpTheStreams(final QuicChannel connection) {
 		for (int stream = 1; stream < Network.MAX_STREAMS; stream++) {
@@ -360,9 +374,11 @@ public class ChainStreamTest extends BaseServerTest {
 		}
 	}
 
-	/* The main stream and every further stream a client opens have no chain stages, at either end: a chain frame on
-	   them is refused, and the node closes the stream, which the ping behind it shows, as the bytes of a stream are
-	   read in order. The same bytes on the chain stream are acted on. */
+	/* The main stream has no chain stages, at either end: a chain frame on it is refused, and the node closes the
+	   stream. A further stream that a client opens is no chain stream either, and as a connection has one main
+	   stream the node closes it unread, which the ping behind the frame shows: it never arrives. The same bytes on
+	   the chain stream are acted on. A client closes the connection whose main stream the node ended, so the other
+	   streams are those of a connection of their own. */
 	@SneakyThrows
 	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
 	public void refusesChainPacketsOnEveryOtherStream(@ForAll("twoTestServers") List<TestServer> servers,
@@ -371,14 +387,22 @@ public class ChainStreamTest extends BaseServerTest {
 		final ByteBuf entry = encoded(new ChainEntryEncoder(), PACKET);
 
 		for (TestServer server : servers) {
+			final P2PClient refused = connectTo(server);
+
+			try {
+				final Channel main = serverEndOfTheMainStream(refused);
+
+				refused.getChannel().writeAndFlush(entry.retainedDuplicate());
+				await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> !main.isActive());
+				assertThat(arrivalsOn(main.parent()), empty());
+			} finally {
+				refused.closeDirty();
+			}
+
 			final P2PClient client = connectTo(server);
 
 			try {
 				final Channel main = serverEndOfTheMainStream(client);
-
-				client.getChannel().writeAndFlush(entry.retainedDuplicate());
-				await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> !main.isActive());
-
 				final QuicStreamChannel third = connectionOf(client).createStream(QuicStreamType.BIDIRECTIONAL,
 					new ChannelInboundHandlerAdapter()).sync().getNow();
 				final Ping behind = Ping.builder().build();
@@ -392,6 +416,41 @@ public class ChainStreamTest extends BaseServerTest {
 
 				client.getChainChannel().orElseThrow().writeAndFlush(entry.retainedDuplicate());
 				assertThat(awaitAnArrivalOn(main.parent()), is(awaitTheChainStreamBeside(main)));
+			} finally {
+				client.closeDirty();
+			}
+		}
+	}
+
+	/* The node closes a main stream that a peer opens beside its first, and the connection with the third of them. The
+	   chain stream is none of them: beside it a peer is let off with as many as without it, the connection and its
+	   main stream stay, and the chain stream goes on carrying chain packets. */
+	@Property(tries = 1, shrinking = ShrinkingMode.OFF)
+	public void doesNotCountTheChainStreamAmongTheMainStreamsOfAConnection(
+		@ForAll("twoTestServers") List<TestServer> servers, @Mocked PingSchedule pingSchedule) {
+
+		for (TestServer server : servers) {
+			final P2PClient client = connectTo(server);
+
+			try {
+				final Channel main = serverEndOfTheMainStream(client);
+				final QuicStreamChannel chain = awaitTheChainStreamBeside(main);
+
+				for (int further = 0; further < FURTHER_STREAMS_LET_OFF; further++) {
+					final QuicStreamChannel stream = openAFurtherStream(client);
+
+					await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(stream::isInputShutdown);
+				}
+
+				assertThat(main.parent().isActive(), is(true));
+				assertThat(chain.isActive(), is(true));
+				assertThat(serverEndOfTheMainStream(client), is(sameInstance(main)));
+
+				client.getChainChannel().orElseThrow().writeAndFlush(PACKET);
+				assertThat(awaitAnArrivalOn(main.parent()), is(sameInstance(chain)));
+
+				openAFurtherStream(client);
+				await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() -> !main.parent().isActive());
 			} finally {
 				client.closeDirty();
 			}

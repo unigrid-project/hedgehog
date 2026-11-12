@@ -19,22 +19,41 @@
 package org.unigrid.hedgehog.command;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.startsWith;
 import static org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures.KEY_FILE;
+import ch.qos.logback.classic.spi.IThrowableProxy;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
+import jakarta.inject.Provider;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.net.URL;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystem;
+import java.nio.file.FileSystemException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
 import mockit.Invocation;
@@ -56,6 +75,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.BeforeContainer;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.apache.commons.lang3.reflect.FieldUtils;
 import org.unigrid.hedgehog.Hedgehog;
 import org.unigrid.hedgehog.command.bootstrap.BootstrapFetch;
 import org.unigrid.hedgehog.model.option.OptionsCli;
@@ -69,10 +89,15 @@ import org.unigrid.hedgehog.ledger.FileLockedException;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotInstaller;
 import org.unigrid.hedgehog.model.cdi.CDIContext;
 import org.unigrid.hedgehog.model.gridnode.GridnodeSetup;
+import org.unigrid.hedgehog.model.spork.SporkDatabase;
 import org.unigrid.hedgehog.model.spork.SporkDatabaseLock;
+import org.unigrid.hedgehog.model.util.Reflection;
+import org.unigrid.hedgehog.producer.SporkDatabaseProducer;
 import org.unigrid.hedgehog.service.ledger.LedgerKeyFixtures;
 import org.unigrid.hedgehog.service.ledger.LedgerTestChain;
 import picocli.CommandLine;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Model.OptionSpec;
 
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
 @AddLifecycleHook(value = RestoreOptionsHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -80,12 +105,45 @@ public class DaemonTest {
 	private static final long INSTALL_TIMEOUT_SECONDS = 10;
 	private static final int DIGEST_SIZE = 64;
 	private static final AtomicInteger CONTAINERS = new AtomicInteger();
+	private static final int TAKEN = 17;
 
 	private static final List<Path> LOCKED = new CopyOnWriteArrayList<>();
+
+	/* The hidden options of the parts that this release leaves off, each by its longest name and with the arguments
+	   that give it: those that tell the node to run a part */
+	private static final List<Tuple2<String, List<String>>> REFUSED_WITHOUT_THE_PREVIEW = List.of(
+		Tuple.of("--ledger", List.of("--ledger")),
+		Tuple.of("--gridnode", List.of("-G", "/keys/gridnode.key")),
+		Tuple.of("--socks-port", List.of("--socks-port", "1080"))
+	);
+
+	/* And those that only say how a part runs, with a file that is not there or a value that fails if anything uses
+	   it */
+	private static final List<Tuple2<String, List<String>>> TAKEN_WITHOUT_THE_PREVIEW = List.of(
+		Tuple.of("--ledger-key", List.of("--ledger-key", KEY_FILE)),
+		Tuple.of("--ledger-genesis", List.of("--ledger-genesis", "/genesis.json")),
+		Tuple.of("--ledger-trusted", List.of("--ledger-trusted=garbage")),
+		Tuple.of("--announce-address", List.of("--announce-address", "garbage")),
+		Tuple.of("--socks-host", List.of("--socks-host", "0.0.0.0")),
+		Tuple.of("--socks-country", List.of("--socks-country", "SE")),
+		Tuple.of("--socks-geoip", List.of("--socks-geoip", "/geoip/country.mmdb")),
+		Tuple.of("--no-s3", List.of("--no-s3")),
+		Tuple.of("--s3host", List.of("--s3host", "s3.example.org")),
+		Tuple.of("--s3port", List.of("--s3port", "1")),
+		Tuple.of("--s3domain", List.of("--s3domain", "s3.example.org")),
+		Tuple.of("--s3cachedir", List.of("--s3cachedir", "/cache")),
+		Tuple.of("--s3cachesize", List.of("--s3cachesize", "1")),
+		Tuple.of("--s3cachehalflife", List.of("--s3cachehalflife", "PT1H")),
+		Tuple.of("--s3lifecycleinterval", List.of("--s3lifecycleinterval", "PT0S")),
+		Tuple.of("--s3root", List.of("--s3root", "root")),
+		Tuple.of("--s3plain", List.of("--s3plain"))
+	);
 
 	private static volatile String refusal;
 	private static volatile String runningVersion;
 	private static volatile String lockedBy;
+	private static volatile IOException lockFailure;
+	private static volatile RuntimeException startFailure;
 
 	/*
 	   A fake that proceeds must be the only one on its class, so these are installed once and steered by
@@ -96,6 +154,10 @@ public class DaemonTest {
 		new MockUp<CDIContext>() {
 			@Mock public void run() {
 				CONTAINERS.incrementAndGet();
+
+				if (startFailure != null) {
+					throw startFailure;
+				}
 			}
 		};
 
@@ -122,6 +184,10 @@ public class DaemonTest {
 
 				LOCKED.add(dataDirectory);
 
+				if (lockFailure != null) {
+					throw lockFailure;
+				}
+
 				if (lockedBy != null) {
 					throw new FileLockedException(lockedBy);
 				}
@@ -136,6 +202,77 @@ public class DaemonTest {
 		refusal = null;
 		runningVersion = null;
 		lockedBy = null;
+		lockFailure = null;
+		startFailure = null;
+	}
+
+	/* The container wraps what a part of the node throws as it starts in exceptions of its own, hundreds of lines of
+	   trace in all. The operator is told what failed first, in one line, and the trace goes to the log, which the
+	   first -v shows. */
+	@Example
+	public void shouldTellWhatFailedTheStartInOneLineAndLogTheTrace() {
+		startFailure = new IllegalStateException("Unable to invoke init()",
+			new UncheckedIOException(new IOException("No space left on device")));
+
+		try (ErrorLog log = new ErrorLog()) {
+			final HedgehogCli.Result result = HedgehogCli.run("daemon", "-v");
+
+			assertThat(result.err(), equalTo("IOException: No space left on device" + System.lineSeparator()));
+			assertThat(result.exitCode(), equalTo(1));
+			assertThat(result.out(), not(containsString("\tat ")));
+			assertThat(CONTAINERS.get(), equalTo(1));
+
+			assertThat(log.traces().stream().map(trace -> trace.stream().map(IThrowableProxy::getClassName).toList())
+				.toList(), equalTo(List.of(List.of(IllegalStateException.class.getName(),
+				UncheckedIOException.class.getName(), IOException.class.getName()))));
+		}
+	}
+
+	/* The container tells what is wrong with a bean over several lines, the first of which says the least */
+	@Example
+	public void shouldTellAFailureWhoseMessageSpansLinesInOneLine() {
+		startFailure = new IllegalStateException("WELD-001408: Unsatisfied dependencies for type Topology\n"
+			+ "  at injection point [BackedAnnotatedField] @Inject private P2PServer.topology\n"
+			+ "\tat P2PServer.topology(P2PServer.java:0)\n");
+
+		final HedgehogCli.Result result = HedgehogCli.run("daemon");
+
+		assertThat(result.err(), equalTo("IllegalStateException: WELD-001408: Unsatisfied dependencies for type "
+			+ "Topology at injection point [BackedAnnotatedField] @Inject private P2PServer.topology "
+			+ "at P2PServer.topology(P2PServer.java:0)" + System.lineSeparator()));
+
+		assertThat(result.exitCode(), equalTo(1));
+	}
+
+	/* A node that starts has no failure to tell of, on the terminal or in the log */
+	@Example
+	public void shouldTellOfNoFailureWhenTheNodeStarts() {
+		try (ErrorLog log = new ErrorLog()) {
+			final HedgehogCli.Result result = HedgehogCli.run("daemon", "-v");
+
+			assertThat(result.err(), is(emptyString()));
+			assertThat(result.exitCode(), equalTo(0));
+			assertThat(log.events(), is(empty()));
+		}
+	}
+
+	@Command(name = "failing")
+	public static class Failing implements Runnable {
+		@Override
+		public void run() {
+			throw new IllegalStateException("Not the start of a node");
+		}
+	}
+
+	/* Only the start of a node is told in one line: what any other command lets out is shown with its trace */
+	@Example
+	public void shouldShowWhatAnyOtherCommandThrowsWithItsTrace() {
+		final HedgehogCli.Result result = HedgehogCli.run(() -> Hedgehog.commandLine().addSubcommand(new Failing()),
+			"failing");
+
+		assertThat(result.err(), startsWith("java.lang.IllegalStateException: Not the start of a node"));
+		assertThat(result.err(), containsString("\tat "));
+		assertThat(result.exitCode(), equalTo(1));
 	}
 
 	/* A node writes its spork database over the file as it saves, so it holds a lock on it while it runs, and does not
@@ -158,6 +295,31 @@ public class DaemonTest {
 		assertThat(CONTAINERS.get(), equalTo(0));
 	}
 
+	/* The file system gives no sentence with a refusal such as a data directory that the user cannot write, but the
+	   file alone: the operator is told what failed and why, and not shown a path and the usage of the command */
+	@Example
+	public void shouldSayWhyItCannotLockTheSporkDatabaseWhenTheFileSystemGivesOnlyTheFile() {
+		final Path dataDirectory = ApplicationDirectory.create().getUserDataDir();
+		final String file = dataDirectory.resolve(SporkDatabaseLock.FILE).toString();
+
+		Map.<String, IOException>of("permission denied", new AccessDeniedException(file),
+			"no such file or directory", new NoSuchFileException(file),
+			"Read-only file system", new FileSystemException(file, null, "Read-only file system"),
+			"IOException", new IOException()
+		).forEach((reason, failure) -> {
+			lockFailure = failure;
+			CONTAINERS.set(0);
+
+			final HedgehogCli.Result refused = HedgehogCli.run("daemon");
+
+			assertThat(refused.exitCode(), equalTo(2));
+			assertThat(refused.err(),
+				containsString("Cannot lock the spork database in " + dataDirectory + ": " + reason));
+			refused.assertNoStackTrace();
+			assertThat(CONTAINERS.get(), equalTo(0));
+		});
+	}
+
 	@Provide
 	public Arbitrary<String> provideHost() {
 		return OptionsCli.hosts();
@@ -178,14 +340,27 @@ public class DaemonTest {
 			.as((major, minor, patch, suffix) -> major + "." + minor + "." + patch + suffix);
 	}
 
-	@SneakyThrows
 	private static Daemon daemonInstallingWith(SnapshotInstaller installer) {
+		return daemonInstallingWith(installer, () -> SporkDatabase.builder().build());
+	}
+
+	/* A daemon as its container sets it up: with the installer and with the lookup of the spork database, which reads
+	   the database of the node the first time it is made */
+	@SneakyThrows
+	private static Daemon daemonInstallingWith(SnapshotInstaller installer, Provider<SporkDatabase> sporkDatabase) {
 		final Daemon daemon = new Daemon();
-		final Field field = Daemon.class.getDeclaredField("snapshotInstaller");
+
+		field("snapshotInstaller").set(daemon, installer);
+		field("sporkDatabase").set(daemon, sporkDatabase);
+		return daemon;
+	}
+
+	@SneakyThrows
+	private static Field field(String name) {
+		final Field field = Daemon.class.getDeclaredField(name);
 
 		field.setAccessible(true);
-		field.set(daemon, installer);
-		return daemon;
+		return field;
 	}
 
 	@Property(tries = 30)
@@ -225,10 +400,16 @@ public class DaemonTest {
 
 	@Provide
 	public Arbitrary<Tuple2<String, List<String>>> provideOptionOfAPartThisReleaseLeavesOff() {
-		return Arbitraries.of(Tuple.of("--ledger", List.of("--ledger")),
-			Tuple.of("--gridnode", List.of("-G", "/keys/gridnode.key")),
-			Tuple.of("--socks-port", List.of("--socks-port", "1080"))
-		);
+		return Arbitraries.of(REFUSED_WITHOUT_THE_PREVIEW);
+	}
+
+	@Provide
+	public Arbitrary<Tuple2<String, List<String>>> provideOptionTakenWithoutThePreview() {
+		return Arbitraries.of(TAKEN_WITHOUT_THE_PREVIEW);
+	}
+
+	private static String[] daemonGiven(List<String> option) {
+		return Stream.concat(Stream.of("daemon"), option.stream()).toArray(String[]::new);
 	}
 
 	/* A node that is told to run a part this release leaves off is refused, rather than started without it */
@@ -236,9 +417,45 @@ public class DaemonTest {
 	public void shouldRefuseAnOptionOfThePartsThisReleaseLeavesOffWithoutThePreview(
 		@ForAll("provideOptionOfAPartThisReleaseLeavesOff") Tuple2<String, List<String>> option) {
 
-		final String[] args = Stream.concat(Stream.of("daemon"), option.get2().stream()).toArray(String[]::new);
+		assertRefusedWithout(HedgehogCli.run(daemonGiven(option.get2())),
+			option.get1() + " is not part of this release");
+	}
 
-		assertRefusedWithout(HedgehogCli.run(args), option.get1() + " is not part of this release");
+	/* The hidden options of the daemon by their longest name, bar the switch that turns the parts on */
+	private static Set<String> hiddenOptionsOfTheDaemon() {
+		final CommandLine daemon = new CommandLine(Hedgehog.class).getSubcommands().get("daemon");
+
+		return daemon.getCommandSpec().options().stream().filter(OptionSpec::hidden)
+			.map(option -> Stream.of(option.names()).max(Comparator.comparingInt(String::length)).orElseThrow())
+			.filter(name -> !"--preview".equals(name)).collect(Collectors.toCollection(TreeSet::new));
+	}
+
+	/* An option added to the daemon in secret has to be sorted into the ones it refuses and the ones it takes, and one
+	   it takes has to be given to the node of DaemonHiddenOptionStartTest, which shows that it starts nothing */
+	@Example
+	public void shouldHaveSortedEveryHiddenOptionIntoRefusedOrTaken() {
+		final Set<String> sorted = Stream.concat(REFUSED_WITHOUT_THE_PREVIEW.stream(),
+			TAKEN_WITHOUT_THE_PREVIEW.stream()).map(Tuple2::get1).collect(Collectors.toCollection(TreeSet::new));
+
+		assertThat(sorted, equalTo(hiddenOptionsOfTheDaemon()));
+		assertThat(TAKEN_WITHOUT_THE_PREVIEW.size(), equalTo(TAKEN));
+	}
+
+	/* The daemon reads none of them while the part is off, so it starts as it does without them, whatever file is not
+	   there and whatever value no part can use */
+	@Property(tries = TAKEN)
+	@SneakyThrows
+	public void shouldTakeAnyOtherHiddenOptionOnItsOwnAndStartTheNode(
+		@ForAll("provideOptionTakenWithoutThePreview") Tuple2<String, List<String>> option) {
+
+		try (FileSystem fs = LedgerKeyFixtures.posixFileSystem()) {
+			final HedgehogCli.Result result = runOn(fs, daemonGiven(option.get2()));
+
+			assertThat(option.get1() + ": " + result.err(), result.exitCode(), equalTo(0));
+			assertThat(result.err(), not(containsString("is not part of this release")));
+			result.assertNoStackTrace();
+			assertThat(CONTAINERS.get(), equalTo(1));
+		}
 	}
 
 	@Example
@@ -404,5 +621,131 @@ public class DaemonTest {
 		assertThat(source.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS), equalTo(BootstrapFetch.defaultUrl(version)));
 		assertThat(worker.get().isVirtual(), equalTo(true));
 		assertThat(worker.get().getName(), equalTo("snapshot-install"));
+	}
+
+	/*
+	   The install judges a snapshot by the board keys the node holds, and the node holds the changes to them that its
+	   release ships, and those that its spork database stores, only once it read the database. So it reads the
+	   database as it starts, on the thread that starts it, and starts the install after that.
+
+	   A thread that is started runs when it gets to, which may be after whatever follows its start, so the lookup
+	   also tells whether the daemon holds an install by then.
+	*/
+	@Example
+	@SneakyThrows
+	public void shouldReadTheSporkDatabaseAsItStartsBeforeItStartsTheInstallOfTheSnapshot() {
+		final List<String> sequence = new CopyOnWriteArrayList<>();
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+		final String starter = Thread.currentThread().getName();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				sequence.add("install on " + Thread.currentThread().getName());
+				worker.complete(Thread.currentThread());
+			}
+		};
+
+		final Daemon daemon = daemonInstallingWith(new SnapshotInstaller());
+
+		field("sporkDatabase").set(daemon, (Provider<SporkDatabase>) () -> {
+			sequence.add(hasStartedTheInstall(daemon) ? "database after the install was started"
+				: "database on " + Thread.currentThread().getName());
+			return SporkDatabase.builder().build();
+		});
+
+		daemon.start(null);
+		worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+		assertThat(sequence, equalTo(List.of("database on " + starter, "install on snapshot-install")));
+	}
+
+	@SneakyThrows
+	private static boolean hasStartedTheInstall(Daemon daemon) {
+		return field("snapshotInstall").get(daemon) != null;
+	}
+
+	/* A spork database that cannot be read is moved aside by the lookup that reads it, which hands out an empty one
+	   in its place: the node starts all the same, and so does the install */
+	@Example
+	@SneakyThrows
+	public void shouldStartTheInstallOfTheSnapshotWhenTheSporkDatabaseCannotBeRead() {
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				worker.complete(Thread.currentThread());
+			}
+		};
+
+		try (FileSystem fs = Jimfs.newFileSystem(Configuration.unix())) {
+			final Path data = Files.createDirectories(fs.getPath("/data"));
+			final SporkDatabaseProducer producer = new SporkDatabaseProducer();
+
+			Files.write(data.resolve(SporkDatabase.SPORK_DB_FILE), new byte[] {1, 2, 3});
+
+			FieldUtils.writeField(producer, "applicationDirectory", new ApplicationDirectory("test", "test") {
+				@Override
+				public Path getUserDataDir() {
+					return data;
+				}
+			}, true);
+
+			try {
+				daemonInstallingWith(new SnapshotInstaller(), () -> produced(producer)).start(null);
+				worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+				assertThat(namesIn(data),
+					contains(startsWith(SporkDatabase.SPORK_DB_FILE + ".unreadable-")));
+			} finally {
+				Reflection.invoke(producer, "destroy");
+			}
+		}
+	}
+
+	/* What the container hands out as the spork database: the producer reads the file at the first lookup */
+	@SneakyThrows
+	private static SporkDatabase produced(SporkDatabaseProducer producer) {
+		return Reflection.invoke(producer, "produce");
+	}
+
+	@SneakyThrows
+	private static List<String> namesIn(Path directory) {
+		try (Stream<Path> files = Files.list(directory)) {
+			return files.map(file -> file.getFileName().toString()).toList();
+		}
+	}
+
+	/* A download, or the pause before the next one, would go on in a process that outlives the node, as the one of
+	   a test does, so a node that stops interrupts it */
+	@Example
+	@SneakyThrows
+	public void shouldInterruptTheInstallOfTheSnapshotAsItStops() {
+		final CompletableFuture<Thread> worker = new CompletableFuture<>();
+
+		new MockUp<SnapshotInstaller>() {
+			@Mock public void installIfMissing(URL url) {
+				worker.complete(Thread.currentThread());
+
+				try {
+					new CountDownLatch(1).await();
+				} catch (InterruptedException ex) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		};
+
+		final Daemon daemon = daemonInstallingWith(new SnapshotInstaller());
+
+		daemon.start(null);
+		worker.get(INSTALL_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+		daemon.destroy();
+
+		assertThat(worker.get().join(Duration.ofSeconds(INSTALL_TIMEOUT_SECONDS)), equalTo(true));
+	}
+
+	/* A node that is stopped before it started the install has none to interrupt */
+	@Example
+	public void shouldStopWithNoInstallOfTheSnapshotStarted() {
+		new Daemon().destroy();
 	}
 }

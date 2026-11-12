@@ -20,10 +20,12 @@ package org.unigrid.hedgehog.command.bootstrap;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import org.unigrid.hedgehog.command.ExitCode;
 import org.unigrid.hedgehog.model.option.SnapshotOptions;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import picocli.CommandLine.Command;
@@ -48,20 +50,20 @@ public class BootstrapHistory implements Callable<Integer> {
 
 	@Override
 	public Integer call() throws IOException {
+		final SnapshotReader reader;
 		final List<AddressTransaction> transactions;
 
 		try {
-			transactions = SnapshotReader.open(SnapshotOptions.getSnapshot())
-				.transactionsOf(address, offset, limit);
+			reader = SnapshotReader.open(SnapshotOptions.getSnapshot());
+			transactions = reader.transactionsOf(address, offset, limit);
 
 		} catch (IllegalArgumentException | IOException ex) {
-			System.err.println(ex.getMessage());
+			System.err.println(FileFailure.describe(ex));
 			return ExitCode.UNUSABLE;
 		}
 
 		if (transactions.isEmpty()) {
-			System.err.println("No transactions for " + address);
-			return ExitCode.FAILED;
+			return reportNone(reader);
 		}
 
 		if (json) {
@@ -72,6 +74,22 @@ public class BootstrapHistory implements Callable<Integer> {
 		}
 
 		return ExitCode.OK;
+	}
+
+	/* An address that appeared has transactions even where this page of them is empty, as one that is asked for past
+	   its last transaction or by none at all */
+	private int reportNone(SnapshotReader reader) {
+		final Optional<AddressBalance> balance = reader.balanceOf(address);
+
+		if (balance.isPresent()) {
+			System.err.println("None of the transactions of " + address + " ("
+				+ balance.get().getTransactionCount() + " in all) lies within --offset " + offset
+				+ " and --limit " + limit);
+		} else {
+			System.err.println("No transactions for " + address);
+		}
+
+		return ExitCode.FAILED;
 	}
 
 	private static void print(AddressTransaction transaction) {

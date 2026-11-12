@@ -43,6 +43,7 @@ public class NodeRemove extends RestClientCommand {
 
 	@Override
 	protected void execute(Response response) {
-		System.out.println(response.readEntity(new GenericType<Set<Node>>() { }));
+		System.out.println(response.hasEntity() ? response.readEntity(new GenericType<Set<Node>>() { })
+			: response.getStatusInfo());
 	}
 }

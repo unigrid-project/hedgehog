@@ -36,6 +36,7 @@ import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.AfterTry;
 import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
+import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.reflect.FieldUtils;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
@@ -49,13 +50,17 @@ import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.crypto.NetworkKey;
 import org.unigrid.hedgehog.model.crypto.Signature;
+import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.KeyChange;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
 import org.unigrid.hedgehog.model.spork.MintSupply;
+import org.unigrid.hedgehog.model.spork.PendingSporks;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.util.Reflection;
+import org.unigrid.hedgehog.transport.handler.PublishSporkChannelHandler;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.asReleased;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.buildIn;
 import static org.unigrid.hedgehog.model.spork.BoardKeysFixture.chainOf;
@@ -136,6 +141,33 @@ public class BoardKeysLoadingTest {
 		assertThat(db.getMintSupply(), notNullValue());
 		assertThat(db.getMintSupply().isCounting(), is(false));
 		assertThat(db.counting(GridSpork.Type.LEDGER_FEE), notNullValue());
+	}
+
+	/* Keys 0 and 2 signed the copy of a version that the file holds, and the chain of the file switches key 2 off
+	   again. The node keeps that copy, which counts for nothing, and takes the copy of the same version that keys 0
+	   and 1 signed when a peer sends it, in the form that the wire gives it. */
+	@Example
+	@SneakyThrows
+	public void shouldTakeFromAPeerTheCopyThatCountsOfAVersionThatItLoaded() {
+		final KeyChange switchingOffAgain = change(ROOT, List.of(ADDING), keys(0, 1), keys(0, 1));
+		final MintSupply held = signedBy(supply(), key(0), key(2));
+		final MintSupply counting = SerializationUtils.clone(held);
+		final SporkDatabase stored = SporkDatabase.builder().build();
+
+		counting.setCosignature(key(1).signInOneForm(held.getSignable()));
+		stored.set(signed(chainOf(ADDING, switchingOffAgain), key(0), key(1)));
+		stored.set(held);
+
+		final SporkDatabase db = loaded(stored);
+
+		assertThat(NetworkKey.getActiveKeys().active(), equalTo(Set.of(publicKeysOf(keys(0, 1)))));
+		assertThat(db.getMintSupply().getCosignature(), equalTo(held.getCosignature()));
+		assertThat(db.getMintSupply().isCounting(), is(false));
+
+		assertThat(new PublishSporkChannelHandler().receive(SporkWire.decode(SporkWire.encode(counting)), db,
+			new PendingSporks(), new SporkLag(), "peer"), is(true));
+		assertThat(db.getMintSupply().getCosignature(), equalTo(counting.getCosignature()));
+		assertThat(db.counting(GridSpork.Type.MINT_SUPPLY), notNullValue());
 	}
 
 	@Example

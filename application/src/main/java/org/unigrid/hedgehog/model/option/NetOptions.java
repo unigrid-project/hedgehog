@@ -26,6 +26,15 @@ public class NetOptions {
 	private static final String DEFAULT_PORT_STR = "52883";
 	public static final int DEFAULT_PORT = Integer.parseInt(DEFAULT_PORT_STR);
 
+	public static final String MAX_INBOUND = "--netmaxinbound";
+
+	/* What a node admits unless told otherwise: one connection from each node of a topology that is full, and one
+	   more for each that it dials back */
+	private static final String DEFAULT_MAX_INBOUND_STR = "2000";
+
+	/* The connections that one address may hold. A node that admits fewer in all gives no address its share. */
+	private static final int MIN_MAX_INBOUND = 8;
+
 	/* The board keys built into the release, which a private network replaces with keys of its own */
 	public static final String RELEASE_NETWORK_KEYS =
 		"1caaaca6aab277ee35e87db1145d0122301cc68335cbe4c58748022971636a25e8bbe0b4d72c6f080682ebe0"
@@ -54,6 +63,14 @@ public class NetOptions {
 	)
 	private static int port;
 
+	@Getter @Option(names = MAX_INBOUND, scope = CommandLine.ScopeType.INHERIT, converter = MaxInboundConverter.class,
+		description = "Connections that all peers together may hold to this node at a time, " + MIN_MAX_INBOUND
+		+ " or more (defaults to ${DEFAULT-VALUE}). Only the connections that peers open to this node count: not "
+		+ "the ones it dials, and none from the loopback address. A seed, which every node dials, may need more.",
+		defaultValue = DEFAULT_MAX_INBOUND_STR
+	)
+	private static int maxInbound;
+
 	@Getter @Option(names = "--no-seeds", scope = CommandLine.ScopeType.INHERIT,
 		description = "Enable/disable seed nodes (enabled by default).", negatable = true, defaultValue = "true"
 	)
@@ -63,4 +80,26 @@ public class NetOptions {
 		description = "Override the default network keys", split = ",", defaultValue = RELEASE_NETWORK_KEYS
 	)
 	private static String[] networkKeys;
+
+	/* Refused while parsing, so a node never starts with a ceiling that shuts out the peers it is run for */
+	private static final class MaxInboundConverter implements CommandLine.ITypeConverter<Integer> {
+		@Override
+		public Integer convert(String value) {
+			final int ceiling = parse(value);
+
+			if (ceiling < MIN_MAX_INBOUND) {
+				throw new CommandLine.TypeConversionException("Not " + MIN_MAX_INBOUND + " or more");
+			}
+
+			return ceiling;
+		}
+
+		private static int parse(String value) {
+			try {
+				return Integer.parseInt(value);
+			} catch (NumberFormatException ex) {
+				throw new CommandLine.TypeConversionException("'" + value + "' is not an int");
+			}
+		}
+	}
 }

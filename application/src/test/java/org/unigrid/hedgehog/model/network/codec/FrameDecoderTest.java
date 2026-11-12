@@ -20,12 +20,15 @@ package org.unigrid.hedgehog.model.network.codec;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.hamcrest.Matchers.nullValue;
 import static org.unigrid.hedgehog.jqwik.Expect.assertThrows;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.CorruptedFrameException;
 import io.netty.handler.codec.DecoderException;
@@ -37,11 +40,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Assume;
+import net.jqwik.api.Combinators;
 import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
@@ -78,6 +83,16 @@ public class FrameDecoderTest {
 
 	/* The longest DER encoding of a P-521 signature */
 	private static final int SIGNATURE_SIZE = 139;
+
+	/* A ping period, what is to arrive of a frame in one, the periods of nothing after which its stream is closed, and
+	   how far behind a frame is by then, which closes its stream however it came to be that far behind, written out
+	   here and not taken from the decoder */
+	private static final int PERIOD_SECONDS = 20;
+	private static final int KIBIBYTE = 1024;
+	private static final int LEAST_BYTES_A_PERIOD = 16 * KIBIBYTE;
+	private static final int EMPTY_PERIODS = 3;
+	private static final int BYTES_BEHIND_TO_CLOSE = 48 * KIBIBYTE;
+	private static final int PERIODS = 100;
 
 	/* The most that a frame of the type may hold, and the least, written out here and not taken from the decoder */
 	private static final Map<Packet.Type, Integer> CAPS = Map.ofEntries(
@@ -136,6 +151,16 @@ public class FrameDecoderTest {
 	private static final Set<Packet.Type> UNREAD_TYPES = Set.of(Packet.Type.UNDEFINED,
 		Packet.Type.PUBLISH_NODE_DETAILS, Packet.Type.ASK_SPORKS, Packet.Type.GROW_SPORK);
 
+	/* The types that only a node run with the preview has stages for, those of the gridnodes and the storage, and the
+	   types that only a node that offers the ledger has stages for */
+	private static final Set<Packet.Type> PREVIEW_TYPES = Set.of(Packet.Type.GRIDNODE, Packet.Type.STORE_FRAGMENT,
+		Packet.Type.FETCH_FRAGMENT, Packet.Type.FRAGMENT_REPLY, Packet.Type.HAS_FRAGMENT, Packet.Type.FRAGMENT_STATUS,
+		Packet.Type.DELETE_GROUP, Packet.Type.STORAGE_ACK);
+
+	private static final Set<Packet.Type> LEDGER_TYPES = Set.of(Packet.Type.LEDGER_TRANSACTION,
+		Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT, Packet.Type.LEDGER_STATUS,
+		Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH);
+
 	private static ByteBuf frameOf(byte[] payload) {
 		return Unpooled.buffer().writeShort(FrameDecoder.MAGIC).writeShort(Packet.Type.PING.getValue())
 			.writeInt(payload.length).writeBytes(payload);
@@ -168,6 +193,33 @@ public class FrameDecoderTest {
 	Arbitrary<Short> unreadTypes() {
 		return Arbitraries.of(Stream.concat(UNREAD_TYPES.stream().map(Packet.Type::getValue), Stream.of(UNKNOWN_TYPE))
 			.toList());
+	}
+
+	@Provide
+	Arbitrary<Packet.Type> boundedTypes() {
+		return Arbitraries.of(MINIMA.keySet());
+	}
+
+	@Provide
+	Arbitrary<Packet.Type> typesOfTheParts() {
+		return Arbitraries.of(Stream.concat(PREVIEW_TYPES.stream(), LEDGER_TYPES.stream()).toList());
+	}
+
+	/* The most that a frame of the type may hold, which for a fragment is what the stream may */
+	private static int capOf(final Packet.Type type) {
+		return FRAGMENT_TYPES.contains(type) ? Network.MAX_DATA_SIZE - HEADER_SIZE : CAPS.get(type);
+	}
+
+	/* Whether a frame of the type, whole and as small as one may be, comes out of the decoder */
+	private static boolean reads(final FrameDecoder decoder, final Packet.Type type) {
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+		final int size = MINIMA.get(type);
+
+		channel.writeInbound(headerOf(type, size).writeZero(size));
+
+		final ByteBuf frame = channel.readInbound();
+
+		return frame != null && frame.readableBytes() == size;
 	}
 
 	@Example
@@ -316,6 +368,513 @@ public class FrameDecoderTest {
 
 		assertThrows(TooLongFrameException.class, () -> channel.writeInbound(headerOf(type,
 			Network.MAX_DATA_SIZE - HEADER_SIZE + excess)));
+	}
+
+	/* The main stream of a node reads the frames of the parts that the node runs. Of the parts it does without it
+	   hands on no frame, as it has no stage for one, and the frames of the pings, peers and sporks it reads always. */
+	@Example
+	public void readsOnTheMainStreamTheFramesOfThePartsThatTheNodeRunsAndOfNoOther() {
+		MINIMA.keySet().forEach(type -> {
+			final boolean ledger = LEDGER_TYPES.contains(type);
+			final boolean preview = PREVIEW_TYPES.contains(type);
+
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(true, true), type), is(true));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(false, true), type), is(!ledger));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(true, false), type), is(!preview));
+			assertThat(type.toString(), reads(FrameDecoder.forMainStream(false, false), type),
+				is(!ledger && !preview));
+		});
+	}
+
+	/* A node that runs every part holds the caps that the plain decoder does */
+	@Example
+	public void waitsOnTheMainStreamOfANodeThatRunsEveryPartForTheBodyOfAFrameAtTheCapOfItsType() {
+		MINIMA.keySet().forEach(type -> {
+			final EmbeddedChannel atTheCap = new EmbeddedChannel(FrameDecoder.forMainStream(true, true));
+			final EmbeddedChannel beyond = new EmbeddedChannel(FrameDecoder.forMainStream(true, true));
+
+			atTheCap.writeInbound(headerOf(type, capOf(type)));
+			assertThat(atTheCap.readInbound(), nullValue());
+			assertThat(atTheCap.attr(Packet.KEY).get(), equalTo(type));
+			assertThrows(TooLongFrameException.class, () -> beyond.writeInbound(headerOf(type, capOf(type) + 1)));
+		});
+	}
+
+	/* The header of a frame and then a piece of its body, as a stream hands them over, and the memory of the buffers
+	   that the stream has not let go of afterwards, read off the allocator that every one of them comes from */
+	private static long heldOf(final FrameDecoder decoder, final Packet.Type type, final int size, final int piece) {
+		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+
+		channel.config().setAllocator(allocator);
+		channel.writeInbound(allocator.heapBuffer(HEADER_SIZE).writeShort(FrameDecoder.MAGIC)
+			.writeShort(type.getValue()).writeInt(size));
+		channel.writeInbound(allocator.heapBuffer(piece).writeZero(piece));
+		assertThat(channel.readInbound(), nullValue());
+		assertThat(channel.isOpen(), is(true));
+		return allocator.metric().usedHeapMemory();
+	}
+
+	/* A frame of a part that the node does without is not collected: what arrives of it is used up and freed with
+	   every read, however much the header says is to come, where a node that reads the type keeps it for the frame */
+	@Property(tries = 50)
+	public void holdsNothingOfAFrameOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 1, max = 64 * 1024) int arrived) {
+
+		final int size = capOf(type);
+		final int piece = Math.min(arrived, size - 1);
+
+		assertThat(heldOf(FrameDecoder.forMainStream(false, false), type, size, piece), is(0L));
+		assertThat(heldOf(FrameDecoder.forMainStream(true, true), type, size, piece),
+			greaterThanOrEqualTo((long) HEADER_SIZE + piece));
+	}
+
+	/* What a node takes of a peer does not turn on the parts it runs: a frame that would only be passed over is held
+	   to the bounds of its type all the same */
+	@Property(tries = 50)
+	public void holdsAFrameOfAPartThatTheNodeDoesWithoutToTheBoundsOfItsType(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 1, max = 100_000) int excess) {
+
+		final EmbeddedChannel above = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+		final EmbeddedChannel below = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+
+		assertThrows(TooLongFrameException.class, () -> above.writeInbound(headerOf(type, capOf(type) + excess)));
+		assertThrows(CorruptedFrameException.class, () -> below.writeInbound(headerOf(type, MINIMA.get(type) - 1)));
+	}
+
+	/* The bytes to pass over end where the frame does, wherever the reads of the stream fall, so the frame behind it
+	   is read whole and nothing else comes out */
+	@Property(tries = 200)
+	public void readsTheFrameBehindOneOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type,
+		@ForAll @IntRange(min = 0, max = 10_000) int at, @ForAll @Size(16) byte[] payload) {
+
+		final EmbeddedChannel channel = new EmbeddedChannel(FrameDecoder.forMainStream(false, false));
+		final int size = MINIMA.get(type);
+		final ByteBuf frames = headerOf(type, size).writeZero(size).writeBytes(frameOf(payload));
+		final int firstPart = 1 + at % (frames.readableBytes() - 1);
+
+		channel.writeInbound(frames.readRetainedSlice(firstPart));
+		channel.writeInbound(frames.readRetainedSlice(frames.readableBytes()));
+
+		final ByteBuf decoded = channel.readInbound();
+
+		assertThat(ByteBufUtil.getBytes(decoded), equalTo(payload));
+		assertThat(channel.readInbound(), nullValue());
+		assertThat(channel.attr(Packet.KEY).get(), equalTo(Packet.Type.PING));
+	}
+
+	/* A stream whose clock stands still but for the time that a test lets pass */
+	private static EmbeddedChannel timedChannel(final FrameDecoder decoder) {
+		final EmbeddedChannel channel = new EmbeddedChannel(decoder);
+
+		channel.freezeTime();
+		return channel;
+	}
+
+	private static void pass(final EmbeddedChannel channel, final long seconds) {
+		channel.advanceTimeBy(seconds, TimeUnit.SECONDS);
+		channel.runScheduledPendingTasks();
+	}
+
+	/* All of three periods but the last second, a period at a time, as on an event loop that is not held up */
+	private static void passUntilASecondBeforeTheThirdPeriodEnds(final EmbeddedChannel channel) {
+		for (int period = 1; period < EMPTY_PERIODS; period++) {
+			pass(channel, PERIOD_SECONDS);
+		}
+
+		pass(channel, PERIOD_SECONDS - 1);
+	}
+
+	/* Whether the stream has anything set for a later time, which here can only be the next look at what arrived of
+	   a frame */
+	private static boolean isWaiting(final EmbeddedChannel channel) {
+		return channel.runScheduledPendingTasks() >= 0;
+	}
+
+	/* The periods, of those that the peer delivers something in, at whose end the stream is still open: each starts
+	   with what the peer delivers in it, and none is begun on a stream that is closed */
+	private static int periodsKept(final EmbeddedChannel channel, final int... delivered) {
+		int periods = 0;
+
+		while (periods < delivered.length && channel.isOpen()) {
+			if (delivered[periods] > 0) {
+				channel.writeInbound(Unpooled.buffer(delivered[periods]).writeZero(delivered[periods]));
+			}
+
+			pass(channel, PERIOD_SECONDS);
+			periods += channel.isOpen() ? 1 : 0;
+		}
+
+		return periods;
+	}
+
+	/* The stream of a spork frame as large as one may be, of which the header has arrived and nothing else */
+	private static EmbeddedChannel streamOfTheLargestSporkFrame() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+
+		channel.writeInbound(headerOf(Packet.Type.PUBLISH_SPORK, CAPS.get(Packet.Type.PUBLISH_SPORK)));
+		return channel;
+	}
+
+	private static int[] inEachOf(final int periods, final int bytes) {
+		return IntStream.generate(() -> bytes).limit(periods).toArray();
+	}
+
+	/* The periods given, over and over, for as many periods as there are to be */
+	private static int[] overAndOver(final int periods, final int... pattern) {
+		return IntStream.range(0, periods).map(period -> pattern[period % pattern.length]).toArray();
+	}
+
+	/* The periods at whose end a stream is to be open still: all of them, or those before the first by whose end the
+	   frame is 48 KiB or more behind 16 KiB a period over some run of periods that ends with it. Each run is added up
+	   on its own here, where the decoder carries one figure from a period to the next. */
+	private static int periodsToKeep(final int... delivered) {
+		for (int last = 0; last < delivered.length; last++) {
+			long behind = 0;
+
+			for (int first = last; first >= 0; first--) {
+				behind += LEAST_BYTES_A_PERIOD - delivered[first];
+
+				if (behind >= BYTES_BEHIND_TO_CLOSE) {
+					return last;
+				}
+			}
+		}
+
+		return delivered.length;
+	}
+
+	/* Periods of nothing, of too little and of enough, in any order */
+	@Provide
+	Arbitrary<int[]> periodsOfAnything() {
+		return Arbitraries.oneOf(Arbitraries.just(0), Arbitraries.integers().between(0, LEAST_BYTES_A_PERIOD - 1),
+			Arbitraries.integers().between(LEAST_BYTES_A_PERIOD, EMPTY_PERIODS * LEAST_BYTES_A_PERIOD))
+			.array(int[].class).ofMinSize(1).ofMaxSize(PERIODS);
+	}
+
+	/* Two periods at most of too little, and one that brings all that they were short of and at times more */
+	private static List<Integer> madeUpFor(final List<Integer> tooLittle, final int more) {
+		final int due = (tooLittle.size() + 1) * LEAST_BYTES_A_PERIOD;
+		final int delivered = tooLittle.stream().mapToInt(Integer::intValue).sum();
+
+		return Stream.concat(tooLittle.stream(), Stream.of(due - delivered + more)).toList();
+	}
+
+	@Provide
+	Arbitrary<int[]> periodsThatAreMadeUpFor() {
+		final Arbitrary<List<Integer>> tooLittle = Arbitraries.integers().between(0, LEAST_BYTES_A_PERIOD - 1).list()
+			.ofMaxSize(EMPTY_PERIODS - 1);
+
+		return Combinators.combine(tooLittle, Arbitraries.integers().between(0, LEAST_BYTES_A_PERIOD))
+			.as(FrameDecoderTest::madeUpFor).list().ofMinSize(1).ofMaxSize(PERIODS / EMPTY_PERIODS)
+			.map(runs -> runs.stream().flatMap(List::stream).mapToInt(Integer::intValue).toArray());
+	}
+
+	/* A peer that never finishes a frame cannot make a stream hold what has arrived of it for as long as it likes:
+	   at the end of the third period in which nothing of the frame arrived, and not a second before, the stream is
+	   closed and frees what it held, however little of the frame was still to come */
+	@Property(tries = 100)
+	public void closesTheStreamOfAFrameThatIsNotWholeAfterThreePeriodsOfNothing(
+		@ForAll("boundedTypes") Packet.Type type, @ForAll @IntRange(min = 0) int pick,
+		@ForAll @IntRange(min = 1, max = 4096) int arrived) {
+
+		final UnpooledByteBufAllocator allocator = new UnpooledByteBufAllocator(false, true);
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+		final int size = MINIMA.get(type) + pick % (capOf(type) - MINIMA.get(type) + 1);
+		final int piece = Math.min(arrived, size - 2);
+
+		channel.config().setAllocator(allocator);
+		channel.writeInbound(allocator.heapBuffer(HEADER_SIZE + piece).writeShort(FrameDecoder.MAGIC)
+			.writeShort(type.getValue()).writeInt(size).writeZero(piece));
+		passUntilASecondBeforeTheThirdPeriodEnds(channel);
+		assertThat(channel.isOpen(), is(true));
+		assertThat(allocator.metric().usedHeapMemory(), greaterThanOrEqualTo((long) HEADER_SIZE + piece));
+
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
+		assertThat(allocator.metric().usedHeapMemory(), is(0L));
+	}
+
+	/* The bytes of a frame count as a sign of its peer, so no ping ends a frame of which a byte arrives now and then.
+	   Such a frame is not given the time that it would take to arrive whole at any rate: a byte in each of three
+	   periods leaves it three bytes short of 48 KiB behind, so the stream is closed at the end of the fourth, 80
+	   seconds after the header. */
+	@Example
+	public void closesTheStreamOfTheLargestSporkFrameThatCrawlsInAByteAPeriodInTheFourthPeriod() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, 1)), is(EMPTY_PERIODS));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A kibibyte short in every period is 48 KiB behind at the end of the 48th, 16 minutes after the header */
+	@Example
+	public void closesTheStreamOfAFrameOfWhich15KibibytesArriveAPeriodOnceItIs48KibibytesBehind() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, 15 * KIBIBYTE)), is(BYTES_BEHIND_TO_CLOSE / KIBIBYTE - 1));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A peer on a slow link is kept however long a frame takes to arrive: the largest spork frame at this rate takes
+	   more than five hours */
+	@Example
+	public void keepsTheStreamOfAFrameOfWhich17KibibytesArriveAPeriod() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, 17 * KIBIBYTE)), is(PERIODS));
+		assertThat(channel.isOpen(), is(true));
+		assertThat(channel.readInbound(), nullValue());
+	}
+
+	/* A byte short in every period is a byte further behind with each, which closes no stream before its frame is
+	   whole: the largest spork frame arrives at this rate in 1025 periods and is 1024 bytes behind by then, where
+	   48 KiB would take 49152 periods */
+	@Example
+	public void keepsTheStreamOfAFrameOfWhichAByteLessThan16KibibytesArrivesAPeriodUntilItIsWhole() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+		final int size = CAPS.get(Packet.Type.PUBLISH_SPORK);
+		final int periods = size / (LEAST_BYTES_A_PERIOD - 1);
+
+		assertThat(periodsKept(channel, inEachOf(periods, LEAST_BYTES_A_PERIOD - 1)), is(periods));
+		assertThat(channel.readInbound(), nullValue());
+		channel.writeInbound(Unpooled.buffer().writeZero(size % (LEAST_BYTES_A_PERIOD - 1)));
+
+		final ByteBuf frame = channel.readInbound();
+
+		assertThat(frame.readableBytes(), equalTo(size));
+		assertThat(channel.isOpen(), is(true));
+		frame.release();
+	}
+
+	@Example
+	public void keepsTheStreamOfAFrameOfWhich16KibibytesArriveAPeriod() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, LEAST_BYTES_A_PERIOD)), is(PERIODS));
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	@Property(tries = 25)
+	public void keepsTheStreamOfAFrameOfWhichNoLessThan16KibibytesArriveAPeriod(
+		@ForAll @IntRange(min = LEAST_BYTES_A_PERIOD, max = 8 * LEAST_BYTES_A_PERIOD) int bytesAPeriod) {
+
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, bytesAPeriod)), is(PERIODS));
+		channel.finishAndReleaseAll();
+	}
+
+	/* What a period is short of 16 KiB adds up from one to the next, so the less arrives in a period, the sooner
+	   the frame is 48 KiB behind: after three periods of nothing, and after more than these hundred when a period is
+	   short of fewer than 492 bytes */
+	@Property(tries = 50)
+	public void closesTheStreamOfAFrameOfWhichLessThan16KibibytesArriveAPeriodOnceItIs48KibibytesBehind(
+		@ForAll @IntRange(min = 0, max = LEAST_BYTES_A_PERIOD - 1) int bytesAPeriod) {
+
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+		final int behindAPeriod = LEAST_BYTES_A_PERIOD - bytesAPeriod;
+		final int closedIn = (BYTES_BEHIND_TO_CLOSE + behindAPeriod - 1) / behindAPeriod;
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, bytesAPeriod)), is(Math.min(PERIODS, closedIn - 1)));
+		assertThat(channel.isOpen(), is(closedIn > PERIODS));
+		channel.finishAndReleaseAll();
+	}
+
+	/* A period of 16 KiB makes up for nothing, so the periods of nothing between such periods add up as if they came
+	   one after the other: a frame of which 16 KiB arrive in every third period is closed at the end of the fourth,
+	   and not held for the 17 hours that the largest spork frame would take to arrive like that */
+	@Example
+	public void closesTheStreamOfAFrameOfWhich16KibibytesArriveInEveryThirdPeriodOnly() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, overAndOver(PERIODS, 0, 0, LEAST_BYTES_A_PERIOD)), is(EMPTY_PERIODS));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A period of more than 16 KiB makes up for what it brought above them and starts nothing again: nothing arrives
+	   in the first two periods, 20 KiB in the third, which leaves the frame 28 KiB behind, and nothing after it,
+	   which closes the stream at the end of the fifth */
+	@Example
+	public void leavesAFrameAsFarBehindAsAPeriodOfEnoughDidNotMakeUpFor() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, 0, 0, 20 * KIBIBYTE, 0), is(4));
+		assertThat(periodsKept(channel, 0), is(0));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* What a period brings above what its frame is behind is not kept for later, so a frame that came in fast and
+	   then stands still is held no longer than any other */
+	@Example
+	public void closesTheStreamAfterThreePeriodsOfNothingWhateverArrivedBeforeThem() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, 4 * LEAST_BYTES_A_PERIOD, 0, 0, 0), is(EMPTY_PERIODS));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* The stream is closed by the byte that puts its frame 48 KiB behind and by none before it: nothing arrives in two
+	   periods and a byte in the third, which leaves the frame a byte short of that for as long as 16 KiB arrive in
+	   a period, and the first period of a byte less closes the stream */
+	@Example
+	public void closesTheStreamWithTheByteThatPutsItsFrame48KibibytesBehind() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(channel, 0, 0, 1), is(EMPTY_PERIODS));
+		assertThat(periodsKept(channel, inEachOf(PERIODS, LEAST_BYTES_A_PERIOD)), is(PERIODS));
+		assertThat(periodsKept(channel, LEAST_BYTES_A_PERIOD - 1), is(0));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A frame that stood still for a period and arrives at 16 KiB a period from then on stays 16 KiB behind, and one
+	   that arrives in 32 KiB every other period is behind by as much after every period of nothing and by nothing
+	   after the next: neither is ever closed */
+	@Example
+	public void keepsTheStreamOfAFrameThatIsBehindByNoMoreFromOnePeriodToTheNext() {
+		final EmbeddedChannel stoodStill = streamOfTheLargestSporkFrame();
+		final EmbeddedChannel everyOther = streamOfTheLargestSporkFrame();
+
+		assertThat(periodsKept(stoodStill, 0), is(1));
+		assertThat(periodsKept(stoodStill, inEachOf(PERIODS, LEAST_BYTES_A_PERIOD)), is(PERIODS));
+		assertThat(periodsKept(everyOther, overAndOver(PERIODS, 0, 2 * LEAST_BYTES_A_PERIOD)), is(PERIODS));
+	}
+
+	/* A peer whose link gives out for a period or two and that makes up for it in the next delivers 16 KiB a period
+	   over every such run, and is kept for as long as that goes on. What a period brings above what its frame is
+	   behind is not kept for later, so three periods of nothing close a stream whatever arrived before them. */
+	@Property(tries = 100)
+	public void keepsTheStreamOfAFrameThatMakesUpForEveryPeriodOrTwoOfTooLittle(
+		@ForAll("periodsThatAreMadeUpFor") int[] delivered) {
+
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		assertThat(Arrays.toString(delivered), periodsKept(channel, delivered), is(delivered.length));
+		assertThat(Arrays.toString(delivered), periodsToKeep(delivered), is(delivered.length));
+		channel.finishAndReleaseAll();
+	}
+
+	/* However what arrives of a frame is spread over the periods, its stream is open until the end of the first
+	   period by which the frame is 48 KiB behind, and closed at it */
+	@Property(tries = 200)
+	public void closesTheStreamAtTheEndOfThePeriodByWhichItsFrameIs48KibibytesBehind(
+		@ForAll("periodsOfAnything") int[] delivered) {
+
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+		final int kept = periodsToKeep(delivered);
+
+		assertThat(Arrays.toString(delivered), periodsKept(channel, delivered), is(kept));
+		assertThat(Arrays.toString(delivered), channel.isOpen(), is(kept == delivered.length));
+		channel.finishAndReleaseAll();
+	}
+
+	/* A period is counted from the read that began the frame, so what that read brought of the frame is no part of
+	   what arrives in the first: a frame that then stands still is closed a minute after its last byte */
+	@Example
+	public void countsForAPeriodWhatArrivedAfterTheReadThatBeganTheFrame() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+
+		channel.writeInbound(headerOf(Packet.Type.PUBLISH_SPORK, CAPS.get(Packet.Type.PUBLISH_SPORK))
+			.writeZero(64 * LEAST_BYTES_A_PERIOD));
+
+		assertThat(periodsKept(channel, inEachOf(PERIODS, 0)), is(EMPTY_PERIODS - 1));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* An event loop that is held up, by a lock that a thread waits on or by a machine that stood still, leaves the
+	   looks that it missed due all at once. Made one after the other in the same breath, three of them would close
+	   the stream of a peer that delivered all the while: the stream is looked at once for the time that the loop
+	   stood still, and again a period after that. */
+	@Example
+	public void doesNotMakeUpForTheLooksThatAStallMissed() {
+		final EmbeddedChannel channel = streamOfTheLargestSporkFrame();
+
+		channel.advanceTimeBy(5 * PERIOD_SECONDS, TimeUnit.SECONDS);
+		channel.runScheduledPendingTasks();
+		assertThat(channel.isOpen(), is(true));
+
+		assertThat(periodsKept(channel, 0), is(1));
+		assertThat(periodsKept(channel, 0), is(0));
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A frame that is whole ends the looks at it, so nothing is left to end a stream that then stays quiet, and the
+	   frame behind it is looked at from its own header on */
+	@Example
+	public void endsTheLooksAtAFrameOnceItIsWholeAndStartsThemForTheNext() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+		final byte[] payload = new byte[2 * Long.BYTES];
+		final ByteBuf frame = frameOf(payload);
+
+		channel.writeInbound(frame.readRetainedSlice(HEADER_SIZE + 1));
+		assertThat(isWaiting(channel), is(true));
+		passUntilASecondBeforeTheThirdPeriodEnds(channel);
+		channel.writeInbound(frame.readRetainedSlice(frame.readableBytes()));
+		assertThat(ByteBufUtil.getBytes((ByteBuf) channel.readInbound()), equalTo(payload));
+		assertThat(isWaiting(channel), is(false));
+
+		pass(channel, PERIODS * PERIOD_SECONDS);
+		assertThat(channel.isOpen(), is(true));
+
+		channel.writeInbound(headerOf(Packet.Type.PING, payload.length));
+		passUntilASecondBeforeTheThirdPeriodEnds(channel);
+		assertThat(channel.isOpen(), is(true));
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
+	}
+
+	/* A frame that arrives whole in one read is not looked at again */
+	@Example
+	public void looksAtNoFrameThatArrivesWhole() {
+		final EmbeddedChannel channel = timedChannel(new FrameDecoder());
+
+		channel.writeInbound(frameOf(new byte[2 * Long.BYTES]));
+		assertThat(isWaiting(channel), is(false));
+	}
+
+	/* The looks at a frame end with the stream, and with the decoder when it is taken off the stream, so that none
+	   outlives what it was to close */
+	@Example
+	public void endsTheLooksAtAFrameWithTheStreamAndWithTheDecoder() {
+		final EmbeddedChannel inactive = streamOfTheLargestSporkFrame();
+		final EmbeddedChannel removed = streamOfTheLargestSporkFrame();
+
+		assertThat(isWaiting(inactive), is(true));
+		inactive.pipeline().fireChannelInactive();
+		assertThat(isWaiting(inactive), is(false));
+
+		assertThat(isWaiting(removed), is(true));
+		removed.pipeline().remove(FrameDecoder.class);
+		assertThat(isWaiting(removed), is(false));
+		removed.releaseInbound();
+		pass(removed, PERIODS * PERIOD_SECONDS);
+		assertThat(removed.isOpen(), is(true));
+	}
+
+	/* A frame of a part that the node does without holds nothing while it arrives, so there is nothing to free and it
+	   is not looked at: the stream is left open however slowly the frame comes */
+	@Property(tries = 20)
+	public void looksAtNoFrameOfAPartThatTheNodeDoesWithout(@ForAll("typesOfTheParts") Packet.Type type) {
+		final EmbeddedChannel channel = timedChannel(FrameDecoder.forMainStream(false, false));
+
+		channel.writeInbound(headerOf(type, capOf(type)));
+		channel.writeInbound(Unpooled.buffer().writeZero(1));
+		assertThat(isWaiting(channel), is(false));
+		pass(channel, PERIODS * PERIOD_SECONDS);
+		assertThat(channel.isOpen(), is(true));
+	}
+
+	/* The stream that chain traffic has to itself holds a frame for no longer than the main stream does */
+	@Example
+	public void closesTheChainStreamOfAFrameThatIsNotWholeAfterThreePeriodsOfNothing() {
+		final EmbeddedChannel channel = timedChannel(FrameDecoder.forChainStream());
+		final int size = ChainCodecs.MAX_FRAME_BYTES - ChainCodecs.FRAME_HEADER_BYTES;
+
+		channel.writeInbound(headerOf(Packet.Type.CHAIN_ENTRY, size));
+		passUntilASecondBeforeTheThirdPeriodEnds(channel);
+		assertThat(channel.isOpen(), is(true));
+		pass(channel, 1);
+		assertThat(channel.isOpen(), is(false));
 	}
 
 	/* A mint storage at its cap in both its data and its previous data, at the longest address and amount, signed

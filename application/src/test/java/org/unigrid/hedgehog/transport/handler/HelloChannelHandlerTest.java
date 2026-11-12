@@ -19,7 +19,9 @@
 package org.unigrid.hedgehog.transport.handler;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.EventLoop;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.incubator.codec.quic.QuicChannel;
 import io.netty.incubator.codec.quic.QuicStreamChannel;
@@ -59,6 +61,9 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 	private static final String LOCAL = "127.0.0.1";
 	private static final int ASSUMED_PORT = 52884;
 	private static final int EPHEMERAL_PORT = 40123;
+	private static final int FLOOD = 1100;
+	private static final int FLOOD_FIRST_PORT = 10000;
+	private static final int HONEST_PORT = 30000;
 
 	@Mocked private Network network;
 	@Mocked private NetOptions netOptions;
@@ -71,13 +76,18 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 
 	private EmbeddedChannel connection;
 
-	@BeforeTry
-	public void connectFromThisHost() {
-		TestServer.mockProperties();
-
+	/* The connection that the stream of the examples belongs to from now on, on which no one has said hello yet */
+	private void connectAnew() {
 		connection = new EmbeddedChannel();
 		connection.attr(ConnectionHandler.SOCKET_ADDRESS_KEY).set(new InetSocketAddress(LOCAL, ASSUMED_PORT));
 		connection.attr(ProtocolMismatchHandler.PEER_ADDRESS_KEY).set(new InetSocketAddress(LOCAL, EPHEMERAL_PORT));
+	}
+
+	/* The stream closes with the connection that it belongs to, and runs its tasks on the event loop of that one */
+	@BeforeTry
+	public void connectFromThisHost() {
+		TestServer.mockProperties();
+		connectAnew();
 
 		new Expectations() {{
 			context.channel(); result = stream; minTimes = 0;
@@ -86,6 +96,18 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 			result = new Delegate<Attribute<Object>>() {
 				Attribute<Object> attr(AttributeKey<Object> key) {
 					return connection.attr(key);
+				}
+			};
+			stream.closeFuture(); minTimes = 0;
+			result = new Delegate<ChannelFuture>() {
+				ChannelFuture closeFuture() {
+					return connection.closeFuture();
+				}
+			};
+			stream.eventLoop(); minTimes = 0;
+			result = new Delegate<EventLoop>() {
+				EventLoop eventLoop() {
+					return connection.eventLoop();
 				}
 			};
 		}};
@@ -131,7 +153,8 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 	}
 
 	/* A node that connects again says hello on a new stream, which is sent on once the one it opened before closed, and
-	   a node that this node dialed takes it as well; a stream that is still open stays the one */
+	   a node that this node dialed takes it as well; a stream that is still open stays the one. Each of the three nodes
+	   says hello on a connection of its own, as a connection names one node. */
 	@Example
 	public void attachesTheStreamOfAHelloToAKnownNodeWhoseStreamClosedOrThatHeldNone() throws Exception {
 		final EmbeddedChannel closed = new EmbeddedChannel();
@@ -143,6 +166,7 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 		topology.addNode(at(ASSUMED_PORT + 6).inbound(Optional.of(LedgerStreams.connection(open))).build());
 
 		for (int port = ASSUMED_PORT + 4; port <= ASSUMED_PORT + 6; port++) {
+			connectAnew();
 			new HelloChannelHandler().typedChannelRead(context, Hello.builder().port(port).build());
 		}
 
@@ -150,6 +174,66 @@ public class HelloChannelHandlerTest extends BaseMockedWeldTest {
 		assertThat(inboundAt(ASSUMED_PORT + 5), equalTo(Optional.of(stream)));
 		assertThat(inboundAt(ASSUMED_PORT + 6), equalTo(Optional.of(open)));
 		IntStream.rangeClosed(ASSUMED_PORT + 4, ASSUMED_PORT + 6).forEach(this::forgetNodeAt);
+	}
+
+	/* The topology is shared by all peers and holds a thousand nodes at most, so a stream that names one node for every
+	   port it says would fill it alone, and keep the honest peers out until the stream closes */
+	@Example
+	public void letsAStreamNameOnlyOneNodeAndLeavesRoomForOthers() throws Exception {
+		final HelloChannelHandler handler = new HelloChannelHandler();
+		final int before = topology.cloneNodes().size();
+		int named = 0;
+		boolean honestIn = false;
+
+		try {
+			for (int n = 0; n < FLOOD; n++) {
+				handler.typedChannelRead(context, Hello.builder().port(FLOOD_FIRST_PORT + n).build());
+			}
+
+			named = topology.cloneNodes().size() - before;
+			honestIn = topology.addNode(at(HONEST_PORT).build());
+		} finally {
+			IntStream.range(0, FLOOD).forEach(n -> forgetNodeAt(FLOOD_FIRST_PORT + n));
+			forgetNodeAt(HONEST_PORT);
+		}
+
+		final String measured = "one stream said " + FLOOD + " ports and named " + named + " nodes of "
+			+ Topology.MAX_NODES + ", and the honest node was " + (honestIn ? "let in" : "kept out");
+
+		assertThat(measured, named, is(1));
+		assertThat(measured, honestIn, is(true));
+	}
+
+	/* Anyone can open a connection, say hello and close it, as often as they like. Each of those connections names a
+	   node, which leaves as the stream that it said hello on closes: one that stayed until the next round of dialing,
+	   a minute or two later, would hold one of the places that the topology has, and a peer that did so a thousand
+	   times over would keep out the honest peers that say hello meanwhile. */
+	@Example
+	public void letsGoOfTheNodeOfAConnectionThatSaidHelloAndClosedAndLeavesRoomForOthers() throws Exception {
+		final HelloChannelHandler handler = new HelloChannelHandler();
+		final int before = topology.cloneNodes().size();
+		int left = 0;
+		boolean honestIn = false;
+
+		try {
+			for (int n = 0; n < FLOOD; n++) {
+				connectAnew();
+				handler.typedChannelRead(context, Hello.builder().port(FLOOD_FIRST_PORT + n).build());
+				connection.close();
+			}
+
+			left = topology.cloneNodes().size() - before;
+			honestIn = topology.addNode(at(HONEST_PORT).build());
+		} finally {
+			IntStream.range(0, FLOOD).forEach(n -> forgetNodeAt(FLOOD_FIRST_PORT + n));
+			forgetNodeAt(HONEST_PORT);
+		}
+
+		final String measured = FLOOD + " connections said hello and closed, which left " + left + " nodes of "
+			+ Topology.MAX_NODES + ", and the honest node was " + (honestIn ? "let in" : "kept out");
+
+		assertThat(measured, left, is(0));
+		assertThat(measured, honestIn, is(true));
 	}
 
 	private static Node.NodeBuilder at(final int port) {

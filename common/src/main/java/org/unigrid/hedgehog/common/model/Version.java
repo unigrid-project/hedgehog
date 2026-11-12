@@ -17,6 +17,8 @@
 package org.unigrid.hedgehog.common.model;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.lang.ref.WeakReference;
 import java.util.Objects;
 import java.util.Properties;
 import lombok.SneakyThrows;
@@ -33,19 +35,35 @@ public class Version {
 	private static final String DEFAULT_NAME = "Hedgehog";
 	private static final String DEFAULT_VERSION = "0.0.0-BASTARD";
 
+	/* The property file cannot change while the process runs, so what was read is kept for the class loader that
+	   found it. A file that could not be read completely is looked for again at the next call. */
+	private record Loaded(WeakReference<ClassLoader> loader, String name, String version) {
+		boolean isFor(ClassLoader candidate) {
+			return candidate != null && loader.get() == candidate;
+		}
+	}
+
+	private static volatile Loaded loaded;
+
 	public String[] getVersion() throws Exception {
 		final Properties properties = new Properties();
+		final ClassLoader loader = Thread.currentThread().getContextClassLoader();
+		final Loaded known = loaded;
 		String name = String.format("%s %s", DEFAULT_AUTHOR, DEFAULT_NAME);
 		String version  = DEFAULT_VERSION;
 
-		try {
-			properties.load(Thread.currentThread().getContextClassLoader()
-				.getResourceAsStream("application.properties"));
-
-			name = Objects.requireNonNull(properties.getProperty("project.name"));
-			version = Objects.requireNonNull(properties.getProperty("project.version"));
-		} catch (IOException | NullPointerException ex) {
-			log.atError().log("Unable to determine version via property file", ex);
+		if (known != null && known.isFor(loader)) {
+			name = known.name();
+			version = known.version();
+		} else {
+			try (InputStream file = loader.getResourceAsStream("application.properties")) {
+				properties.load(file);
+				name = Objects.requireNonNull(properties.getProperty("project.name"));
+				version = Objects.requireNonNull(properties.getProperty("project.version"));
+				loaded = new Loaded(new WeakReference<>(loader), name, version);
+			} catch (IOException | NullPointerException ex) {
+				log.atError().log("Unable to determine version via property file", ex);
+			}
 		}
 
 		final String completeVersion = String.format("%s %s", name, version);

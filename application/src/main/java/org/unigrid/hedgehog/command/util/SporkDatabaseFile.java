@@ -32,7 +32,6 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
-import org.apache.commons.lang3.SerializationException;
 import org.apache.commons.lang3.StringUtils;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.BoardKeyChain;
@@ -55,13 +54,15 @@ import picocli.CommandLine.ParameterException;
    it so too. */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkDatabaseFile {
-	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown */
+	/* What cannot be judged without harm to this machine is refused with the file, before anything of it is shown. A
+	   class that the file names can refuse what it reads with a runtime exception, such as an Instant that is given
+	   seconds it cannot hold, which the stream passes on as it is, so any such failure is a file that cannot be read. */
 	public static SporkDatabase load(CommandSpec spec, Path file) {
 		final SporkDatabase database;
 
 		try {
 			database = SporkDatabase.load(file);
-		} catch (IOException | ClassCastException | SerializationException ex) {
+		} catch (IOException | RuntimeException ex) {
 			throw unreadable(spec, file, TerminalText.printable(String.valueOf(ex.getMessage())), ex);
 		}
 
@@ -126,7 +127,7 @@ public final class SporkDatabaseFile {
 		}
 	}
 
-	private static void removeUnfinished(Path output) {
+	static void removeUnfinished(Path output) {
 		try {
 			Files.deleteIfExists(output);
 		} catch (IOException ex) {

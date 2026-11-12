@@ -25,17 +25,25 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.AttributeKey;
+import io.netty.util.concurrent.Future;
+import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.unigrid.hedgehog.ledger.WireCodec;
 import org.unigrid.hedgehog.model.Network;
 import org.unigrid.hedgehog.model.gridnode.SealingKeyFile;
 import org.unigrid.hedgehog.model.network.channel.ChannelCodec;
 import org.unigrid.hedgehog.model.network.Packet;
+import org.unigrid.hedgehog.model.network.packet.Ping;
 import org.unigrid.hedgehog.model.storage.GroupId;
 import org.unigrid.hedgehog.model.storage.GroupKey;
 import org.unigrid.hedgehog.proxy.chain.ChainId;
 import org.unigrid.hedgehog.proxy.chain.WriterId;
 
+@Slf4j
 @ChannelCodec(priority = -10)
 public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	public static final int MAGIC = 0xBABE;
@@ -114,7 +122,29 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 		Map.entry(Packet.Type.ENTRY_REFUSED, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE + Long.BYTES + 1)),
 		Map.entry(Packet.Type.LEAVE_CHAIN, BodySize.exactly(CHAIN_ID_SIZE + WRITER_SIZE)));
 
+	/* The frames of the gridnodes and the storage, which only a node run with the preview has stages for, and those of
+	   the ledger, which only a node that offers the ledger has stages for */
+	private static final Set<Packet.Type> PREVIEW_TYPES = Collections.unmodifiableSet(EnumSet.of(Packet.Type.GRIDNODE,
+		Packet.Type.STORE_FRAGMENT, Packet.Type.FETCH_FRAGMENT, Packet.Type.FRAGMENT_REPLY, Packet.Type.HAS_FRAGMENT,
+		Packet.Type.FRAGMENT_STATUS, Packet.Type.DELETE_GROUP, Packet.Type.STORAGE_ACK));
+	private static final Set<Packet.Type> LEDGER_TYPES = Collections.unmodifiableSet(EnumSet.of(
+		Packet.Type.LEDGER_TRANSACTION, Packet.Type.LEDGER_CONSENSUS, Packet.Type.LEDGER_HEARTBEAT,
+		Packet.Type.LEDGER_STATUS, Packet.Type.LEDGER_BLOCK_REQUEST, Packet.Type.LEDGER_BLOCK_BATCH));
+
+	private final int maxBodyBytes;
 	private final Map<Packet.Type, BodySize> bodySizes;
+	private final Set<Packet.Type> unreadTypes;
+	private int unreadBytes;
+
+	/* The stream holds what has arrived of a frame until the frame is whole, and every byte of it counts as a sign of
+	   its peer, so the pings never close the stream of a peer that lets a frame crawl in. What has arrived of a frame
+	   that is not whole is therefore looked at once in every ping period, and the stream is closed once the frame
+	   owes as much of what is to arrive in a period as closes a stream that takes no more (Ping). However long a
+	   frame takes, a peer on a slow link is kept. */
+	private Future<?> look;
+	private int arrived;
+	private int arrivedBefore;
+	private long debt;
 
 	/*
 	    Packet format:
@@ -123,21 +153,47 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 	    [                  << packet specific data >>                  ]
 	*/
 	public FrameDecoder() {
-		this(Network.MAX_DATA_SIZE, BODY_SIZES);
+		this(Network.MAX_DATA_SIZE, BODY_SIZES, Set.of());
 	}
 
-	private FrameDecoder(final int maxFrameBytes, final Map<Packet.Type, BodySize> bodySizes) {
+	private FrameDecoder(final int maxFrameBytes, final Map<Packet.Type, BodySize> bodySizes,
+		final Set<Packet.Type> unreadTypes) {
+
 		super(maxFrameBytes, 4, 4, 0, HEADER_SIZE);
+		this.maxBodyBytes = maxFrameBytes - HEADER_SIZE;
 		this.bodySizes = bodySizes;
+		this.unreadTypes = unreadTypes;
 	}
 
 	/* Frames of a limit of their own, far below the one of the main stream, header included */
 	public static FrameDecoder forChainStream() {
-		return new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES, CHAIN_BODY_SIZES);
+		return new FrameDecoder(ChainCodecs.MAX_FRAME_BYTES, CHAIN_BODY_SIZES, Set.of());
+	}
+
+	/* A peer sends the frames of every part it runs, and a node that does without a part has no stage that reads
+	   them: the frame would be collected whole, a fragment of hundreds of megabytes among them, only to be dropped
+	   behind the last stage. The header of such a frame is held to the bounds of its type as on any node, and its
+	   body is let go of as it arrives. */
+	public static FrameDecoder forMainStream(final boolean ledger, final boolean preview) {
+		final Set<Packet.Type> unreadTypes = EnumSet.noneOf(Packet.Type.class);
+
+		if (!ledger) {
+			unreadTypes.addAll(LEDGER_TYPES);
+		}
+
+		if (!preview) {
+			unreadTypes.addAll(PREVIEW_TYPES);
+		}
+
+		return new FrameDecoder(Network.MAX_DATA_SIZE, BODY_SIZES, unreadTypes);
 	}
 
 	@Override
 	protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+		if (unreadBytes > 0) {
+			return discard(in);
+		}
+
 		/* A read can end inside the header, and reading on would fail the decoder and close the stream */
 		if (in.readableBytes() < HEADER_SIZE) {
 			return null;
@@ -152,6 +208,11 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 
 			requireAllowed(in, type, size);
 
+			if (isUnread(type, size)) {
+				unreadBytes = size;
+				return discard(in);
+			}
+
 			/* Tell the pipeline what packet to handle next */
 			ctx.channel().attr(Packet.KEY).set(type);
 			ctx.channel().attr(PACKET_SIZE_KEY).set(size);
@@ -159,10 +220,95 @@ public class FrameDecoder extends LengthFieldBasedFrameDecoder {
 			/* The header is read here, ahead of the superclass, so its discard mode can never run: the bytes
 			   behind a frame over the limit are dropped only because the exception closes the stream */
 			in.resetReaderIndex();
-			return super.decode(ctx, in);
+
+			final Object frame = super.decode(ctx, in);
+
+			return watched(ctx, type, size, in.readableBytes(), frame);
 		}
 
 		throw new InvalidFrameMagicNumberException();
+	}
+
+	/* The periods of a frame run from the read that brought its header and left the frame unfinished, so what that
+	   read brought is no part of what arrives in the first. A frame that is whole ends them. A frame that is passed
+	   over has none, as the stream holds nothing of it. */
+	private Object watched(final ChannelHandlerContext ctx, final Packet.Type type, final int size, final int held,
+		final Object frame) {
+
+		if (frame != null) {
+			endLooks();
+		} else {
+			arrived = held;
+			lookEveryPeriod(ctx, type, size);
+		}
+
+		return frame;
+	}
+
+	/* A period is counted from the end of a look, as one counted from the start would make up for the looks that a
+	   stalled event loop missed by making them back to back, each as one more period in which too little arrived */
+	private void lookEveryPeriod(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
+		if (look == null) {
+			arrivedBefore = arrived;
+			debt = 0;
+			look = ctx.executor().scheduleWithFixedDelay(() -> lookAt(ctx, type, size), Ping.HEARTBEAT_SECONDS,
+				Ping.HEARTBEAT_SECONDS, TimeUnit.SECONDS);
+		}
+	}
+
+	/* A frame owes what the periods were short of, less what later ones brought above their due, so the stream holds
+	   it for three periods at most beyond the time that it takes at the least that is to arrive in each. The stream
+	   frees what it holds of the frame as it closes. A frame that does not come is the doing of the peer, which can
+	   leave any number of them unfinished, so it is told in one line at debug level. */
+	private void lookAt(final ChannelHandlerContext ctx, final Packet.Type type, final int size) {
+		debt = Ping.debtAfter(debt, arrived - arrivedBefore);
+		arrivedBefore = arrived;
+
+		if (debt >= Ping.DEBT_BEFORE_CLOSE) {
+			log.atDebug().log("Closed a stream: a {} frame of {} bytes fell {} bytes behind the {} bytes that "
+				+ "are to arrive of it every {} seconds", type, size, debt, Ping.LEAST_BYTES_A_PERIOD,
+				Ping.HEARTBEAT_SECONDS);
+			ctx.close();
+		}
+	}
+
+	private void endLooks() {
+		if (look != null) {
+			look.cancel(false);
+			look = null;
+		}
+	}
+
+	/* What is left of a frame is decoded once more as the stream closes, which is not to start its periods again, so
+	   they are ended behind that */
+	@Override
+	public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+		try {
+			super.channelInactive(ctx);
+		} finally {
+			endLooks();
+		}
+	}
+
+	@Override
+	protected void handlerRemoved0(final ChannelHandlerContext ctx) throws Exception {
+		endLooks();
+		super.handlerRemoved0(ctx);
+	}
+
+	/* A frame longer than the stream takes is left to be refused as on a node that reads its type */
+	private boolean isUnread(final Packet.Type type, final int size) {
+		return unreadTypes.contains(type) && size <= maxBodyBytes;
+	}
+
+	/* What has arrived of a body that no stage reads is passed over, so the buffer of the stream is used up and freed
+	   with every read, and only the count of the bytes still to come is kept. No frame comes of it. */
+	private Object discard(final ByteBuf in) {
+		final int arrived = Math.min(unreadBytes, in.readableBytes());
+
+		in.skipBytes(arrived);
+		unreadBytes -= arrived;
+		return null;
 	}
 
 	private void requireAllowed(final ByteBuf in, final Packet.Type type, final int size) {

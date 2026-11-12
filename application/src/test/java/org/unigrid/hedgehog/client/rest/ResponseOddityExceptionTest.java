@@ -20,13 +20,17 @@ package org.unigrid.hedgehog.client.rest;
 
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import net.jqwik.api.Example;
+import net.jqwik.api.ForAll;
+import net.jqwik.api.Property;
 import net.jqwik.api.lifecycle.AddLifecycleHook;
 import net.jqwik.api.lifecycle.PropagationMode;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.command.util.RestCommandFixture;
 import org.unigrid.hedgehog.jqwik.MockitHook;
@@ -68,8 +72,66 @@ public class ResponseOddityExceptionTest {
 			equalTo("ö".repeat(KEPT / 2)));
 	}
 
+	/* A node, or a proxy in front of it, may answer with a status that jakarta has no name for */
+	@Example
+	public void shouldNameAStatusThatHasNoNameByItsNumber() {
+		final ResponseOddityException oddity = new ResponseOddityException(Response.status(599, "Odd").build()
+			.getStatusInfo());
+
+		assertThat(oddity.getMessage(), equalTo("599 (Odd)"));
+		assertThat(oddity.getStatusCode(), equalTo(599));
+	}
+
+	@Example
+	public void shouldNotShowAnEmptyReasonOfAStatusThatHasNoName() {
+		assertThat(new ResponseOddityException(Response.status(599, "").build().getStatusInfo()).getMessage(),
+			equalTo("599"));
+	}
+
+	/* The name that jakarta gives a status is the reason phrase of it, which is shown once and not again in brackets */
+	@Property(tries = 100)
+	public void shouldShowThePhraseOfAKnownStatusOnce(@ForAll Status status) {
+		assertThat(new ResponseOddityException(status).getMessage(),
+			equalTo(status.getStatusCode() + " " + status.getReasonPhrase()));
+	}
+
+	@Example
+	public void shouldNotShowAnEmptyPhraseOfAKnownStatus() {
+		assertThat(new ResponseOddityException(Response.status(404, "").build().getStatusInfo()).getMessage(),
+			equalTo("404 Not Found"));
+	}
+
+	/* A node, or a proxy, may word a status in its own way, which is not lost for being worded differently */
+	@Example
+	public void shouldKeepThePhraseOfANodeThatWordsAKnownStatusDifferently() {
+		assertThat(new ResponseOddityException(Response.status(404, "Nothing here").build().getStatusInfo())
+			.getMessage(), equalTo("404 Not Found (Nothing here)"));
+	}
+
 	@Example
 	public void shouldKeepNothingWhereThereIsNoBody() {
 		assertThat(oddityOf(Response.status(Status.SERVICE_UNAVAILABLE).build()).getBody(), emptyString());
+	}
+
+	private static boolean isPlainTextAs(final String type) {
+		return oddityOf(Response.status(Status.SERVICE_UNAVAILABLE).entity("This release does not include the part")
+			.type(type).build()).isPlainText();
+	}
+
+	/* A node words a refusal that no field names as plain text, which whoever shows it tells from the page of a proxy
+	   and from JSON by the type that the answer names */
+	@Example
+	public void shouldTellABodyThatWasSentAsPlainText() {
+		for (final String type : List.of("text/plain", "text/plain;charset=UTF-8", "Text/Plain; charset=utf-8")) {
+			assertThat(type, isPlainTextAs(type), is(true));
+		}
+
+		for (final String type : List.of("text/html", "application/json", "text/plainer")) {
+			assertThat(type, isPlainTextAs(type), is(false));
+		}
+
+		assertThat(isPlainTextAs(null), is(false));
+		assertThat(new ResponseOddityException(Status.SERVICE_UNAVAILABLE, "No type").isPlainText(), is(false));
+		assertThat(new ResponseOddityException(Status.SERVICE_UNAVAILABLE).isPlainText(), is(false));
 	}
 }

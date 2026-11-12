@@ -123,9 +123,16 @@ public class NetworkKey {
 		try {
 			return Signature.verifyDigest(digest, signature, key);
 		} catch (VerifySignatureException ex) {
-			log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
+			traced(ex);
 			return false;
 		}
+	}
+
+	/* A signature that a peer sent can fail every key, and the text and the stack of each failure are for a node that
+	   logs at trace level, so they are built only for one */
+	private static void traced(VerifySignatureException ex) {
+		log.atTrace().setMessage("{}:{}").addArgument(ex::getMessage)
+			.addArgument(() -> ExceptionUtils.getStackTrace(ex)).log();
 	}
 
 	public static boolean isTrusted(String privateKey) {
@@ -175,7 +182,7 @@ public class NetworkKey {
 					}
 				}
 			} catch (VerifySignatureException ex) {
-				log.atTrace().log("{}:{}", ex.getMessage(), ExceptionUtils.getStackTrace(ex));
+				traced(ex);
 			}
 
 			return false;

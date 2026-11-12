@@ -47,6 +47,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.hamcrest.Matchers.startsWith;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
@@ -368,6 +369,66 @@ public class GridSporkWireResourceTest extends BaseRestClientTest {
 
 		board.cosign(COSIGNER.getPrivateKey());
 		assertThat(statusOf(submit(board)), equalTo(Status.OK));
+	}
+
+	/* A proposal that the clock of the node puts out of its time is refused for that, which the board member looks for
+	   in the clock of the machine that signed it, and not for a version that it fails to follow on */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldSayThatTheClocksDifferForAProposalStampedAheadOrLongAgo(
+		@ForAll("provideSignature") Signature signature) {
+
+		final List<Duration> offsets = List.of(PendingSporks.LEEWAY.multipliedBy(5),
+			PendingSporks.LIFETIME.multipliedBy(2).negated());
+
+		pendingSporks.remove(Type.LEDGER_FEE);
+
+		for (Duration offset : offsets) {
+			final GridSpork stamped = GridSpork.nextVersion(Type.LEDGER_FEE, sporkDatabase.getLedgerFee(),
+				Optional.empty());
+
+			stamped.<LedgerFee.SporkData>getData().setMinimumTransferFee(new BigDecimal("0.5"));
+			stamped.setTimeStamp(Instant.now().plus(offset));
+			stamped.sign(signature.getPrivateKey());
+
+			final Response refused = submit(stamped);
+			final String reason = refused.readEntity(String.class);
+
+			assertThat(offset.toString(), statusOf(refused), equalTo(Status.CONFLICT));
+			assertThat(offset.toString(), reason, containsString("clock of this node"));
+			assertThat(offset.toString(), reason, not(containsString("does not follow")));
+			assertThat(offset.toString(), pendingSporks.proposalOf(Type.LEDGER_FEE), equalTo(Optional.empty()));
+		}
+	}
+
+	/* The wire holds a time stamp as eight bytes, which no body can leave out: a stamp of zero is the epoch, and the
+	   most distant ones are the limits of what the node reads as an instant. The node tells each that it is out of
+	   its time, and none ends in an error of the node. */
+	@SneakyThrows
+	@Property(tries = 1)
+	public void shouldSayThatTheClocksDifferForAProposalStampedAtTheEpochOrAtTheLimits(
+		@ForAll("provideSignature") Signature signature) {
+
+		final List<Instant> stamps = List.of(Instant.EPOCH, Instant.EPOCH.minusMillis(1),
+			Instant.ofEpochMilli(Long.MIN_VALUE), Instant.ofEpochMilli(Long.MAX_VALUE));
+
+		pendingSporks.remove(Type.LEDGER_FEE);
+
+		for (Instant stamp : stamps) {
+			final GridSpork stamped = GridSpork.nextVersion(Type.LEDGER_FEE, sporkDatabase.getLedgerFee(),
+				Optional.empty());
+
+			stamped.<LedgerFee.SporkData>getData().setMinimumTransferFee(new BigDecimal("0.5"));
+			stamped.setTimeStamp(stamp);
+			stamped.sign(signature.getPrivateKey());
+
+			final Response refused = submit(stamped);
+
+			assertThat(stamp.toString(), SporkWire.decode(SporkWire.encode(stamped)).getTimeStamp(), equalTo(stamp));
+			assertThat(stamp.toString(), statusOf(refused), equalTo(Status.CONFLICT));
+			assertThat(stamp.toString(), refused.readEntity(String.class), containsString("clock of this node"));
+			assertThat(stamp.toString(), pendingSporks.proposalOf(Type.LEDGER_FEE), equalTo(Optional.empty()));
+		}
 	}
 
 	@SneakyThrows

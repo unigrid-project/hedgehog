@@ -33,6 +33,7 @@ import net.jqwik.api.lifecycle.BeforeTry;
 import net.jqwik.api.lifecycle.PropagationMode;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.SerializationUtils;
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -254,5 +255,167 @@ public class GridSporkProvenanceTest {
 		assertThat(overSibling.isProposalOver(stored), is(false));
 		assertThat(overNothing.isProposalOver(stored), is(false));
 		assertThat(proposal(stored, 20, FIRST).isProposalOver(null), is(false));
+	}
+
+	/* The data of a spork that counts how often it is read, which encoding it does once, as does hashing the spork it
+	   is part of */
+	private static final class ReadData extends MintSupply.SporkData {
+		private static final long serialVersionUID = 1L;
+		private int reads;
+
+		@Override
+		public BigDecimal getMaxSupply() {
+			reads++;
+			return super.getMaxSupply();
+		}
+	}
+
+	/* The spork with the same data in a form that counts its reads, so that its signatures still hold */
+	private static ReadData counted(GridSpork spork) {
+		final ReadData data = new ReadData();
+
+		data.setMaxSupply(spork.<MintSupply.SporkData>getData().getMaxSupply());
+		spork.setData(data);
+		return data;
+	}
+
+	/* A node is sent proposals by anyone, and every one of them that no board key made has to be told from the next
+	   version and the renewal of the stored spork. That takes the log of the proposal and its time stamps, and nothing
+	   of the stored data, which is encoded in full each time it is looked at and a proposal that names none of what
+	   the stored spork is known by is no reason for it. */
+	@Example
+	public void shouldRefuseAProposalWhoseLogHasNoHeadWithoutEncodingTheStoredData() {
+		final GridSpork stored = stored(null, 10);
+		final ReadData read = counted(stored);
+
+		assertThat(proposal(null, 20, FIRST).isProposalOver(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
+
+	@Example
+	public void shouldRefuseAProposalMadeFromAnotherTimeWithoutEncodingTheStoredData() {
+		final GridSpork stored = stored(null, 10);
+		final ReadData read = counted(stored);
+		final GridSpork proposal = proposal(stored, 20, FIRST);
+
+		proposal.setPreviousTimeStamp(stored.getTimeStamp().minusSeconds(5));
+
+		assertThat(proposal.isProposalOver(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
+
+	/* The head of the stored spork is hashed to tell whether a version logs it, which takes its data encoded and its
+	   log hashed, so a version whose log does not even carry on the stored one is refused before. The signatures of
+	   the stored head are public, so a version can copy them. */
+	@Example
+	public void shouldRefuseALogThatDoesNotCarryOnTheStoredLogWithoutHashingTheStoredHead() {
+		final GridSpork stored = stored(stored(null, 10), 20);
+		final ReadData read = counted(stored);
+		final GridSpork forged = SerializationUtils.clone(stored);
+		final SignatureLogEntry unrelated = stored.getSignatureLog().last().toBuilder()
+			.digest(new byte[SignatureLogEntry.DIGEST_SIZE]).build();
+		final SignatureLogEntry copy = unrelated.toBuilder().timeStamp(stored.getTimeStamp()).signature(
+			stored.getSignature()).cosignature(stored.getCosignature()).build();
+
+		forged.setSignatureLog(new SignatureLog(List.of(unrelated, copy)));
+		forged.setTimeStamp(stored.getTimeStamp().plusSeconds(1));
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+		read.reads = 0;
+
+		assertThat(forged.canReplace(stored), is(false));
+		assertThat(read.reads, is(0));
+	}
+
+	/* The log of a spork that counts how often it is hashed, which takes a digest for each entry it holds */
+	private static final class HashedLog extends SignatureLog {
+		private static final long serialVersionUID = 1L;
+		private int hashes;
+
+		private HashedLog(SignatureLog log) {
+			super(log.getEntries());
+		}
+
+		@Override
+		public byte[] headHash(int count) {
+			hashes++;
+			return super.headHash(count);
+		}
+	}
+
+	/* The spork with the same log in a form that counts its hashes, so that its signatures still hold */
+	private static HashedLog hashed(GridSpork spork) {
+		final HashedLog log = new HashedLog(spork.getSignatureLog());
+
+		spork.setSignatureLog(log);
+		return log;
+	}
+
+	/* Every peer sends the sporks that count again every few minutes, on each of its streams, so a node is sent the
+	   version it holds over and over. The log sent is as long as the stored one and the version is not newer, which
+	   the sizes and the time stamps tell. Hashing the two logs to tell it takes a digest for each entry of a log that
+	   grows with every version, on the thread that reads the network. */
+	@Example
+	public void shouldRefuseTheStoredSporkSentAgainWithoutHashingALog() {
+		final GridSpork stored = stored(stored(null, 10), 20);
+		final GridSpork again = SerializationUtils.clone(stored);
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(again);
+
+		assertThat(again.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
+	}
+
+	/* A next version wins over a renewal of the version before it though it is not newer, so a version that is sent
+	   again is looked at for being one beside the other. The stored spork is a renewal here, and the copy of it is no
+	   next version, which its time stamps tell: no log is hashed for it, and the stored data is not read. */
+	@SneakyThrows
+	@Example
+	public void shouldRefuseAStoredRenewalSentAgainWithoutHashingALogOrReadingTheStoredData() {
+		final GridSpork stored = renewalOf(stored(stored(null, 10), 20));
+
+		stored.cosign(FIRST.getPrivateKey());
+
+		final GridSpork again = SerializationUtils.clone(stored);
+		final ReadData read = counted(stored);
+
+		/* Which active keys signed the stored head is worked out once, and is then known */
+		assertThat(stored.isAnchoring(), is(true));
+		read.reads = 0;
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(again);
+
+		assertThat(again.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
+		assertThat(read.reads, is(0));
+	}
+
+	/* A version made over a sibling of the stored spork carries on the stored log with the head of the sibling, which
+	   was made at another time than the stored one: its time stamp tells that, before either log is hashed */
+	@Example
+	public void shouldRefuseALogThatGoesOnWithAnotherHeadWithoutHashingALog() {
+		final GridSpork first = stored(null, 10);
+		final GridSpork stored = stored(first, 20);
+
+		/* The clock stamps a version when it is made, and two that are made within one millisecond would bear the
+		   same time stamp, so the sibling is made once the clock has moved on */
+		await().until(() -> Instant.now().toEpochMilli() > stored.getTimeStamp().toEpochMilli());
+
+		final GridSpork overSibling = stored(stored(first, 30), 40);
+
+		assertThat(stored.isAnchoring(), is(true));
+
+		final HashedLog storedLog = hashed(stored);
+		final HashedLog sentLog = hashed(overSibling);
+
+		assertThat(sentLog.size(), is(storedLog.size() + 1));
+		assertThat(overSibling.canReplace(stored), is(false));
+		assertThat("hashes of the stored log and of the one sent", storedLog.hashes + sentLog.hashes, is(0));
 	}
 }

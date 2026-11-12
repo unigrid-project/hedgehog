@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -34,7 +35,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.SerializationException;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.unigrid.hedgehog.common.model.ApplicationDirectory;
 import org.unigrid.hedgehog.model.network.packet.PublishSpork;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
@@ -48,6 +49,13 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 public class SporkDatabaseProducer {
 	@Inject private ApplicationDirectory applicationDirectory;
 	private AtomicReference<SporkDatabase> sporkDatabase = new AtomicReference<>(null);
+	private byte[] lastWritten;
+
+	/* The saves take turns on a lock of their own, as the save of a stop does not wait for the timer. Every lookup of
+	   the database takes the lock of the producer, on the threads that read the network, and would wait for the
+	   disk with a save that held it. */
+	private final Object saving = new Object();
+
 	private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(task -> {
 		final Thread thread = new Thread(task, "spork-database-saver");
 
@@ -73,17 +81,21 @@ public class SporkDatabaseProducer {
 	}
 
 	/* A database that cannot be read is moved aside before the node starts with an empty one, as the next save
-	   would write over it, and what it held is the operator's to look at and the network's to send again. The chain
-	   that the release ships is gone by before anything of the file is judged. */
+	   would write over it, and what it held is the operator's to look at and the network's to send again. A class
+	   that the file names can refuse what it reads with a runtime exception, such as an Instant that is given seconds
+	   it cannot hold, which the stream passes on as it is, so any such failure is a file that cannot be read. The chain
+	   that the release ships is gone by before anything of the file is judged. The files of a save that did not finish
+	   when its process died are removed first: the node holds the lock of its database, so no import writes one. */
 	private SporkDatabase loaded(Path path) {
 		BoardKeysAuthority.installTheRelease();
 
 		try {
 			Files.createDirectories(applicationDirectory.getUserDataDir());
+			SporkDatabase.removeAbandonedFiles(path);
 			return Files.exists(path) ? signedByTheBoard(SporkDatabase.load(path), path)
 				: SporkDatabase.builder().build();
 
-		} catch (IOException | ClassCastException | SerializationException ex) {
+		} catch (IOException | RuntimeException ex) {
 			log.atWarn().addArgument(path).addArgument(movedAside(path)).addArgument(ex.getMessage())
 				.log("The spork database {} cannot be read, it is kept as {} and the node starts with an "
 					+ "empty one: {}");
@@ -199,14 +211,25 @@ public class SporkDatabaseProducer {
 		}
 	}
 
+	/* The timer runs whether or not a spork came in, and a write forces the whole file to the disk, so a database
+	   that is what the last save wrote is left as it is, unless its file is gone */
 	private void save() {
-		try {
-			Files.createDirectories(applicationDirectory.getUserDataDir());
-			SporkDatabase.persist(path(), sporkDatabase.get());
+		synchronized (saving) {
+			try {
+				Files.createDirectories(applicationDirectory.getUserDataDir());
 
-		} catch (Exception ex) {
-			log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
-			log.atTrace().log(() -> ex.toString());
+				final byte[] content = SporkDatabase.serialize(sporkDatabase.get());
+				final byte[] digest = DigestUtils.sha256(content);
+
+				if (!Arrays.equals(digest, lastWritten) || Files.notExists(path())) {
+					SporkDatabase.persist(path(), content);
+					lastWritten = digest;
+				}
+
+			} catch (Exception ex) {
+				log.atWarn().log("Saving of spork database failed: {}", ex.getMessage());
+				log.atTrace().log(() -> ex.toString());
+			}
 		}
 	}
 

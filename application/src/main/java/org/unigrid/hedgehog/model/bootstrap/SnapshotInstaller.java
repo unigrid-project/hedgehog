@@ -23,8 +23,10 @@ import jakarta.inject.Inject;
 import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.unigrid.hedgehog.model.NodeStatus;
 
 /*
@@ -34,11 +36,48 @@ import org.unigrid.hedgehog.model.NodeStatus;
 @Slf4j
 @ApplicationScoped
 public class SnapshotInstaller {
+	static final Duration FIRST_PAUSE = Duration.ofSeconds(10);
+	static final Duration LONGEST_PAUSE = Duration.ofMinutes(10);
+
 	@Inject private BootstrapSnapshot snapshot;
 	@Inject private NodeStatus status;
 
+	private Pause pause = Thread::sleep;
+
+	/* Whether the last attempt failed, which the status tells until an attempt that does not */
+	private volatile boolean failed;
+
+	@FunctionalInterface
+	interface Pause {
+		void take(Duration length) throws InterruptedException;
+	}
+
+	/*
+	   A download fails for reasons that pass, such as a network that is not up yet after a boot, so it is tried
+	   again for as long as the node runs without a snapshot, after a pause that doubles up to the longest one. A
+	   failure that cannot pass, such as a published hash that is wrong, is not told from one that can and is tried
+	   again as well. An interrupt, which is how the node stops the install, ends it with no further attempt.
+	*/
+	public void installUntilInstalled(URL source) {
+		Duration length = FIRST_PAUSE;
+
+		for (installIfMissing(source); failed && isPausedFor(length); installIfMissing(source)) {
+			length = ObjectUtils.min(length.multipliedBy(2), LONGEST_PAUSE);
+		}
+	}
+
 	public void installIfMissing(URL source) {
-		if (Files.exists(snapshot.getPath())) {
+		final boolean failedBefore = failed;
+
+		failed = false;
+
+		if (isInstalled()) {
+			/* The snapshot came another way since a download failed, as `bootstrap fetch` brings it, or the node
+			   learned of the board key that signed the one it refused */
+			if (failedBefore) {
+				status.running();
+			}
+
 			return;
 		}
 
@@ -50,11 +89,50 @@ public class SnapshotInstaller {
 
 		} catch (IOException ex) {
 			log.atWarn().log("Could not install the legacy chain snapshot from {}: {}", source, ex.getMessage());
+			failed = true;
 			status.failed(Objects.requireNonNullElse(ex.getMessage(), ex.getClass().getSimpleName()));
 
 		} catch (RuntimeException ex) {
 			status.running();
 			throw ex;
+		}
+	}
+
+	/*
+	   A file that the node refuses to open is no snapshot to it: one that is cut off, of an older format, or signed
+	   by no board key that the node holds. The snapshot of the release is fetched over such a file, which stays
+	   where it is until a download is verified. A snapshot that opens without a signature, as one that the operator
+	   built, is kept. The file is looked for first, as a snapshot that was opened before is still answered for a
+	   file that is gone.
+	*/
+	private boolean isInstalled() {
+		if (!Files.exists(snapshot.getPath())) {
+			return false;
+		}
+
+		if (snapshot.getReader().isPresent()) {
+			return true;
+		}
+
+		log.atWarn().log("Replacing the legacy chain snapshot at {}, which this node does not use, with the one of"
+			+ " its release: {}", snapshot.getPath(), snapshot.getRefusal().orElse("it does not open"));
+		return false;
+	}
+
+	/* Whether the pause ran to its end, which it does not on a thread that is interrupted: the interrupt is kept */
+	private boolean isPausedFor(Duration length) {
+		if (Thread.currentThread().isInterrupted()) {
+			return false;
+		}
+
+		try {
+			log.atInfo().log("Trying the legacy chain snapshot again in {} seconds", length.toSeconds());
+			pause.take(length);
+			return true;
+
+		} catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			return false;
 		}
 	}
 }

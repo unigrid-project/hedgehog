@@ -52,6 +52,8 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	private static final String NOT_NEWER = "The spork does not follow on the stored spork and the proposal held";
 	private static final String AHEAD = "The spork is stamped further ahead of the clock of this node than clocks"
 		+ " drift apart";
+	private static final String EXPIRED = "The proposal is stamped more than " + PendingSporks.LIFETIME.toMinutes()
+		+ " minutes from the clock of this node";
 	private static final String TAKES_NO = "This node takes no %s spork";
 
 	@CDIBridgeInject
@@ -88,8 +90,8 @@ public class GridSporkWireResource extends CDIBridgeResource {
 	* signature is, so content that no node can act on is never held or sent (400), nor a spork of a type that this
 	* node does not take (SporkRelease). A spork that no current board key
 	* signed, or whose co-signature is not of a second one, is refused (401), and so is one that does not follow on
-	* the stored spork or the proposal held for its type, or that is stamped further ahead than clocks drift apart
-	* (409).
+	* the stored spork or the proposal held for its type, or that is stamped further ahead than clocks drift apart,
+	* or a proposal stamped too far from the clock of this node to live (409).
 	*/
 	@Path("/wire") @POST
 	@Consumes(MediaType.APPLICATION_OCTET_STREAM)
@@ -119,7 +121,18 @@ public class GridSporkWireResource extends CDIBridgeResource {
 		return spork.isValidSignature() && (spork.isPending() || spork.isDoublySigned());
 	}
 
+	/* A proposal that the clock of this node puts out of its time is told so, as a co-signed spork stamped ahead is, so
+	   that the board member looks at the clock of the machine that signed it and not for a version that it fails to
+	   follow on */
 	private Response hold(GridSpork spork) {
+		if (pendingSporks.isAheadOfTime(spork)) {
+			return refused(Response.Status.CONFLICT, AHEAD);
+		}
+
+		if (!pendingSporks.isAlive(spork)) {
+			return refused(Response.Status.CONFLICT, EXPIRED);
+		}
+
 		if (!pendingSporks.offerOfThisMachine(spork, () -> sporkDatabase.get(spork.getType()))) {
 			return refused(Response.Status.CONFLICT, NOT_NEWER);
 		}
