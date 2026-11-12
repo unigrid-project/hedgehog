@@ -35,6 +35,7 @@ import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
+import org.unigrid.hedgehog.model.bootstrap.Holder;
 import org.unigrid.hedgehog.model.bootstrap.PendingMints;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
@@ -42,12 +43,18 @@ import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.server.rest.entity.ErrorResponse;
 
 @Slf4j
 @Path("/bootstrap")
 @Produces(MediaType.APPLICATION_JSON)
 public class BootstrapResource extends CDIBridgeResource {
 	private static final int MAXIMUM_PAGE_SIZE = 1000;
+	private static final String DEFAULT_OFFSET = "0";
+	private static final String DEFAULT_PAGE_SIZE = "100";
+	private static final String NO_SNAPSHOT = "The legacy chain snapshot is not loaded yet";
+	private static final String NEGATIVE_INDEX = "A holder index cannot be negative";
+	private static final String NO_HOLDER = "No holder at index %d; the snapshot has %d addresses";
 
 	@CDIBridgeInject
 	private BootstrapSnapshot snapshot;
@@ -101,8 +108,8 @@ public class BootstrapResource extends CDIBridgeResource {
 
 	@Path("/address/{address}/transactions") @GET
 	public Response transactions(@NotNull @PathParam("address") String address,
-		@QueryParam("offset") @DefaultValue("0") int offset,
-		@QueryParam("limit") @DefaultValue("100") int limit) {
+		@QueryParam("offset") @DefaultValue(DEFAULT_OFFSET) int offset,
+		@QueryParam("limit") @DefaultValue(DEFAULT_PAGE_SIZE) int limit) {
 
 		final Optional<SnapshotReader> reader = snapshot.getReader();
 
@@ -119,6 +126,66 @@ public class BootstrapResource extends CDIBridgeResource {
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
 		}
+	}
+
+	/**
+	 * The address at a place in the snapshot's address table, so that the snapshot can be walked without knowing
+	 * its addresses first. The balance is the plain snapshot balance, without the mints the chain has not reached.
+	 *
+	 * @param index the place in the address table, from 0
+	 * @return the holder; past the last address 404, for a negative index 400 and while there is no snapshot 503,
+	 *	each with an {@link ErrorResponse} saying why
+	 */
+	@Path("/holders/{index}") @GET
+	public Response holder(@PathParam("index") int index) {
+		final Optional<SnapshotReader> reader = snapshot.getReader();
+
+		if (reader.isEmpty()) {
+			return notLoaded();
+		}
+
+		if (index < 0) {
+			log.atDebug().log("Rejected the holder index {}", index);
+			return error(Response.Status.BAD_REQUEST, NEGATIVE_INDEX);
+		}
+
+		return reader.get().holderAt(index).map(holder -> Response.ok().entity(holder).build())
+			.orElseGet(() -> error(Response.Status.NOT_FOUND,
+				NO_HOLDER.formatted(index, reader.get().addressCount())));
+	}
+
+	/**
+	 * A page of the snapshot's addresses in index order, paged like the history of an address.
+	 *
+	 * @param offset the index of the first holder; a negative one counts as 0
+	 * @param limit the most holders to give, capped at the largest page
+	 * @return the holders of the page, none past the end, or 503 with an {@link ErrorResponse} while there is no
+	 *	snapshot
+	 */
+	@Path("/holders") @GET
+	public Response holders(@QueryParam("offset") @DefaultValue(DEFAULT_OFFSET) int offset,
+		@QueryParam("limit") @DefaultValue(DEFAULT_PAGE_SIZE) int limit) {
+
+		final Optional<SnapshotReader> reader = snapshot.getReader();
+
+		if (reader.isEmpty()) {
+			return notLoaded();
+		}
+
+		final List<Holder> holders = reader.get().holders(offset, Math.min(MAXIMUM_PAGE_SIZE, Math.max(0, limit)));
+
+		return Response.ok().entity(holders).build();
+	}
+
+	/** Like unavailable(), but says why in the body, as the holder endpoints explain every refusal. */
+	private Response notLoaded() {
+		log.atDebug().log("No legacy chain snapshot at {}", snapshot.getPath());
+		return error(Response.Status.SERVICE_UNAVAILABLE, NO_SNAPSHOT);
+	}
+
+	/** An answer with the given status and an {@link ErrorResponse} carrying the reason. */
+	private static Response error(Response.Status status, String reason) {
+		return Response.status(status).entity(new ErrorResponse(reason)).build();
 	}
 
 	private Response malformed(String address, IllegalArgumentException ex) {
