@@ -56,8 +56,8 @@ public class HelpTest {
 			"gridspork-renew", "gridspork-pending", "gridspork-cosign", "node-add", "node-remove", "node-list", "stop"
 		),
 		"util", List.of("key-generate", "key-sign", "key-validate", "spork-db", "board-keys"),
-		"cli gridspork-set", List.of("mint-supply", "board-keys"),
-		"cli gridspork-get", List.of("mint-supply", "mint-storage", "board-keys"),
+		"cli gridspork-set", List.of("mint-supply", "legacy-whitelist", "board-keys"),
+		"cli gridspork-get", List.of("mint-supply", "mint-storage", "legacy-whitelist", "board-keys"),
 		"daemon", List.of("--restport", "--resttoken", "--netmaxinbound")
 	);
 

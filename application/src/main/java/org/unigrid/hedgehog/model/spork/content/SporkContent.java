@@ -40,6 +40,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LedgerBlacklist;
 import org.unigrid.hedgehog.model.spork.LedgerFee;
+import org.unigrid.hedgehog.model.spork.LegacyWhiteList;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.MintSupply;
@@ -72,6 +73,7 @@ public final class SporkContent {
 		Type.LEDGER_BLACKLIST, (data, stored) -> ((LedgerBlacklist.SporkData) data).validate(),
 		Type.LEDGER_FEE, (data, stored) -> ((LedgerFee.SporkData) data).validate(),
 		Type.COMMUNICATION, (data, stored) -> ((CommunicationSpork.SporkData) data).validate(),
+		Type.LEGACY_WHITELIST, (data, stored) -> ((LegacyWhiteList.SporkData) data).validate(),
 		Type.STATISTICS_PUBKEY, (data, stored) -> statisticsKey((StatisticsPubKey.SporkData) data),
 		Type.BOARD_KEYS, (data, stored) -> BoardKeyChain.verify(((BoardKeys.SporkData) data).getChanges())
 	);

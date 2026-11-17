@@ -20,6 +20,7 @@ package org.unigrid.hedgehog.server.rest;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.startsWith;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Optional;
@@ -44,6 +45,19 @@ public class BootstrapResourceNoSnapshotTest extends BaseRestClientTest {
 				return Optional.empty();
 			}
 		};
+	}
+
+	/** A list of addresses gets a bare 503 too. */
+	@Example
+	public void shouldAnswerALookUpOfManyAddressesWith503() {
+		try {
+			client.post("/bootstrap/addresses", Entity.json(List.of("H8")));
+			throw new AssertionError("A list of addresses was answered without a snapshot");
+
+		} catch (ResponseOddityException expected) {
+			assertThat(expected.getMessage(), startsWith(
+				String.valueOf(Response.Status.SERVICE_UNAVAILABLE.getStatusCode())));
+		}
 	}
 
 	/** Both holder endpoints answer a bare 503, as the other bootstrap endpoints do without a snapshot. */
