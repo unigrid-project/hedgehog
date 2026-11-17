@@ -45,6 +45,7 @@ import org.unigrid.hedgehog.model.bootstrap.Chain;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.EntryKind;
 import org.unigrid.hedgehog.model.bootstrap.Hashing;
+import org.unigrid.hedgehog.model.bootstrap.Holder;
 import org.unigrid.hedgehog.model.bootstrap.LedgerEntries;
 import org.unigrid.hedgehog.model.bootstrap.AddressRegistry;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
@@ -190,6 +191,63 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		assertThat(page.get(0).getAmount(), equalTo(Coin.toDecimal(AMOUNT)));
 		assertThat(page.get(0).getKind(), equalTo(EntryKind.RECEIVED));
 		assertThat(page.get(0).getTransaction(), equalTo(BlockParser.toDisplayString(identifierAt(1))));
+	}
+
+	/* The snapshot of these tests holds one address, so it is both the first and the last holder */
+	@Example
+	@SneakyThrows
+	public void shouldReadTheHolderAtAnIndexWithItsPlainSnapshotBalance() {
+		writeSnapshot();
+		mint(ADDRESS_HASH, TIP_HEIGHT + 1, "2.5");
+
+		final Holder holder = client.getEntity("/bootstrap/holders/0", Holder.class);
+
+		assertThat(holder.index(), equalTo(0));
+		assertThat(holder.address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(holder.balance(), equalTo(Coin.toDecimal(AMOUNT * HEIGHTS)));
+		assertThat(holder.transactionCount(), equalTo(HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotFindAHolderPastTheLastAddress() {
+		writeSnapshot();
+
+		final Response response = client.get("/bootstrap/holders/1");
+
+		assertThat(response.getStatus(), equalTo(Response.Status.NOT_FOUND.getStatusCode()));
+	}
+
+	/* A negative index or offset is a malformed request, which bean validation refuses before the snapshot is read */
+	@Example
+	@SneakyThrows
+	public void shouldRejectANegativeIndexOrOffset() {
+		writeSnapshot();
+
+		for (final String location : List.of("/bootstrap/holders/-1", "/bootstrap/holders?offset=-1")) {
+			try {
+				client.get(location);
+				throw new AssertionError(location + " was accepted");
+
+			} catch (ResponseOddityException expected) {
+				assertThat(location, expected.getMessage(), startsWith(
+					String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldPageThroughTheHoldersWithinTheLargestPage() {
+		writeSnapshot();
+
+		final GenericType<List<Holder>> holders = new GenericType<>() { };
+		final List<Holder> first = client.get("/bootstrap/holders?offset=0&limit=5000").readEntity(holders);
+		final List<Holder> past = client.get("/bootstrap/holders?offset=1").readEntity(holders);
+
+		assertThat(first.size(), equalTo(1));
+		assertThat(first.get(0).address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(past, equalTo(List.of()));
 	}
 
 	@SneakyThrows
