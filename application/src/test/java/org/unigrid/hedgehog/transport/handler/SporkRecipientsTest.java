@@ -61,7 +61,8 @@ public class SporkRecipientsTest {
 	private static final Set<Type> READABLE_BY_RELEASE_0_0_8 = Set.of(Type.UNDEFINED, Type.MINT_STORAGE,
 		Type.MINT_SUPPLY, Type.STATISTICS_PUBKEY);
 
-	private static final List<Type> OF_THIS_RELEASE = List.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE);
+	private static final List<Type> OF_THIS_RELEASE = List.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE,
+		Type.LEGACY_WHITELIST);
 
 	/* The types that only a node run with --preview takes */
 	private static final Set<Type> OF_THE_PREVIEW = Set.of(Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE,
@@ -166,7 +167,7 @@ public class SporkRecipientsTest {
 
 			PublishSporkSchedule.writeAndFlush(proxy, database, new PendingSporks());
 			assertThat(sporkTypesWrittenTo(proxy), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
-				Type.VESTING_STORAGE, Type.STORAGE, Type.COMMUNICATION));
+				Type.VESTING_STORAGE, Type.STORAGE, Type.LEGACY_WHITELIST, Type.COMMUNICATION));
 		}
 	}
 
@@ -274,9 +275,9 @@ public class SporkRecipientsTest {
 		}
 
 		assertThat(sporkTypesWrittenTo(ledger), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
-			Type.VESTING_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE));
+			Type.VESTING_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE, Type.LEGACY_WHITELIST));
 		assertThat(sporkTypesWrittenTo(release), contains(Type.BOARD_KEYS, Type.MINT_STORAGE, Type.MINT_SUPPLY,
-			Type.VESTING_STORAGE, Type.STORAGE));
+			Type.VESTING_STORAGE, Type.STORAGE, Type.LEGACY_WHITELIST));
 		assertThat(sporkTypesWrittenTo(earlier), contains(Type.MINT_STORAGE, Type.MINT_SUPPLY));
 	}
 
@@ -317,7 +318,7 @@ public class SporkRecipientsTest {
 			for (final EmbeddedChannel stream : List.of(ledger, release, proxy)) {
 				PublishSporkSchedule.writeAndFlush(stream, database, new PendingSporks());
 				assertThat(sporkTypesWrittenTo(stream), contains(Type.BOARD_KEYS, Type.MINT_STORAGE,
-					Type.MINT_SUPPLY, Type.VESTING_STORAGE));
+					Type.MINT_SUPPLY, Type.VESTING_STORAGE, Type.LEGACY_WHITELIST));
 			}
 		}
 	}

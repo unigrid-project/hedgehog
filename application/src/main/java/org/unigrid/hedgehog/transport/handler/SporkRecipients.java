@@ -49,7 +49,8 @@ import org.unigrid.hedgehog.service.ledger.LedgerProtocol;
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class SporkRecipients {
 	private static final Set<Type> LEDGER_ONLY = Set.of(Type.LEDGER_BLACKLIST, Type.LEDGER_FEE);
-	private static final Set<Type> OF_THIS_RELEASE = Set.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE);
+	private static final Set<Type> OF_THIS_RELEASE = Set.of(Type.BOARD_KEYS, Type.VESTING_STORAGE, Type.STORAGE,
+		Type.LEGACY_WHITELIST);
 	private static final Set<Type> PROXY_ONLY = Set.of(Type.COMMUNICATION);
 
 	public static boolean needsLedgerProtocol(final Type type) {

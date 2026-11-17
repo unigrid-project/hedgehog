@@ -120,6 +120,17 @@ public class GridSporkProvider {
 
 				data.setLegacyAddresses(addresses);
 				return data;
+			} case LEGACY_WHITELIST: {
+				final LegacyWhiteList.SporkData data = new LegacyWhiteList.SporkData();
+				final Set<String> addresses = new HashSet<>();
+				final int hashBytes = LegacyWhiteList.SporkData.HASH_BYTES;
+
+				for (int i = 0; i < size; i++) {
+					addresses.add(Hex.encodeHexString(RandomUtils.nextBytes(hashBytes)));
+				}
+
+				data.setApprovedLegacyAddresses(addresses);
+				return data;
 			} case LEDGER_FEE: {
 				final LedgerFee.SporkData data = new LedgerFee.SporkData();
 
