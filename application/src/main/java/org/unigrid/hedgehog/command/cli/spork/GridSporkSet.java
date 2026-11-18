@@ -26,7 +26,7 @@ import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 
 @Command(name = "gridspork-set",
-	subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class, LedgerFee.class,
+	subcommands = { MintSupply.class, Storage.class, LedgerBlacklist.class, LedgerFee.class, LegacyWhiteList.class,
 		Communication.class, BoardKeysSpork.class },
 	description = "Propose a new version of a spork, signed on this machine with a board key. Redefines any existing "
 		+ "definitions of the spork once a second board key co-signs it with gridspork-cosign."

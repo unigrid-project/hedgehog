@@ -54,13 +54,15 @@ public class GridSporkTypeTest {
 		assertWireValue(GridSpork.Type.VESTING_STORAGE, 1020);
 		assertWireValue(GridSpork.Type.STORAGE, 1030);
 		assertWireValue(GridSpork.Type.COMMUNICATION, 1060);
+		assertWireValue(GridSpork.Type.LEGACY_WHITELIST, 1070);
 		assertWireValue(GridSpork.Type.STATISTICS_PUBKEY, 2001);
 	}
 
 	@Example
 	public void valuesNextToAssignedOnesAreUndefined() {
 		List<Short> neighbours = List.of((short) 999, (short) 1001, (short) 1009, (short) 1011, (short) 1019,
-			(short) 1021, (short) 1029, (short) 1031, (short) 1039, (short) 1041, (short) 2000, (short) 2002,
+			(short) 1021, (short) 1029, (short) 1031, (short) 1039, (short) 1041, (short) 1069, (short) 1071,
+			(short) 2000, (short) 2002,
 			(short) -1, Short.MIN_VALUE, Short.MAX_VALUE);
 
 		neighbours.forEach(value -> assertThat("value " + value, GridSpork.Type.get(value),

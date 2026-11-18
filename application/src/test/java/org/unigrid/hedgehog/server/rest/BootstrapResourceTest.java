@@ -22,11 +22,13 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.startsWith;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.GenericType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import lombok.SneakyThrows;
@@ -45,6 +47,7 @@ import org.unigrid.hedgehog.model.bootstrap.Chain;
 import org.unigrid.hedgehog.model.bootstrap.Coin;
 import org.unigrid.hedgehog.model.bootstrap.EntryKind;
 import org.unigrid.hedgehog.model.bootstrap.Hashing;
+import org.unigrid.hedgehog.model.bootstrap.Holder;
 import org.unigrid.hedgehog.model.bootstrap.LedgerEntries;
 import org.unigrid.hedgehog.model.bootstrap.AddressRegistry;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
@@ -53,6 +56,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotInfo;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotWriter;
 import org.unigrid.hedgehog.model.bootstrap.TransactionIdTable;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LegacyWhiteList;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.MintStorage.SporkData.Location;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
@@ -64,6 +68,9 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 	private static final byte[] ADDRESS_HASH = new byte[Hashing.ADDRESS_HASH_SIZE];
 	private static final byte[] ABSENT_HASH = absentHash();
 	private static final int TIP_HEIGHT = HEIGHTS - 1;
+	private static final String ADDRESSES = "/bootstrap/addresses";
+	private static final int MAXIMUM_ADDRESSES = LegacyWhiteList.SporkData.MAX_ENTRIES;
+	private static final GenericType<List<AddressBalance>> BALANCE_LIST = new GenericType<>() { };
 
 	@Inject
 	private SporkDatabase sporkDatabase;
@@ -190,6 +197,108 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 		assertThat(page.get(0).getAmount(), equalTo(Coin.toDecimal(AMOUNT)));
 		assertThat(page.get(0).getKind(), equalTo(EntryKind.RECEIVED));
 		assertThat(page.get(0).getTransaction(), equalTo(BlockParser.toDisplayString(identifierAt(1))));
+	}
+
+	/* The snapshot of these tests holds one address, so it is both the first and the last holder */
+	@Example
+	@SneakyThrows
+	public void shouldReadTheHolderAtAnIndexWithItsPlainSnapshotBalance() {
+		writeSnapshot();
+		mint(ADDRESS_HASH, TIP_HEIGHT + 1, "2.5");
+
+		final Holder holder = client.getEntity("/bootstrap/holders/0", Holder.class);
+
+		assertThat(holder.index(), equalTo(0));
+		assertThat(holder.address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(holder.balance(), equalTo(Coin.toDecimal(AMOUNT * HEIGHTS)));
+		assertThat(holder.transactionCount(), equalTo(HEIGHTS));
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldNotFindAHolderPastTheLastAddress() {
+		writeSnapshot();
+
+		final Response response = client.get("/bootstrap/holders/1");
+
+		assertThat(response.getStatus(), equalTo(Response.Status.NOT_FOUND.getStatusCode()));
+	}
+
+	/* A negative index or offset is a malformed request, which bean validation refuses before the snapshot is read */
+	@Example
+	@SneakyThrows
+	public void shouldRejectANegativeIndexOrOffset() {
+		writeSnapshot();
+
+		for (final String location : List.of("/bootstrap/holders/-1", "/bootstrap/holders?offset=-1")) {
+			try {
+				client.get(location);
+				throw new AssertionError(location + " was accepted");
+
+			} catch (ResponseOddityException expected) {
+				assertThat(location, expected.getMessage(), startsWith(
+					String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+			}
+		}
+	}
+
+	@Example
+	@SneakyThrows
+	public void shouldPageThroughTheHoldersWithinTheLargestPage() {
+		writeSnapshot();
+
+		final GenericType<List<Holder>> holders = new GenericType<>() { };
+		final List<Holder> first = client.get("/bootstrap/holders?offset=0&limit=5000").readEntity(holders);
+		final List<Holder> past = client.get("/bootstrap/holders?offset=1").readEntity(holders);
+
+		assertThat(first.size(), equalTo(1));
+		assertThat(first.get(0).address(), equalTo(LegacyAddress.encode(ADDRESS_HASH)));
+		assertThat(past, equalTo(List.of()));
+	}
+
+	/**
+	 * A list is answered in one request, each address as it is answered alone: the one in the snapshot with its
+	 * balance, the one outside it with the mint it is owed, and one the node knows nothing of left out.
+	 */
+	@Example
+	@SneakyThrows
+	public void shouldLookUpManyAddressesInOneRequest() {
+		final byte[] unknownHash = absentHash();
+
+		unknownHash[1] = 0x17;
+		writeSnapshot();
+		mint(ABSENT_HASH, TIP_HEIGHT + 1, "3");
+
+		final String known = LegacyAddress.encode(ADDRESS_HASH);
+		final String owed = LegacyAddress.encode(ABSENT_HASH);
+		final List<AddressBalance> found = client.post(ADDRESSES,
+			Entity.json(List.of(known, owed, LegacyAddress.encode(unknownHash)))).readEntity(BALANCE_LIST);
+
+		assertThat(found.stream().map(AddressBalance::getAddress).toList(), equalTo(List.of(known, owed)));
+		assertThat(found.get(0).getBalance(), equalTo(client.getEntity("/bootstrap/address/" + known,
+			AddressBalance.class).getBalance()));
+		assertThat(found.get(1).getBalance(), equalTo(new BigDecimal("3.00000000")));
+		assertThat(found.get(1).getTransactionCount(), equalTo(0));
+	}
+
+	/** A malformed address, or more addresses than the cap, makes the whole list a malformed request. */
+	@Example
+	@SneakyThrows
+	public void shouldRejectAMalformedAddressOrTooLongAList() {
+		writeSnapshot();
+
+		final List<String> tooMany = Collections.nCopies(MAXIMUM_ADDRESSES + 1, LegacyAddress.encode(ADDRESS_HASH));
+
+		for (final List<String> addresses : List.of(List.of("NotAnAddress"), tooMany)) {
+			try {
+				client.post(ADDRESSES, Entity.json(addresses));
+				throw new AssertionError(addresses.size() + " addresses were accepted");
+
+			} catch (ResponseOddityException expected) {
+				assertThat(expected.getMessage(), startsWith(
+					String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
+			}
+		}
 	}
 
 	@SneakyThrows

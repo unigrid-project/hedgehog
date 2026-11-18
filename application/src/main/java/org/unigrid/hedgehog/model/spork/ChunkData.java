@@ -30,6 +30,7 @@ import java.io.Serializable;
 	@Type(VestingStorage.SporkData.class),
 	@Type(StorageSpork.SporkData.class),
 	@Type(LedgerBlacklist.SporkData.class),
+	@Type(LegacyWhiteList.SporkData.class),
 	@Type(LedgerFee.SporkData.class),
 	@Type(BoardKeys.SporkData.class),
 	@Type(CommunicationSpork.SporkData.class)
