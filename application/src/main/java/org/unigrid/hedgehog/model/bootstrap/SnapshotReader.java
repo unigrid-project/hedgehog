@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 /*
    Answers balance and history questions straight out of the memory-mapped file. The address table is
@@ -42,13 +43,14 @@ public final class SnapshotReader {
 	private final ByteBuffer blockTimes;
 	private final ByteBuffer entries;
 	private final ByteBuffer transactions;
+	private final int addressCount;
 	private SignatureStatus signature;
 
 	private SnapshotReader(FileChannel channel, Path path) throws IOException {
 		this.header = map(channel, "header", 0, SnapshotFormat.HEADER_SIZE, 1);
 		this.fields = SnapshotHeader.of(header, path).verifyFormat();
 
-		final long addressCount = nonNegative("address count", header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET));
+		this.addressCount = (int) nonNegative("address count", header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET));
 		final long entryCount = nonNegative("entry count", header.getLong(SnapshotFormat.ENTRY_COUNT_OFFSET));
 		final long transactionCount = nonNegative("transaction count",
 			header.getLong(SnapshotFormat.TRANSACTION_COUNT_OFFSET));
@@ -104,7 +106,6 @@ public final class SnapshotReader {
 	}
 
 	public long totalBalance() {
-		final int addressCount = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET);
 		long total = 0;
 
 		for (int record = 0; record < addressCount; record++) {
@@ -145,6 +146,34 @@ public final class SnapshotReader {
 		return result;
 	}
 
+	/** Read once, as the file is frozen and a replaced file gets a reader of its own, so an index never changes. */
+	public int addressCount() {
+		return addressCount;
+	}
+
+	/** Empty for any index outside the table, negative or past the end, so that no caller needs a check of its own. */
+	public Optional<Holder> holderAt(int index) {
+		if (index < 0 || index >= addressCount()) {
+			return Optional.empty();
+		}
+
+		return Optional.of(holder(index));
+	}
+
+	/** Bounded like the history of an address, so that a client pages through both the same way. */
+	public List<Holder> holders(int offset, int limit) {
+		final int first = Math.max(0, offset);
+		final int count = Math.max(0, Math.min(limit, addressCount() - first));
+
+		return IntStream.range(first, first + count).mapToObj(this::holder).toList();
+	}
+
+	/* The record's number is its index, and its hash turns back into the address the chain knew it by */
+	private Holder holder(int record) {
+		return new Holder(record, LegacyAddress.encode(hashAt(record)), Coin.toDecimal(balanceAt(record)),
+			entryCountAt(record));
+	}
+
 	private AddressTransaction transactionAt(int entry) {
 		final int base = entry * SnapshotFormat.ENTRY_RECORD_SIZE;
 		final int height = entries.getInt(base + SnapshotFormat.ENTRY_HEIGHT_OFFSET);
@@ -162,7 +191,7 @@ public final class SnapshotReader {
 
 	private int find(byte[] addressHash) {
 		int low = 0;
-		int high = header.getInt(SnapshotFormat.ADDRESS_COUNT_OFFSET) - 1;
+		int high = addressCount - 1;
 
 		while (low <= high) {
 			final int middle = (low + high) >>> 1;

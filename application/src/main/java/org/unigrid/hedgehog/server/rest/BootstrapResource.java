@@ -18,6 +18,7 @@
 
 package org.unigrid.hedgehog.server.rest;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -35,6 +36,7 @@ import org.unigrid.hedgehog.model.bootstrap.ChainHeight;
 import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.bootstrap.AddressTransaction;
 import org.unigrid.hedgehog.model.bootstrap.BootstrapSnapshot;
+import org.unigrid.hedgehog.model.bootstrap.Holder;
 import org.unigrid.hedgehog.model.bootstrap.PendingMints;
 import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
@@ -48,6 +50,8 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 @Produces(MediaType.APPLICATION_JSON)
 public class BootstrapResource extends CDIBridgeResource {
 	private static final int MAXIMUM_PAGE_SIZE = 1000;
+	private static final String DEFAULT_OFFSET = "0";
+	private static final String DEFAULT_PAGE_SIZE = "100";
 
 	@CDIBridgeInject
 	private BootstrapSnapshot snapshot;
@@ -101,8 +105,8 @@ public class BootstrapResource extends CDIBridgeResource {
 
 	@Path("/address/{address}/transactions") @GET
 	public Response transactions(@NotNull @PathParam("address") String address,
-		@QueryParam("offset") @DefaultValue("0") int offset,
-		@QueryParam("limit") @DefaultValue("100") int limit) {
+		@QueryParam("offset") @DefaultValue(DEFAULT_OFFSET) int offset,
+		@QueryParam("limit") @DefaultValue(DEFAULT_PAGE_SIZE) int limit) {
 
 		final Optional<SnapshotReader> reader = snapshot.getReader();
 
@@ -119,6 +123,39 @@ public class BootstrapResource extends CDIBridgeResource {
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
 		}
+	}
+
+	/**
+	 * By place rather than by address, so that the snapshot can be walked without knowing its addresses first. The
+	 * balance leaves out pending mints, as it is what the snapshot holds. A negative index is a malformed request
+	 * (400), one past the end has no holder (404).
+	 */
+	@Path("/holders/{index}") @GET
+	public Response holder(@PathParam("index") @Min(0) int index) {
+		final Optional<SnapshotReader> reader = snapshot.getReader();
+
+		if (reader.isEmpty()) {
+			return unavailable();
+		}
+
+		return reader.get().holderAt(index).map(holder -> Response.ok().entity(holder).build())
+			.orElseGet(() -> Response.status(Response.Status.NOT_FOUND).build());
+	}
+
+	/** Paged like the history of an address, so that a client walks both the same way. */
+	@Path("/holders") @GET
+	public Response holders(@QueryParam("offset") @DefaultValue(DEFAULT_OFFSET) @Min(0) int offset,
+		@QueryParam("limit") @DefaultValue(DEFAULT_PAGE_SIZE) int limit) {
+
+		final Optional<SnapshotReader> reader = snapshot.getReader();
+
+		if (reader.isEmpty()) {
+			return unavailable();
+		}
+
+		final List<Holder> holders = reader.get().holders(offset, Math.min(MAXIMUM_PAGE_SIZE, Math.max(0, limit)));
+
+		return Response.ok().entity(holders).build();
 	}
 
 	private Response malformed(String address, IllegalArgumentException ex) {
