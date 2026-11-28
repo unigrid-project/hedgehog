@@ -67,6 +67,7 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 	private final Map<String, AddressBalance> snapshot = new HashMap<>();
 	private final Map<String, BigDecimal> mints = new HashMap<>();
 	private boolean holdsASnapshot = true;
+	private boolean looksUpAddresses = true;
 
 	public FakeSporkNode holding(GridSpork... sporks) {
 		Arrays.stream(sporks).forEach(database::set);
@@ -118,6 +119,17 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 		return this;
 	}
 
+	/**
+	 * A node of a release without /bootstrap/addresses, which answers it with 404 as it does any path it does not
+	 * serve.
+	 *
+	 * @return this node
+	 */
+	public FakeSporkNode withoutTheAddressLookup() {
+		looksUpAddresses = false;
+		return this;
+	}
+
 	public GridSpork stored(Type type) {
 		return database.get(type);
 	}
@@ -137,6 +149,10 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 		}
 
 		if (HttpMethod.POST.equals(request.method()) && BALANCES.equals(request.location())) {
+			if (!looksUpAddresses) {
+				return Response.status(Status.NOT_FOUND).build();
+			}
+
 			return balancesOf((List<?>) request.entity().orElseThrow().getEntity());
 		}
 

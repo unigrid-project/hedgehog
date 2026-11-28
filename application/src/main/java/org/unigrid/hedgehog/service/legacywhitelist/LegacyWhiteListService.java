@@ -29,6 +29,7 @@ import org.unigrid.hedgehog.model.spork.GridSpork;
 import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LegacyWhiteList;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 import org.unigrid.hedgehog.model.spork.SporkRelease;
 
 /** Answers what the legacy whitelist says, so the REST resource only turns answers into HTTP. */
@@ -37,14 +38,18 @@ public class LegacyWhiteListService {
 	@Inject
 	private SporkDatabase sporkDatabase;
 
+	@Inject
+	private SporkLag sporkLag;
+
 	/** For CDI. */
 	public LegacyWhiteListService() {
 		/* Injected */
 	}
 
 	/** For tests, which need no container. */
-	LegacyWhiteListService(SporkDatabase sporkDatabase) {
+	LegacyWhiteListService(SporkDatabase sporkDatabase, SporkLag sporkLag) {
 		this.sporkDatabase = sporkDatabase;
+		this.sporkLag = sporkLag;
 	}
 
 	/** Whether this release takes the spork at all; one that does not holds none either. */
@@ -57,7 +62,11 @@ public class LegacyWhiteListService {
 		return Optional.ofNullable(sporkDatabase.getLegacyWhiteList());
 	}
 
-	/** Reads only a list two board keys signed, as a one-key proposal is not yet the board's decision. */
+	/**
+	 * Reads only a list two board keys signed, as a one-key proposal is not yet the board's decision. While a newer such
+	 * list is known but not held, nothing is read from the one held, as the ledger holds back in the same case: the
+	 * board may have taken an address off since.
+	 */
 	public WhiteListAnswer approvalOf(String address) {
 		final String hash;
 
@@ -65,6 +74,10 @@ public class LegacyWhiteListService {
 			hash = LegacyAddressHex.hashOf(address);
 		} catch (IllegalArgumentException ex) {
 			return new WhiteListAnswer.NotAnAddress(ex.getMessage());
+		}
+
+		if (sporkLag.isBehind(Type.LEGACY_WHITELIST, sporkDatabase)) {
+			return new WhiteListAnswer.Behind();
 		}
 
 		final GridSpork whitelist = sporkDatabase.counting(Type.LEGACY_WHITELIST);

@@ -218,8 +218,32 @@ public class LegacyWhiteListCommandTest {
 	}
 
 	/**
-	 * An address the snapshot does not know, one it knows as empty and one that never moved are all refused by name, and
-	 * nothing is proposed.
+	 * An address that never moved but holds a balance, and one the snapshot does not know but the node owes a mint, both
+	 * hold funds and pass: no transaction is asked for.
+	 */
+	@SneakyThrows
+	@Example
+	public void passesAnAddressWithoutTransactionsThatHoldsABalanceOrIsOwedAMint() {
+		final String unmoved = "4".repeat(40);
+		final String mintOnly = "7".repeat(40);
+
+		try (FileSystem fs = plainFileSystem()) {
+			final FakeSporkNode node = new FakeSporkNode().knowing(balance(unmoved, "3", 0))
+				.owing(address(mintOnly), new BigDecimal("42"));
+
+			write(fs, FILE, listOf(List.of(unmoved, mintOnly)), null);
+
+			final Result result = RestCommandFixture.run(set(fs, PROPOSER.getPrivateKey()), node);
+
+			assertThat(result.err(), equalTo(""));
+			assertThat(submitted(result).getData(),
+				equalTo(LegacyWhiteListTest.with(Set.of(unmoved, mintOnly))));
+		}
+	}
+
+	/**
+	 * An address the snapshot does not know and one it knows as empty are both refused by name, and nothing is
+	 * proposed.
 	 */
 	@SneakyThrows
 	@Example
@@ -227,14 +251,13 @@ public class LegacyWhiteListCommandTest {
 		final String funded = "1".repeat(40);
 		final String empty = "2".repeat(40);
 		final String unknown = "3".repeat(40);
-		final String unmoved = "4".repeat(40);
 
 		try (FileSystem fs = plainFileSystem()) {
 			final FakeSporkNode node = new FakeSporkNode().knowing(balance(funded, "5", 2),
-				balance(empty, "0", 7), balance(unmoved, "3", 0));
+				balance(empty, "0", 7));
 			final Runnable command = set(fs, PROPOSER.getPrivateKey());
 
-			write(fs, FILE, listOf(List.of(funded, empty, unknown, unmoved)), null);
+			write(fs, FILE, listOf(List.of(funded, empty, unknown)), null);
 
 			final Result result = RestCommandFixture.run(command, node);
 
@@ -242,8 +265,28 @@ public class LegacyWhiteListCommandTest {
 			assertThat(result.err(), containsString(NOT_FUNDED));
 			assertThat(result.err(), containsString(address(empty)));
 			assertThat(result.err(), containsString(address(unknown)));
-			assertThat(result.err(), containsString(address(unmoved)));
 			assertThat(result.err(), not(containsString(address(funded))));
+			assertThat(node.submitted(), equalTo(List.of()));
+		}
+	}
+
+	/** Nothing is proposed when the node cannot look the addresses up, and the command says so instead of failing. */
+	@SneakyThrows
+	@Example
+	public void refusesWhenTheNodeCannotLookTheAddressesUp() {
+		final String hash = "1".repeat(40);
+
+		try (FileSystem fs = plainFileSystem()) {
+			final FakeSporkNode node = new FakeSporkNode().knowing(balance(hash, "5", 2))
+				.withoutTheAddressLookup();
+			final Runnable command = set(fs, PROPOSER.getPrivateKey());
+
+			write(fs, FILE, listOf(List.of(hash)), null);
+
+			final Result result = RestCommandFixture.run(command, node);
+
+			assertThat(exitCodeOf(command), equalTo(ExitCode.FAILED));
+			assertThat(result.err(), containsString("cannot check the addresses: it answered 404"));
 			assertThat(node.submitted(), equalTo(List.of()));
 		}
 	}

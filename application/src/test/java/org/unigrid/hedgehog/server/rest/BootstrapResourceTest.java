@@ -28,6 +28,7 @@ import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -298,6 +299,24 @@ public class BootstrapResourceTest extends BaseRestClientTest {
 				assertThat(expected.getMessage(), startsWith(
 					String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
 			}
+		}
+	}
+
+	/** A missing address is a malformed request too, not a failure of the node. */
+	@Example
+	@SneakyThrows
+	public void shouldRejectAListWithAMissingAddress() {
+		writeSnapshot();
+
+		final List<String> withANull = Arrays.asList(LegacyAddress.encode(ADDRESS_HASH), null);
+
+		try {
+			client.post(ADDRESSES, Entity.json(withANull));
+			throw new AssertionError("A list with a missing address was accepted");
+
+		} catch (ResponseOddityException expected) {
+			assertThat(expected.getMessage(), startsWith(
+				String.valueOf(Response.Status.BAD_REQUEST.getStatusCode())));
 		}
 	}
 

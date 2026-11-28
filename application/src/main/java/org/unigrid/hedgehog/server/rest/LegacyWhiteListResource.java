@@ -39,6 +39,8 @@ public class LegacyWhiteListResource extends CDIBridgeResource {
 	private static final String NOT_AN_ADDRESS = "%s is not a legacy address: %s";
 	private static final String NO_WHITELIST = "No legacy whitelist that two board keys signed is held yet";
 	private static final String NOT_APPROVED = "%s is not on the legacy whitelist";
+	private static final String BEHIND = "This node knows of a newer legacy whitelist than the one it holds;"
+		+ " ask again once it has it";
 	private static final String NOT_TAKEN = "This release does not take the %s spork";
 
 	@CDIBridgeInject
@@ -66,6 +68,7 @@ public class LegacyWhiteListResource extends CDIBridgeResource {
 				approved.signedBy(), approved.publishTimeStamp())).build();
 			case WhiteListAnswer.NotAnAddress notAnAddress -> RestError.of(Response.Status.BAD_REQUEST,
 				NOT_AN_ADDRESS.formatted(address, notAnAddress.reason()));
+			case WhiteListAnswer.Behind behind -> RestError.of(Response.Status.NOT_FOUND, BEHIND);
 			case WhiteListAnswer.NoSignedList none -> RestError.of(Response.Status.NOT_FOUND, NO_WHITELIST);
 			case WhiteListAnswer.NotListed notListed -> RestError.of(Response.Status.NOT_FOUND,
 				NOT_APPROVED.formatted(address));

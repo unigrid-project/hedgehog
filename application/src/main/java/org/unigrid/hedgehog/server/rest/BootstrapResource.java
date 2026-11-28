@@ -114,11 +114,11 @@ public class BootstrapResource extends CDIBridgeResource {
 	/**
 	 * Many addresses in one request, each answered by the lookup of one address, so that a client checking a list needs
 	 * one request rather than one per address and both answer alike. An address that lookup does not find is left out;
-	 * a malformed address, or more than the cap, is a malformed request (400).
+	 * a malformed or missing address, or more than the cap, is a malformed request (400).
 	 */
 	@Path("/addresses") @POST
 	@Consumes(MediaType.APPLICATION_JSON)
-	public Response balances(@NotNull @Size(max = MAXIMUM_ADDRESSES) List<String> addresses) {
+	public Response balances(@NotNull @Size(max = MAXIMUM_ADDRESSES) List<@NotNull String> addresses) {
 		if (snapshot.getReader().isEmpty()) {
 			return unavailable();
 		}

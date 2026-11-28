@@ -34,6 +34,12 @@ public sealed interface WhiteListAnswer {
 	/** Not on the list the board signed. */
 	record NotListed() implements WhiteListAnswer { }
 
+	/**
+	 * A newer list that two board keys signed is known, but this node does not hold it yet, so the list it holds may
+	 * still approve an address the board has since taken off.
+	 */
+	record Behind() implements WhiteListAnswer { }
+
 	/** No list that two board keys signed is held yet, so nothing can be approved. */
 	record NoSignedList() implements WhiteListAnswer { }
 

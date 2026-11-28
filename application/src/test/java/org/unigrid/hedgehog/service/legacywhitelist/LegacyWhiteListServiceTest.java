@@ -35,12 +35,14 @@ import net.jqwik.api.lifecycle.PropagationMode;
 import org.unigrid.hedgehog.jqwik.MockitHook;
 import org.unigrid.hedgehog.model.bootstrap.LegacyAddress;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.GridSpork.Type;
 import org.unigrid.hedgehog.model.spork.LegacyWhiteList;
 import org.unigrid.hedgehog.model.spork.LegacyWhiteListTest;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
+import org.unigrid.hedgehog.model.spork.SporkLag;
 
 /**
- * The four answers of the whitelist, without HTTP. Signatures are stood in for here; real signing is covered end to
+ * The answers of the whitelist, without HTTP. Signatures are stood in for here; real signing is covered end to
  * end by LegacyWhiteListResourceTest.
  */
 @AddLifecycleHook(value = MockitHook.class, propagateTo = PropagationMode.ALL_DESCENDANTS)
@@ -65,8 +67,13 @@ public class LegacyWhiteListServiceTest {
 		};
 	}
 
-	/** A service over a database that holds the given whitelist, or none. */
+	/** A service over a database that holds the given whitelist, or none, on a node that is not behind. */
 	private static LegacyWhiteListService holding(Optional<Set<String>> hashes) {
+		return holding(hashes, new SporkLag());
+	}
+
+	/** A service over a database that holds the given whitelist, or none, with the given lag of the network. */
+	private static LegacyWhiteListService holding(Optional<Set<String>> hashes, SporkLag lag) {
 		final SporkDatabase database = SporkDatabase.builder().build();
 
 		hashes.ifPresent(approved -> {
@@ -79,7 +86,17 @@ public class LegacyWhiteListServiceTest {
 			database.set(whitelist);
 		});
 
-		return new LegacyWhiteListService(database);
+		return new LegacyWhiteListService(database, lag);
+	}
+
+	/** The lag of a node that has seen a newer whitelist two board keys signed, which it does not hold. */
+	private static SporkLag behindOnTheWhitelist() {
+		return new SporkLag() {
+			@Override
+			public boolean isBehind(Type type, SporkDatabase db) {
+				return type == Type.LEGACY_WHITELIST;
+			}
+		};
 	}
 
 	/** The legacy address of a hash160. */
@@ -117,5 +134,22 @@ public class LegacyWhiteListServiceTest {
 	public void shouldRefuseSomethingThatIsNoLegacyAddress() {
 		assertThat(holding(Optional.of(Set.of(APPROVED_HASH))).approvalOf("NotAnAddress"),
 			instanceOf(WhiteListAnswer.NotAnAddress.class));
+	}
+
+	/** A node that knows of a newer list holds back, even for an address the list it holds approves. */
+	@Example
+	public void shouldHoldBackWhileANewerListIsKnownButNotHeld() {
+		final LegacyWhiteListService service = holding(Optional.of(Set.of(APPROVED_HASH)), behindOnTheWhitelist());
+
+		assertThat(service.approvalOf(address(APPROVED_HASH)), instanceOf(WhiteListAnswer.Behind.class));
+		assertThat(service.approvalOf(address(OTHER_HASH)), instanceOf(WhiteListAnswer.Behind.class));
+	}
+
+	/** Something that is no legacy address is still told apart first, as no list could approve it. */
+	@Example
+	public void shouldRefuseSomethingThatIsNoLegacyAddressEvenWhenBehind() {
+		final LegacyWhiteListService service = holding(Optional.of(Set.of(APPROVED_HASH)), behindOnTheWhitelist());
+
+		assertThat(service.approvalOf("NotAnAddress"), instanceOf(WhiteListAnswer.NotAnAddress.class));
 	}
 }

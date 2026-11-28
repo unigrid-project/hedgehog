@@ -44,6 +44,8 @@ final class SnapshotFunding {
 	private static final String NOT_FUNDED = "These addresses hold no funds in the legacy snapshot: %s";
 	private static final String NO_SNAPSHOT = "The node holds no legacy snapshot to check the addresses against;"
 		+ " fetch it there with the bootstrap command first";
+	private static final String CANNOT_CHECK = "The node cannot check the addresses: it answered %d to %s;"
+		+ " it may run an older release";
 	private static final GenericType<List<AddressBalance>> BALANCE_LIST = new GenericType<>() { };
 
 	/**
@@ -60,15 +62,21 @@ final class SnapshotFunding {
 	}
 
 	/**
-	 * The addresses the node holds funds for: a balance above zero and at least one transaction. A 503 means the node
-	 * holds no snapshot to check against.
+	 * The addresses the node holds funds for: a balance above zero, the mints it still owes them included. No
+	 * transaction is asked for, as an address owed a mint may never have moved on the legacy chain. A 503 means the node
+	 * holds no snapshot to check against, and any other answer but 200 a node that cannot check them, such as one of a
+	 * release without the lookup. The wait for the answer is bounded, so a node that hangs cannot hang the command.
 	 */
 	private static Set<String> fundedAmong(final RestClient rest, final List<String> addresses)
 		throws ResponseOddityException {
 
-		try (Response response = rest.post(BALANCES, Entity.json(addresses))) {
+		try (Response response = rest.postBounded(BALANCES, Entity.json(addresses))) {
+			final int status = response.getStatus();
+
+			Validate.isTrue(status == Status.OK.getStatusCode(), CANNOT_CHECK, status, BALANCES);
+
 			return response.readEntity(BALANCE_LIST).stream()
-				.filter(balance -> balance.getTransactionCount() > 0 && balance.getBalance().signum() > 0)
+				.filter(balance -> balance.getBalance().signum() > 0)
 				.map(AddressBalance::getAddress).collect(Collectors.toSet());
 
 		} catch (ResponseOddityException ex) {
