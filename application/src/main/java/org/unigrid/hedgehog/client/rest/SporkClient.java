@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -63,7 +64,8 @@ public class SporkClient {
 	private static final String UNROOTED = "The board keys that the node holds do not hold from the root of this"
 		+ " machine, or two of their keys did not sign them (see --network-keys)";
 
-	private final RestClient rest;
+	/* Shared with a check of the board's that asks the same node more, so a proposal needs one connection */
+	@Getter private final RestClient rest;
 
 	/**
 	* Goes by the board keys that the node holds, once they hold from the root of this machine: the keys that sign a

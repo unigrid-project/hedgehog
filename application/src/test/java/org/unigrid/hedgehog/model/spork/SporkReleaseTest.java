@@ -40,11 +40,11 @@ public class SporkReleaseTest {
 
 	/* The sporks the board signs with the keys of this release, and those keys */
 	private static final List<Type> OF_THIS_RELEASE = List.of(Type.MINT_STORAGE, Type.MINT_SUPPLY,
-		Type.VESTING_STORAGE, Type.STATISTICS_PUBKEY, Type.BOARD_KEYS);
+		Type.VESTING_STORAGE, Type.LEGACY_WHITELIST, Type.STATISTICS_PUBKEY, Type.BOARD_KEYS);
 
 	private static final List<Type> EVERY_KNOWN_TYPE = List.of(Type.MINT_STORAGE, Type.MINT_SUPPLY,
 		Type.VESTING_STORAGE, Type.STORAGE, Type.LEDGER_BLACKLIST, Type.LEDGER_FEE, Type.COMMUNICATION,
-		Type.STATISTICS_PUBKEY, Type.BOARD_KEYS);
+		Type.LEGACY_WHITELIST, Type.STATISTICS_PUBKEY, Type.BOARD_KEYS);
 
 	private static void run(final boolean preview) {
 		if (preview) {

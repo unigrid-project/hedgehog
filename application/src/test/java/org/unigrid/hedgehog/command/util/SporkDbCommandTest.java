@@ -235,7 +235,8 @@ public class SporkDbCommandTest {
 			assertThat(result.err(), result.exitCode(), equalTo(1));
 			assertThat(linesOf(result), equalTo(List.of(unsigned(database.getMintStorage()),
 				unsigned(database.getMintSupply()), "VESTING_STORAGE: absent", "STORAGE: absent",
-				"LEDGER_BLACKLIST: absent", "LEDGER_FEE: absent", "COMMUNICATION: absent", "STATISTICS_PUBKEY: absent",
+				"LEDGER_BLACKLIST: absent", "LEDGER_FEE: absent", "COMMUNICATION: absent",
+				"LEGACY_WHITELIST: absent", "STATISTICS_PUBKEY: absent",
 				"BOARD_KEYS: absent",
 				"valid: no")));
 		}

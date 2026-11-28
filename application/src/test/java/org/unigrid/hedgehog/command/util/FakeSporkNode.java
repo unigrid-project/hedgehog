@@ -22,10 +22,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.Response.Status;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.SneakyThrows;
@@ -34,6 +37,7 @@ import org.apache.commons.lang3.Validate;
 import org.unigrid.hedgehog.client.rest.ResponseOddityException;
 import org.unigrid.hedgehog.command.util.RestCommandFixture.Request;
 import org.unigrid.hedgehog.model.JsonConfiguration;
+import org.unigrid.hedgehog.model.bootstrap.AddressBalance;
 import org.unigrid.hedgehog.model.network.codec.SporkWire;
 import org.unigrid.hedgehog.model.spork.BoardKeys;
 import org.unigrid.hedgehog.model.spork.BoardKeysAuthority;
@@ -51,6 +55,8 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 	public static final String PENDING = "/gridspork/pending";
 
 	private static final String SHOWN = "/gridspork/";
+	private static final String BALANCE = "/bootstrap/address/";
+	private static final String BALANCES = "/bootstrap/addresses";
 
 	private static final ObjectMapper JSON = new JsonConfiguration().getContext(PendingSporkInfo.class);
 
@@ -58,6 +64,10 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 	private final PendingSporks pending = new PendingSporks();
 	private final List<GridSpork> submitted = new ArrayList<>();
 	private final List<GridSpork> forged = new ArrayList<>();
+	private final Map<String, AddressBalance> snapshot = new HashMap<>();
+	private final Map<String, BigDecimal> mints = new HashMap<>();
+	private boolean holdsASnapshot = true;
+	private boolean looksUpAddresses = true;
 
 	public FakeSporkNode holding(GridSpork... sporks) {
 		Arrays.stream(sporks).forEach(database::set);
@@ -73,6 +83,50 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 	   it and the command line */
 	public FakeSporkNode handingOut(GridSpork forged) {
 		this.forged.add(forged);
+		return this;
+	}
+
+	/**
+	 * The addresses its legacy snapshot knows, which it answers for as a node does at /bootstrap/address.
+	 *
+	 * @param balances what the snapshot holds for each address
+	 * @return this node
+	 */
+	public FakeSporkNode knowing(AddressBalance... balances) {
+		Arrays.stream(balances).forEach(balance -> snapshot.put(balance.getAddress(), balance));
+		return this;
+	}
+
+	/**
+	 * A mint the node still owes an address, which it adds to the balance it gives for that address, as a node does.
+	 *
+	 * @param address the legacy address
+	 * @param amount the pending mint
+	 * @return this node
+	 */
+	public FakeSporkNode owing(String address, BigDecimal amount) {
+		mints.merge(address, amount, BigDecimal::add);
+		return this;
+	}
+
+	/**
+	 * A node that holds no legacy snapshot, which answers every question about one with 503.
+	 *
+	 * @return this node
+	 */
+	public FakeSporkNode withoutASnapshot() {
+		holdsASnapshot = false;
+		return this;
+	}
+
+	/**
+	 * A node of a release without /bootstrap/addresses, which answers it with 404 as it does any path it does not
+	 * serve.
+	 *
+	 * @return this node
+	 */
+	public FakeSporkNode withoutTheAddressLookup() {
+		looksUpAddresses = false;
 		return this;
 	}
 
@@ -94,8 +148,65 @@ public final class FakeSporkNode implements RestCommandFixture.Answer {
 			return submit((byte[]) request.entity().orElseThrow().getEntity());
 		}
 
+		if (HttpMethod.POST.equals(request.method()) && BALANCES.equals(request.location())) {
+			if (!looksUpAddresses) {
+				return Response.status(Status.NOT_FOUND).build();
+			}
+
+			return balancesOf((List<?>) request.entity().orElseThrow().getEntity());
+		}
+
 		Validate.isTrue(HttpMethod.GET.equals(request.method()), "No command of sporks sends %s", request);
+
+		if (request.location().startsWith(BALANCE)) {
+			return balanceOf(StringUtils.removeStart(request.location(), BALANCE));
+		}
+
 		return get(request.location());
+	}
+
+	/**
+	 * What the snapshot holds for an address, as a node answers it.
+	 *
+	 * @param address the legacy address
+	 * @return the balance, or 404 when the snapshot does not know it
+	 * @throws ResponseOddityException with 503 when the node holds no snapshot
+	 */
+	private Response balanceOf(String address) throws ResponseOddityException {
+		requireASnapshot();
+		return held(address).map(balance -> Response.ok(balance).build())
+			.orElseGet(() -> Response.status(Status.NOT_FOUND).build());
+	}
+
+	/**
+	 * What the node holds for many addresses at once, as /bootstrap/addresses answers: each as it answers for one,
+	 * leaving out those it knows nothing of.
+	 *
+	 * @param addresses the legacy addresses
+	 * @return their balances
+	 * @throws ResponseOddityException with 503 when the node holds no snapshot
+	 */
+	private Response balancesOf(List<?> addresses) throws ResponseOddityException {
+		requireASnapshot();
+		return Response.ok(addresses.stream().map(String::valueOf).map(this::held).flatMap(Optional::stream)
+			.toList()).build();
+	}
+
+	/** The snapshot balance of an address with the mints still owed to it, or nothing when it has neither. */
+	private Optional<AddressBalance> held(String address) {
+		final BigDecimal owed = mints.getOrDefault(address, BigDecimal.ZERO);
+
+		return Optional.ofNullable(snapshot.get(address))
+			.map(balance -> new AddressBalance(address, balance.getBalance().add(owed),
+				balance.getTransactionCount()))
+			.or(() -> owed.signum() > 0 ? Optional.of(new AddressBalance(address, owed, 0)) : Optional.empty());
+	}
+
+	/** A node without a snapshot answers every question about one with 503. */
+	private void requireASnapshot() throws ResponseOddityException {
+		if (!holdsASnapshot) {
+			throw new ResponseOddityException(Status.SERVICE_UNAVAILABLE);
+		}
 	}
 
 	private Response get(String location) {

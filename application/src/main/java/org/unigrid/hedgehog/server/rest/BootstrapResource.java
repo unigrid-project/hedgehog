@@ -20,15 +20,19 @@ package org.unigrid.hedgehog.server.rest;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +46,7 @@ import org.unigrid.hedgehog.model.bootstrap.SnapshotReader;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeInject;
 import org.unigrid.hedgehog.model.cdi.CDIBridgeResource;
 import org.unigrid.hedgehog.model.spork.GridSpork;
+import org.unigrid.hedgehog.model.spork.LegacyWhiteList;
 import org.unigrid.hedgehog.model.spork.MintStorage;
 import org.unigrid.hedgehog.model.spork.SporkDatabase;
 
@@ -50,6 +55,9 @@ import org.unigrid.hedgehog.model.spork.SporkDatabase;
 @Produces(MediaType.APPLICATION_JSON)
 public class BootstrapResource extends CDIBridgeResource {
 	private static final int MAXIMUM_PAGE_SIZE = 1000;
+
+	/* A whole legacy whitelist fits in one request, at well under the limit on a request's body */
+	private static final int MAXIMUM_ADDRESSES = LegacyWhiteList.SporkData.MAX_ENTRIES;
 	private static final String DEFAULT_OFFSET = "0";
 	private static final String DEFAULT_PAGE_SIZE = "100";
 
@@ -101,6 +109,33 @@ public class BootstrapResource extends CDIBridgeResource {
 		} catch (IllegalArgumentException ex) {
 			return malformed(address, ex);
 		}
+	}
+
+	/**
+	 * Many addresses in one request, each answered by the lookup of one address, so that a client checking a list needs
+	 * one request rather than one per address and both answer alike. An address that lookup does not find is left out;
+	 * a malformed or missing address, or more than the cap, is a malformed request (400).
+	 */
+	@Path("/addresses") @POST
+	@Consumes(MediaType.APPLICATION_JSON)
+	public Response balances(@NotNull @Size(max = MAXIMUM_ADDRESSES) List<@NotNull String> addresses) {
+		if (snapshot.getReader().isEmpty()) {
+			return unavailable();
+		}
+
+		final List<AddressBalance> found = new ArrayList<>();
+
+		for (final String address : addresses) {
+			final Response answer = balance(address);
+
+			if (answer.getStatus() == Response.Status.OK.getStatusCode()) {
+				found.add((AddressBalance) answer.getEntity());
+			} else if (answer.getStatus() != Response.Status.NOT_FOUND.getStatusCode()) {
+				return answer;
+			}
+		}
+
+		return Response.ok().entity(found).build();
 	}
 
 	@Path("/address/{address}/transactions") @GET
